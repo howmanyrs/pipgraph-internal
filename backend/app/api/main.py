@@ -1,5 +1,7 @@
 from fastapi import FastAPI
+from dotenv import load_dotenv
 from app.api.endpoints import notes
+
 
 app = FastAPI(title="PipGraph Backend")
 

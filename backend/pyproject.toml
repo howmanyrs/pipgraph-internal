@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.117.1",
+    "graphiti-core>=0.20.4",
     "pydantic>=2.11.9",
     "uvicorn[standard]>=0.37.0",
 ]
