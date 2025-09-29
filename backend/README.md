@@ -31,7 +31,76 @@ backend/
 └── requirements.txt          # Зависимости проекта
 ```
 
-### Шаг 2: Настройка окружения и зависимостей с помощью `uv`
+### Шаг 2: Конфигурация и переменные окружения
+
+Проект использует [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) для управления конфигурацией через переменные окружения и `.env` файлы. Настройки определены в модуле `config/settings.py`.
+
+#### Обязательные переменные окружения
+
+Для корректной работы бэкенда необходимо настроить следующие переменные:
+
+```bash
+# OpenAI API для LLM обработки
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Neo4j соединение
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_neo4j_password
+```
+
+#### Способы настройки переменных
+
+**Вариант 1: Файл `.env` (рекомендуется для разработки)**
+
+Создайте файл `.env` в корне папки `backend/`:
+
+```bash
+cd backend/
+cat > .env << 'EOF'
+OPENAI_API_KEY=your_openai_api_key_here
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_neo4j_password
+EOF
+```
+
+**Вариант 2: Переменные окружения системы**
+
+```bash
+export OPENAI_API_KEY="your_openai_api_key_here"
+export NEO4J_URI="bolt://localhost:7687"
+export NEO4J_USER="neo4j"
+export NEO4J_PASSWORD="your_neo4j_password"
+```
+
+**Вариант 3: Передача при запуске**
+
+```bash
+OPENAI_API_KEY=your_key NEO4J_URI=bolt://localhost:7687 \
+NEO4J_USER=neo4j NEO4J_PASSWORD=your_password \
+uvicorn app.api.main:app --reload
+```
+
+#### Использование настроек в коде
+
+Импортируйте готовый экземпляр настроек:
+
+```python
+from config.settings import settings
+
+# Использование в коде
+openai_key = settings.OPENAI_API_KEY
+neo4j_uri = settings.NEO4J_URI
+```
+
+#### Безопасность
+
+- **Никогда не коммитьте** файл `.env` в репозиторий
+- Используйте разные настройки для разработки и продакшена
+- Для продакшена используйте переменные окружения вместо `.env` файлов
+
+### Шаг 3: Настройка окружения и зависимостей с помощью `uv`
 
 1.  **Устанавливаем `uv`** (если еще не установлен):
     ```bash

@@ -10,3 +10,5 @@ def save_graph_data(graph_data: GraphData) -> bool:
     print("------------------")
     # Имитируем успешное сохранение
     return True
+
+

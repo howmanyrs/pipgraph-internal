@@ -4,6 +4,7 @@ from app.models.graph import GraphData, Node, Relationship
 from app.crud import graph_crud
 
 # from graphiti_core import Graphiti
+
 os.environ['GRAPHITI_TELEMETRY_ENABLED'] = 'false'
 
 def process_and_store_note(note: NotePayload) -> GraphData:

@@ -22,6 +22,62 @@ app/
 
 ## Development Setup
 
+### Configuration and Environment Variables
+
+The project uses **pydantic-settings** for configuration management via environment variables and `.env` files. Configuration is defined in `config/settings.py`.
+
+#### Required Environment Variables
+
+```bash
+# OpenAI API for LLM processing
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Neo4j database connection
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_neo4j_password
+```
+
+#### Configuration Methods
+
+**Option 1: .env file (recommended for development)**
+```bash
+cd backend/
+cat > .env << 'EOF'
+OPENAI_API_KEY=your_openai_api_key_here
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_neo4j_password
+EOF
+```
+
+**Option 2: System environment variables**
+```bash
+export OPENAI_API_KEY="your_openai_api_key_here"
+export NEO4J_URI="bolt://localhost:7687"
+export NEO4J_USER="neo4j"
+export NEO4J_PASSWORD="your_neo4j_password"
+```
+
+**Option 3: Pass during startup**
+```bash
+OPENAI_API_KEY=your_key NEO4J_URI=bolt://localhost:7687 \
+NEO4J_USER=neo4j NEO4J_PASSWORD=your_password \
+uvicorn app.api.main:app --reload
+```
+
+#### Using Settings in Code
+
+Import the ready-to-use settings instance:
+
+```python
+from config.settings import settings
+
+# Usage in code
+openai_key = settings.OPENAI_API_KEY
+neo4j_uri = settings.NEO4J_URI
+```
+
 ### Environment Creation with uv
 ```bash
 cd backend/
@@ -35,6 +91,7 @@ uv pip install -r requirements.txt  # Install dependencies
 fastapi
 uvicorn[standard]  # Includes WebSocket support
 pydantic
+pydantic-settings   # For configuration management
 ```
 
 ### Development Server
@@ -103,6 +160,7 @@ def save_graph_data(graph_data: GraphData) -> bool:
 ```
 
 ## Testing
+
 
 ### WebSocket Testing with websocat
 ```bash
