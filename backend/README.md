@@ -332,3 +332,103 @@ uvicorn app.api.main:app --reload
     ```
 
 Этот результат подтверждает, что бэкенд готов к интеграции с фронтендом согласно утвержденной архитектуре.
+
+---
+
+## Тестирование
+
+Проект использует **pytest** для тестирования с разделением на unit, integration и e2e тесты.
+
+### Установка тестовых зависимостей
+
+```bash
+# Активируйте виртуальное окружение
+source .venv/bin/activate  # Linux/macOS
+# .\.venv\Scripts\activate  # Windows
+
+# Установите dev-зависимости
+uv pip install -r requirements-dev.txt
+```
+
+### Структура тестов
+
+```
+backend/tests/
+├── conftest.py              # Общие фикстуры (Neo4j, LLM клиенты)
+├── unit/                    # Быстрые тесты без внешних зависимостей
+│   └── test_models.py       # Тесты Pydantic моделей
+├── integration/             # Тесты с реальными сервисами
+│   ├── test_neo4j.py        # Тест подключения Neo4j
+│   ├── test_openrouter.py   # Тест подключения к LLM через OpenRouter
+│   └── test_note_processor.py  # Тест полного цикла обработки заметок
+└── e2e/                     # End-to-end тесты (полный flow)
+```
+
+### Запуск тестов
+
+**Все тесты:**
+```bash
+pytest
+```
+
+**Только unit-тесты (быстрые, без внешних сервисов):**
+```bash
+pytest -m unit
+```
+
+**Только integration-тесты (требуют Neo4j, LLM):**
+```bash
+pytest -m integration
+```
+
+**Исключить медленные тесты:**
+```bash
+pytest -m "not slow"
+```
+
+**Запуск с покрытием кода:**
+```bash
+pytest --cov=app --cov-report=html
+# Отчет будет в htmlcov/index.html
+```
+
+**Запуск конкретного теста:**
+```bash
+pytest tests/integration/test_neo4j.py::test_neo4j_connection_with_driver
+```
+
+### Доступные маркеры
+
+- `@pytest.mark.unit` - Unit-тесты (быстрые, без внешних зависимостей)
+- `@pytest.mark.integration` - Integration-тесты (требуют Neo4j, LLM)
+- `@pytest.mark.e2e` - End-to-end тесты (полный flow приложения)
+- `@pytest.mark.slow` - Медленные тесты (LLM вызовы, большие данные)
+
+### Конфигурация для тестов
+
+Тесты используют те же переменные окружения из `.env`:
+- `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` - для Neo4j
+- `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` - для LLM
+
+**⚠️ Рекомендация:** Для integration-тестов используйте отдельную тестовую БД Neo4j.
+
+### Утилиты для ручного тестирования
+
+В директории `scripts/` доступны CLI-утилиты для ручного тестирования:
+
+**Тест подключения Neo4j:**
+```bash
+python scripts/simple_neo4j_test.py
+```
+
+**Интерактивный тест обработки заметок:**
+```bash
+# Запуск демо-примеров
+python scripts/test_note_processor_cli.py --demo
+
+# Интерактивный режим
+python scripts/test_note_processor_cli.py --interactive
+
+# Обработка заметки из файла
+python scripts/test_note_processor_cli.py --file path/to/note.md
+```
