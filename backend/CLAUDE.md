@@ -1,213 +1,331 @@
 # CLAUDE.md - Backend
 
-This file provides guidance to Claude Code (claude.ai/code) when working with the PipGraph backend.
+Quick reference guide for Claude Code when working with the PipGraph backend.
 
-## Backend Architecture
+> **Detailed documentation**: See [docs/](docs/) directory for comprehensive guides.
 
-The backend follows a strict layered architecture pattern:
+## Quick Start
 
-```
-app/
-├── api/                    # API Layer - FastAPI endpoints, WebSocket handlers
-│   ├── endpoints/         # Endpoint modules (notes.py)
-│   └── main.py           # FastAPI app configuration
-├── services/             # Service Layer - Business logic
-│   └── note_processor.py # Core note processing logic
-├── crud/                 # Data Access Layer - Database operations
-│   └── graph_crud.py     # Graph database operations
-└── models/               # Data Models - Pydantic schemas
-    ├── note.py          # Note input models
-    └── graph.py         # Graph data models
-```
-
-## Development Setup
-
-### Configuration and Environment Variables
-
-The project uses **pydantic-settings** for configuration management via environment variables and `.env` files. Configuration is defined in `config/settings.py`.
-
-#### Required Environment Variables
-
-```bash
-# OpenAI API for LLM processing
-OPENAI_API_KEY=your_openai_api_key_here
-
-# Neo4j database connection
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_neo4j_password
-```
-
-#### Configuration Methods
-
-**Option 1: .env file (recommended for development)**
 ```bash
 cd backend/
-cat > .env << 'EOF'
-OPENAI_API_KEY=your_openai_api_key_here
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_neo4j_password
-EOF
-```
-
-**Option 2: System environment variables**
-```bash
-export OPENAI_API_KEY="your_openai_api_key_here"
-export NEO4J_URI="bolt://localhost:7687"
-export NEO4J_USER="neo4j"
-export NEO4J_PASSWORD="your_neo4j_password"
-```
-
-**Option 3: Pass during startup**
-```bash
-OPENAI_API_KEY=your_key NEO4J_URI=bolt://localhost:7687 \
-NEO4J_USER=neo4j NEO4J_PASSWORD=your_password \
+uv venv && source .venv/bin/activate
+uv pip install -r requirements.txt
 uvicorn app.api.main:app --reload
 ```
 
-#### Using Settings in Code
+Server runs at `http://localhost:8000`
 
-Import the ready-to-use settings instance:
+## Project Structure
 
+```
+app/
+├── api/              # FastAPI endpoints, WebSocket handlers
+├── services/         # Business logic, LLM orchestration
+├── crud/             # Database operations (Neo4j)
+└── models/           # Pydantic data models
+```
+
+**Layered architecture**: API → Services → CRUD → Database
+
+## Configuration
+
+Uses `pydantic-settings` with `.env` file:
+
+```bash
+# Required variables
+OPENROUTER_API_KEY=sk-or-v1-...
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_password
+```
+
+Import in code:
 ```python
 from config.settings import settings
-
-# Usage in code
-openai_key = settings.OPENAI_API_KEY
-neo4j_uri = settings.NEO4J_URI
 ```
 
-### Environment Creation with uv
-```bash
-cd backend/
-uv venv                         # Create virtual environment
-source .venv/bin/activate       # Activate (Linux/macOS)
-uv pip install -r requirements.txt  # Install dependencies
-```
+📖 Full guide: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 
-### Required Dependencies
-```
-fastapi
-uvicorn[standard]  # Includes WebSocket support
-pydantic
-pydantic-settings   # For configuration management
-```
+## Key Patterns
 
-### Development Server
-```bash
-uvicorn app.api.main:app --reload  # Start with auto-reload
-# Server available at: http://localhost:8000
-# WebSocket endpoint: ws://localhost:8000/api/v1/ws/notes/process
-```
+### WebSocket Handler
 
-## Code Structure Patterns
-
-### Pydantic Models (`app/models/`)
-
-**Note Input Model**:
 ```python
-class NotePayload(BaseModel):
-    file_path: str
-    content: str
+@router.websocket("/ws/notes/process")
+async def process_note(websocket: WebSocket):
+    await websocket.accept()
+    data = await websocket.receive_json()
+    payload = NotePayload(**data)  # Validate
+
+    await websocket.send_json({"status": "processing"})
+    result = await note_processor.process_and_store_note(payload)
+    await websocket.send_json({"status": "done", "data": result.dict()})
 ```
 
-**Graph Data Models**:
+### Service Layer
+
 ```python
-class Node(BaseModel):
-    id: str
-    label: str
-    properties: Dict[str, Any]
+async def process_and_store_note(note: NotePayload) -> GraphData:
+    # 1. Extract entities with LLM
+    graphiti = await get_graphiti()
+    entities = await graphiti.add_episode(...)
 
-class Relationship(BaseModel):
-    source_id: str
-    target_id: str
-    type: str
-    properties: Dict[str, Any] = Field(default_factory=dict)
+    # 2. Transform data
+    graph_data = transform_entities(entities)
 
-class GraphData(BaseModel):
-    nodes: List[Node]
-    relationships: List[Relationship]
+    # 3. Save to database
+    await graph_crud.save_graph_data(graph_data)
+
+    return graph_data
 ```
 
-### WebSocket Handler Pattern (`app/api/endpoints/notes.py`)
+### CRUD Layer
 
-Key WebSocket flow:
-1. Accept connection: `await websocket.accept()`
-2. Validate input with Pydantic: `NotePayload(**data)`
-3. Send immediate acknowledgment: `{"status": "processing", "message": "..."}`
-4. Process note through service layer
-5. Send final result: `{"status": "done", "data": graph_data.dict()}`
-6. Handle errors: `{"status": "error", "message": "..."}`
-
-### Service Layer Pattern (`app/services/note_processor.py`)
-
-Main processing function:
 ```python
-def process_and_store_note(note: NotePayload) -> GraphData:
-    # 1. LLM processing (extract entities)
-    # 2. Call CRUD layer to save data
-    # 3. Return processed graph data
-```
-
-### CRUD Layer Pattern (`app/crud/graph_crud.py`)
-
-Database operations:
-```python
-def save_graph_data(graph_data: GraphData) -> bool:
-    # Neo4j Cypher queries
-    # Return success/failure status
+async def save_graph_data(graph_data: GraphData) -> bool:
+    async with driver.session() as session:
+        for node in graph_data.nodes:
+            await session.run("MERGE (n:Node {id: $id}) ...", ...)
+    return True
 ```
 
 ## Testing
 
-
-### WebSocket Testing with websocat
 ```bash
-# Install websocat (if needed): brew install websocat
+# Install test dependencies
+uv pip install -r requirements-dev.txt
 
-# Test note processing
-echo '{"file_path": "test/note.md", "content": "Test content"}' | \
-websocat ws://127.0.0.1:8000/api/v1/ws/notes/process
+# Run tests by type
+pytest -m unit           # Fast, no external dependencies
+pytest -m integration    # Requires Neo4j, OpenRouter
+pytest -m "not slow"     # Exclude expensive LLM calls
+
+# Specific test with output
+pytest tests/integration/test_openrouter.py::test_openrouter_llm_connection -sv
 ```
 
-Expected responses:
-1. Immediate: `{"status":"processing","message":"Note 'test/note.md' received..."}`
-2. Final: `{"status":"done","data":{"nodes":[...],"relationships":[...]}}`
-
-### API Health Check
-```bash
-curl http://localhost:8000/
-# Expected: {"status": "PipGraph Backend is running"}
-```
-
-## Development Guidelines
-
-### Layer Responsibilities
-- **API Layer**: Request validation, WebSocket management, response formatting
-- **Service Layer**: Business logic, LLM orchestration, data transformation
-- **CRUD Layer**: Database queries, data persistence, Cypher operations
-
-### Code Organization
-- Use Pydantic models for all data validation and serialization
-- Keep database-specific code (Cypher queries) in CRUD layer only
-- Service layer should be database-agnostic
-- Handle WebSocket connections with proper error handling and cleanup
-
-### Future Integration Points
-- LLM service integration in `app/services/note_processor.py`
-- Neo4j connection and Cypher queries in `app/crud/graph_crud.py`
-- Additional REST endpoints for search and suggestions
-- Background task processing for long-running operations
+📖 Full guide: [docs/TESTING.md](docs/TESTING.md)
 
 ## API Endpoints
 
 ### WebSocket
-- `ws://localhost:8000/api/v1/ws/notes/process` - Note processing with async feedback
+- `ws://localhost:8000/api/v1/ws/notes/process` - Note processing
 
-### REST (Current)
+### REST
 - `GET /` - Health check
 
-### REST (Planned)
+### Planned
 - `POST /api/v1/search` - Natural language search
 - `GET /api/v1/suggestions/{note_id}` - Entity suggestions
+
+## Common Tasks
+
+### Add new endpoint
+
+1. Create route in `app/api/endpoints/`
+2. Define Pydantic models in `app/models/`
+3. Implement logic in `app/services/`
+4. Add tests in `tests/integration/`
+
+### Add database operation
+
+1. Define method in `app/crud/graph_crud.py`
+2. Write Cypher query
+3. Call from service layer
+4. Test with `@pytest.mark.integration`
+
+### Debug WebSocket
+
+```bash
+# Test with websocat
+echo '{"file_path": "test.md", "content": "Test"}' | \
+websocat ws://127.0.0.1:8000/api/v1/ws/notes/process
+```
+
+## Technology Stack
+
+- **Framework**: FastAPI (async, WebSocket support)
+- **Database**: Neo4j (graph database)
+- **LLM**: Graphiti + OpenRouter
+- **Validation**: Pydantic
+- **Testing**: pytest with markers (unit/integration/e2e)
+- **Package Manager**: uv
+
+## Important Notes
+
+- **OpenRouter limitation**: No embeddings API support (as of 2025)
+  - Embeddings accessed directly through providers (OpenAI)
+  - Graphiti handles this internally
+
+- **WebSocket flow**:
+  1. Client connects
+  2. Server sends immediate "processing" acknowledgment
+  3. Server processes (LLM + DB)
+  4. Server sends "done" with results
+
+- **Layer responsibilities**:
+  - API: Validation, transport
+  - Services: Business logic
+  - CRUD: Database only
+
+## Documentation
+
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - Design decisions, patterns
+- [CONFIGURATION.md](docs/CONFIGURATION.md) - Environment setup
+- [TESTING.md](docs/TESTING.md) - Test strategy, fixtures
+- [TODO.md](TODO.md) - Planned features
+- [CHANGELOG.md](CHANGELOG.md) - Version history
+
+## Root Documentation
+
+- [Root CLAUDE.md](../CLAUDE.md) - Monorepo overview
+- [Root README.md](../README.md) - Full architecture (Russian)
+
+## Documentation Maintenance (for Claude Code)
+
+### Automatic Documentation Updates
+
+Claude should update documentation at these specific moments:
+
+#### Update CHANGELOG.md when:
+
+- ✅ New endpoint added to `app/api/endpoints/`
+- ✅ New service created in `app/services/`
+- ✅ New CRUD operation in `app/crud/`
+- ✅ Integration added (LLM, database driver, external API)
+- ✅ Bug fix that affects user behavior
+- ✅ Dependency version updated (major/minor)
+- ❌ **Skip**: Refactoring, renaming, typos, comment changes
+
+**Format**: Add to `[Unreleased]` section under:
+- `### Added` - New features
+- `### Changed` - Changes in existing functionality
+- `### Fixed` - Bug fixes
+
+#### Update TODO.md when:
+
+- ✅ Task from TODO completed → move to Completed ✓ section
+- ✅ New technical debt identified during implementation
+- ✅ Feature request discovered during work
+- ✅ Research task needs to be tracked
+- ❌ **Skip**: Trivial tasks, temporary experiments
+
+**Ask user**: "Mark '[task name]' as completed in TODO?"
+
+#### Update docs/ARCHITECTURE.md when:
+
+- ✅ New layer added to architecture
+- ✅ New design pattern introduced
+- ✅ Technology choice changed (database, LLM provider)
+- ✅ Significant architectural decision made
+- ❌ **Skip**: Minor code organization changes
+
+#### Update docs/CONFIGURATION.md when:
+
+- ✅ New environment variable added to `config/settings.py`
+- ✅ Configuration method changed
+- ✅ New service requires credentials
+- ✅ New deployment configuration needed
+
+#### Update docs/TESTING.md when:
+
+- ✅ New test fixture added to `conftest.py`
+- ✅ New pytest marker introduced
+- ✅ New testing pattern established
+- ✅ Test infrastructure changed
+
+### Update Protocol
+
+**1. Detect significant change**
+
+Examples of changes that trigger updates:
+
+```python
+# ✅ New file created: app/api/endpoints/search.py
+# → Update CHANGELOG: "Added natural language search endpoint"
+
+# ✅ New environment variable in config/settings.py:
+# SEARCH_INDEX_NAME: str
+# → Update CONFIGURATION.md
+
+# ❌ Renamed variable in existing function
+# → Skip documentation update
+```
+
+**2. Ask user for confirmation**
+
+Before updating, ask explicitly:
+
+```
+"I've added a new search endpoint at POST /api/v1/search.
+Should I update CHANGELOG.md with this feature? (y/n)"
+```
+
+**3. Batch updates at natural breakpoints**
+
+Don't update after every file change. Instead, batch at:
+- End of feature implementation
+- Before git commit/PR
+- User explicitly requests: "update docs"
+- Session completion
+
+Example prompt:
+```
+"During this session I've:
+- Added search endpoint (POST /api/v1/search)
+- Created SearchService in app/services/
+- Added integration tests in tests/integration/test_search.py
+
+Update documentation? This would affect:
+- CHANGELOG.md (Added section)
+- TODO.md (mark 'Natural language search' as completed)
+(y/n)"
+```
+
+**4. Never update silently**
+
+Always inform user:
+```
+"✓ Updated CHANGELOG.md: Added natural language search endpoint
+✓ Updated TODO.md: Marked search task as completed"
+```
+
+### Examples
+
+**Good trigger** ✅:
+```
+User: "Add a health check endpoint"
+Agent: [creates app/api/endpoints/health.py with GET /health]
+Agent: "Added health check endpoint. Update CHANGELOG? (y/n)"
+User: "y"
+Agent: [Updates CHANGELOG.md under ### Added]
+```
+
+**Bad trigger** ❌:
+```
+Agent: [Refactors process_note function to use helper methods]
+Agent: [Does NOT update CHANGELOG - no user-visible changes]
+```
+
+**TODO update** ✅:
+```
+User: "The search feature is done"
+Agent: [Reviews TODO.md, finds "Natural language search endpoint"]
+Agent: "Move 'Natural language search endpoint' from High Priority to Completed? (y/n)"
+User: "y"
+Agent: "✓ Updated TODO.md: Task marked as completed"
+```
+
+### Quick Reference
+
+**User commands**:
+- `"update changelog"` - Review and update CHANGELOG.md
+- `"update todo"` - Sync TODO.md with completed work
+- `"update docs"` - Review all docs for accuracy
+- `"mark task as done"` - Move TODO item to Completed
+
+**When in doubt**:
+- If change affects API contract → update CHANGELOG
+- If change adds new pattern → consider docs/ update
+- If trivial refactor → skip documentation
+- **Always ask user before updating**
