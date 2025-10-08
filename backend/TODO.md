@@ -56,6 +56,10 @@ Backend development tasks and roadmap for PipGraph.
 
 ## Research & Exploration
 
+- [ ] Investigate Graphiti capabilities with LLM-only (no embedding model)
+  - Test entity extraction quality without embeddings
+  - Evaluate performance and accuracy tradeoffs
+  - Document limitations and workarounds
 - [ ] Evaluate alternative graph databases (MemGraph, ArangoDB)
 - [ ] Investigate streaming LLM responses via WebSocket
 - [ ] Explore vector similarity search for related notes
