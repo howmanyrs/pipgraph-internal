@@ -1,30 +1,41 @@
-import os
+from datetime import datetime, timezone
 from app.models.note import NotePayload
-from app.models.graph import GraphData, Node, Relationship
-from app.crud import graph_crud
+from app.models.graph import GraphData, Node
 
-# from graphiti_core import Graphiti
+from graphiti_core.nodes import EpisodeType
+from app.services.llm_graphiti_client import get_graphiti
 
-os.environ['GRAPHITI_TELEMETRY_ENABLED'] = 'false'
-
-def process_and_store_note(note: NotePayload) -> GraphData:
+async def process_and_store_note(note: NotePayload) -> GraphData:
     """
-    Основная бизнес-логика: обрабатывает заметку, извлекает граф и сохраняет его.
+    Основная бизнес-логика: обрабатывает заметку с использованием Graphiti.
+
+    Использует graphiti.add_episode для обработки и сохранения заметки в граф.
     """
-    # Шаг 1: Вызов LLM для извлечения сущностей (заглушка)
-    # В реальной реализации здесь будет вызов к Разработчику 3
-    print(f"Processing content from '{note.file_path}'...")
-    graph_data = GraphData(
-        nodes=[
-            Node(id="person1", label="Person", properties={"name": "Иван"}),
-            Node(id="company1", label="Company", properties={"name": "ООО 'Рога и копыта'"})
-        ],
-        relationships=[
-            Relationship(source_id="person1", target_id="company1", type="WORKS_AT")
-        ]
+    print(f"Processing content from '{note.file_path}' with Graphiti...")
+
+    # Получить экземпляр Graphiti
+    graphiti = await get_graphiti()
+
+    # Добавить заметку как эпизод в Graphiti
+    await graphiti.add_episode(
+        name=note.file_path,  # Используем путь к файлу как имя эпизода
+        episode_body=note.content,  # Содержимое заметки
+        source=EpisodeType.text,  # Тип источника - текст
+        source_description=f"Obsidian note from {note.file_path}",
+        reference_time=datetime.now(timezone.utc)
     )
 
-    # Шаг 2: Сохранение извлеченных данных в БД через CRUD слой
-    graph_crud.save_graph_data(graph_data)
+    print(f"Successfully added episode for '{note.file_path}'")
+
+    # Заглушка для возврата GraphData (в будущем можно извлечь из Graphiti)
+    graph_data = GraphData(
+        nodes=[
+            Node(id="note1", label="Note", properties={
+                "path": note.file_path,
+                "processed": True
+            })
+        ],
+        relationships=[]
+    )
 
     return graph_data
