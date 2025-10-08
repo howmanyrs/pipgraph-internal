@@ -24,8 +24,20 @@ def test_openrouter_settings():
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_openrouter_llm_connection():
+@pytest.mark.parametrize("model_name", [
+    pytest.param("small", id="small_model"),
+    pytest.param("main", id="main_model"),
+])
+async def test_openrouter_llm_connection(model_name):
     """Test basic LLM connection through OpenRouter using native OpenAI client."""
+    # Map model names to settings
+    model_map = {
+        "small": settings.OPENROUTER_SMALL_MODEL,
+        "main": settings.OPENROUTER_MAIN_MODEL,
+    }
+
+    model = model_map[model_name]
+
     # Initialize OpenAI client with OpenRouter endpoint
     client = AsyncOpenAI(
         api_key=settings.OPENROUTER_API_KEY,
@@ -39,7 +51,7 @@ async def test_openrouter_llm_connection():
 
     try:
         response = await client.chat.completions.create(
-            model=settings.OPENROUTER_SMALL_MODEL,  # Use small model for testing
+            model=model,
             messages=messages,
             max_tokens=10
         )
@@ -50,10 +62,10 @@ async def test_openrouter_llm_connection():
         assert content is not None
         assert len(content) > 0
 
-        print(f"\n✅ OpenRouter LLM response: {content}")
+        print(f"\n✅ OpenRouter LLM ({model_name}) response: {content}")
 
     except Exception as e:
-        pytest.fail(f"OpenRouter LLM connection failed: {e}")
+        pytest.fail(f"OpenRouter LLM connection failed for {model_name}: {e}")
 
 
 @pytest.mark.integration
