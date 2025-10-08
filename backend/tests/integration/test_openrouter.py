@@ -68,6 +68,11 @@ async def test_openrouter_llm_connection(model_name):
         pytest.fail(f"OpenRouter LLM connection failed for {model_name}: {e}")
 
 
+# NOTE: OpenRouter does not support embeddings API endpoint as of 2025.
+# Embedding models need to be accessed directly through provider APIs (e.g., OpenAI).
+# For embedding tests, see Graphiti integration tests which use embeddings internally.
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.asyncio
