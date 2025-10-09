@@ -72,6 +72,12 @@ Backend development tasks and roadmap for PipGraph.
 - [ ] Document all API endpoints with OpenAPI/Swagger
 - [ ] Add type hints to all functions
 - [ ] Set up pre-commit hooks (black, isort, mypy)
+- [ ] Implement configuration for testing different OpenAI-generic provider sets
+  - Support multiple provider profiles (OpenRouter, Cloud.ru, etc.)
+  - Allow switching between providers via environment or test fixtures
+  - Enable parallel testing with different LLM configurations
+  - Support mixed provider configurations (e.g., LLM from OpenRouter + embeddings from Cloud.ru)
+  - Allow independent provider selection for LLM, embeddings, and reranker
 
 ## Completed ✓
 
