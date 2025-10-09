@@ -1,7 +1,7 @@
 """
 LLM Client Configuration Module
 
-Provides configured Graphiti instance with OpenRouter integration.
+Provides configured Graphiti instance with Cloud.ru integration.
 Supports OpenAI-compatible services through OpenAIGenericClient.
 """
 
@@ -22,34 +22,20 @@ _graphiti_instance = None
 
 async def get_graphiti() -> Graphiti:
     """
-    Get configured Graphiti instance with OpenRouter LLM client.
+    Get configured Graphiti instance with Cloud.ru LLM client.
 
     Returns:
-        Graphiti: Configured Graphiti instance with OpenRouter integration
+        Graphiti: Configured Graphiti instance with Cloud.ru integration
     """
     global _graphiti_instance
 
     if _graphiti_instance is None:
         # Configure LLM client for main processing
         llm_config = LLMConfig(
-            api_key=settings.OPENROUTER_API_KEY,
-            model=settings.OPENROUTER_MAIN_MODEL,
-            small_model=settings.OPENROUTER_SMALL_MODEL,
-            base_url=settings.OPENROUTER_BASE_URL,
-        )
-
-        # Configure embedder for vector embeddings
-        embedder_config = OpenAIEmbedderConfig(
-            api_key=settings.OPENROUTER_API_KEY,
-            embedding_model=settings.OPENROUTER_EMBEDDING_MODEL,
-            base_url=settings.OPENROUTER_BASE_URL,
-        )
-
-        # Configure cross-encoder for reranking (uses small model for efficiency)
-        reranker_config = LLMConfig(
-            api_key=settings.OPENROUTER_API_KEY,
-            model=settings.OPENROUTER_SMALL_MODEL,
-            base_url=settings.OPENROUTER_BASE_URL,
+            api_key=settings.CLOUDRU_API_KEY,
+            model=settings.CLOUDRU_MAIN_MODEL,
+            small_model=settings.CLOUDRU_SMALL_MODEL,
+            base_url=settings.CLOUDRU_BASE_URL,
         )
 
         # Initialize Graphiti with all components
@@ -58,8 +44,20 @@ async def get_graphiti() -> Graphiti:
             settings.NEO4J_USER,
             settings.NEO4J_PASSWORD,
             llm_client=OpenAIGenericClient(config=llm_config),
-            embedder=OpenAIEmbedder(config=embedder_config),
-            cross_encoder=OpenAIRerankerClient(config=reranker_config),
+            embedder=OpenAIEmbedder(
+                config=OpenAIEmbedderConfig(
+                    api_key=settings.CLOUDRU_API_KEY,
+                    embedding_model=settings.CLOUDRU_EMBEDDING_MODEL,
+                    base_url=settings.CLOUDRU_BASE_URL,
+                )
+            ),
+            cross_encoder=OpenAIRerankerClient(
+                config=LLMConfig(
+                    api_key=settings.CLOUDRU_API_KEY,
+                    model=settings.CLOUDRU_SMALL_MODEL,
+                    base_url=settings.CLOUDRU_BASE_URL,
+                )
+            ),
         )
 
         # Build indices and constraints on first initialization

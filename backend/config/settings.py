@@ -6,6 +6,14 @@ class Settings(BaseSettings):
     NEO4J_USER: str
     NEO4J_PASSWORD: str
 
+
+    # Cloud.ru LLM Configuration
+    CLOUDRU_API_KEY: str
+    CLOUDRU_BASE_URL: str = "https://foundation-models.api.cloud.ru/v1"
+    CLOUDRU_MAIN_MODEL: str = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+    CLOUDRU_SMALL_MODEL: str = "t-tech/T-lite-it-1.0"
+    CLOUDRU_EMBEDDING_MODEL: str = "Qwen/Qwen3-Embedding-0.6B"
+
     # OpenRouter LLM Configuration
     OPENROUTER_API_KEY: str
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
