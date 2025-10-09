@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 pydantic
-graphiti-core
+graphiti-core>=0.21.0
 python-dotenv
 pydantic-settings
 neo4j
