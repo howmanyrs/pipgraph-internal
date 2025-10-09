@@ -54,11 +54,11 @@ tests/
 │   ├── __init__.py
 │   └── test_models.py          # Тесты Pydantic моделей
 │
-├── integration/                # Integration-тесты (с внешними сервисами)
+├── integration/                     # Integration-тесты (с внешними сервисами)
 │   ├── __init__.py
-│   ├── test_neo4j.py          # Тесты подключения к Neo4j
-│   ├── test_openrouter.py     # Тесты LLM через OpenRouter API
-│   └── test_note_processor.py # Тесты обработки заметок с Graphiti
+│   ├── test_neo4j.py               # Тесты подключения к Neo4j
+│   ├── test_openai_generic_config.py # Тесты LLM через OpenAI-compatible API (Cloud.ru)
+│   └── test_note_processor.py      # Тесты обработки заметок с Graphiti
 │
 └── e2e/                        # End-to-end тесты (полный flow)
     └── __init__.py
@@ -120,14 +120,18 @@ def test_neo4j_connection_with_fixture(neo4j_session):
     assert result.single()["num"] == 1
 ```
 
-#### OpenRouter LLM (`test_openrouter.py`)
+#### OpenAI-Compatible LLM Provider (`test_openai_generic_config.py`)
 ```python
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_openrouter_llm_connection():
-    """Тест базового LLM-запроса через OpenRouter"""
-    # Проверяет реальный API-вызов к OpenRouter
+@pytest.mark.parametrize("model_name", [
+    pytest.param("small", id="small_model"),
+    pytest.param("main", id="main_model"),
+])
+async def test_llm_chat_completion(model_name):
+    """Тест базового LLM-запроса через OpenAI-compatible API (Cloud.ru)"""
+    # Проверяет реальный API-вызов с параметризацией моделей
 ```
 
 #### Note Processing (`test_note_processor.py`)
@@ -147,8 +151,9 @@ async def test_process_person_note():
 **Когда использовать:**
 - Проверка подключения к БД
 - Тестирование CRUD-операций
-- Проверка LLM API
+- Проверка LLM API (Cloud.ru, OpenAI-compatible providers)
 - Интеграция с Graphiti
+- Тестирование embeddings моделей
 
 ---
 
@@ -208,10 +213,13 @@ pytest tests/integration/test_neo4j.py
 # Конкретный тест
 pytest tests/integration/test_neo4j.py::test_neo4j_connection_with_driver
 
-pytest tests/integration/test_openrouter.py::test_openrouter_llm_connection
+pytest tests/integration/test_openai_generic_config.py::test_llm_chat_completion
 
 # Все integration-тесты Neo4j
 pytest tests/integration/test_neo4j.py -v
+
+# Все LLM-тесты
+pytest tests/integration/test_openai_generic_config.py -v
 ```
 
 ### С дополнительными опциями
@@ -465,12 +473,12 @@ NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=test_password
 
-# OpenRouter (для integration-тестов)
-OPENROUTER_API_KEY=your_api_key
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_MAIN_MODEL=anthropic/claude-3.5-sonnet
-OPENROUTER_SMALL_MODEL=anthropic/claude-3-haiku
-OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-small
+# LLM Provider (OpenAI-compatible API, например Cloud.ru)
+CLOUDRU_API_KEY=your_api_key
+CLOUDRU_BASE_URL=https://api.cloudru.tech/v1
+CLOUDRU_MAIN_MODEL=anthropic/claude-3.5-sonnet
+CLOUDRU_SMALL_MODEL=anthropic/claude-3-haiku
+CLOUDRU_EMBEDDING_MODEL=openai/text-embedding-3-small
 ```
 
 ⚠️ **Важно:** Используйте **отдельную тестовую БД Neo4j**, не продакшн!
@@ -539,12 +547,12 @@ jobs:
       - name: Run unit tests
         run: pytest -m unit
 
-      - name: Run integration tests (Neo4j only)
+      - name: Run integration tests (Neo4j only, без LLM)
         env:
           NEO4J_URI: bolt://localhost:7687
           NEO4J_USER: neo4j
           NEO4J_PASSWORD: testpassword
-        run: pytest -m "integration and not slow"
+        run: pytest tests/integration/test_neo4j.py -v
 ```
 
 ---
@@ -577,12 +585,13 @@ python_files = test_*.py
 2. Проверьте `NEO4J_URI` в `.env`
 3. Проверьте пароль: `NEO4J_PASSWORD`
 
-### Проблема: OpenRouter API errors
+### Проблема: LLM Provider API errors
 
 **Решение:**
-1. Проверьте API-ключ в `.env`
-2. Проверьте баланс на OpenRouter
-3. Запускайте без slow-тестов: `pytest -m "not slow"`
+1. Проверьте API-ключ в `.env` (например, `CLOUDRU_API_KEY`)
+2. Проверьте баланс у провайдера (Cloud.ru и т.д.)
+3. Убедитесь в правильности `BASE_URL` для вашего провайдера
+4. Запускайте без slow-тестов: `pytest -m "not slow"`
 
 ---
 
