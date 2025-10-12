@@ -63,6 +63,9 @@ async def test_llm_chat_completion(model_name):
         assert content is not None
         assert len(content) > 0
 
+        # Verify response matches expected test word
+        assert "test" in content.lower(), f"Expected 'test' in response, got: {content}"
+
         print(f"\n✅ LLM ({model_name}) response: {content}")
 
     except Exception as e:
@@ -116,33 +119,38 @@ async def test_graphiti_client_initialization():
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_llm_entity_extraction():
-    """Test entity extraction capability through LLM provider."""
+async def test_graphiti_llm_communication():
+    """Test that Graphiti framework can communicate with LLM provider."""
     from app.services.llm_graphiti_client import get_graphiti
 
     try:
         graphiti = await get_graphiti()
 
-        # Simple test text
-        test_text = "Alice works at Google as a software engineer."
-
-        # Use Graphiti's LLM client for entity extraction
+        # Simple test prompt to verify communication
         result = await graphiti.llm_client.chat.completions.create(
             model=settings.CLOUDRU_SMALL_MODEL,
             messages=[
                 {
                     "role": "user",
-                    "content": f"Extract entities from this text: {test_text}. Reply with JSON."
+                    "content": "Reply with just the word 'OK' and nothing else."
                 }
             ],
-            max_tokens=200
+            max_tokens=10
         )
 
         assert result is not None
-        print(f"\n✅ Entity extraction response received")
+        assert len(result.choices) > 0
+        content = result.choices[0].message.content
+        assert content is not None
+        assert len(content) > 0
+
+        # Verify response matches expected test word
+        assert "ok" in content.lower(), f"Expected 'OK' in response, got: {content}"
+
+        print(f"\n✅ Graphiti-LLM communication successful: {content}")
 
     except Exception as e:
-        pytest.fail(f"Entity extraction failed: {e}")
+        pytest.fail(f"Graphiti-LLM communication failed: {e}")
 
 
 @pytest.mark.integration
