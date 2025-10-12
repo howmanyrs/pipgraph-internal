@@ -9,6 +9,13 @@ Backend development tasks and roadmap for PipGraph.
 
 ## High Priority
 
+- [ ] Note validation service before LLM processing
+  - Create `NoteValidationService` in `app/services/`
+  - Check note size (max tokens/characters) to prevent oversized LLM requests
+  - Detect content type (text vs. images/binary) and filter non-text content
+  - Return validation errors to user via WebSocket with clear warnings
+  - Add configuration for max note size limits
+  - Support "strict" mode (reject) vs "warn" mode (notify user)
 - [ ] Implement Obsidian feedback cycle for frontmatter updates
   - Create Pydantic models for feedback messages (entities, relationships, clarifications)
   - Implement multi-round WebSocket messaging protocol
