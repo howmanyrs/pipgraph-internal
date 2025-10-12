@@ -66,15 +66,20 @@ async def process_note(websocket: WebSocket):
 
 ```python
 async def process_and_store_note(note: NotePayload) -> GraphData:
-    # 1. Extract entities with LLM
+    # 1. Extract entities and store (Graphiti handles both)
     graphiti = await get_graphiti()
-    entities = await graphiti.add_episode(...)
+    await graphiti.add_episode(
+        name=note.file_path,
+        episode_body=note.content,
+        source=EpisodeType.text,
+        reference_time=datetime.now(timezone.utc)
+    )
+    # Note: Graphiti automatically extracts entities via LLM
+    # and writes them directly to Neo4j
 
-    # 2. Transform data
-    graph_data = transform_entities(entities)
-
-    # 3. Save to database
-    await graph_crud.save_graph_data(graph_data)
+    # 2. Prepare extracted entities for Obsidian feedback cycle
+    # TODO: Query Graphiti for entities and format for frontmatter
+    graph_data = prepare_feedback_data(note.file_path)
 
     return graph_data
 ```
@@ -160,8 +165,11 @@ websocat ws://127.0.0.1:8000/api/v1/ws/notes/process
 - **WebSocket flow**:
   1. Client connects
   2. Server sends immediate "processing" acknowledgment
-  3. Server processes (LLM + DB)
-  4. Server sends "done" with results
+  3. Server processes (Graphiti: LLM extraction + Neo4j storage)
+  4. Server sends extracted entities to client
+  5. Optional: Multiple feedback rounds with client (clarifications, refinements)
+  6. Server sends "done" with frontmatter update data
+  7. Client updates note frontmatter with entities and relationships
 
 - **Layer responsibilities**:
   - API: Validation, transport

@@ -155,18 +155,21 @@ async def process_note_websocket(websocket: WebSocket):
 **Example**:
 ```python
 async def process_and_store_note(note: NotePayload) -> GraphData:
-    # 1. Extract entities using LLM
+    # 1. Extract entities and store in Neo4j (Graphiti handles both)
     graphiti = await get_graphiti()
-    entities = await graphiti.add_episode(
+    await graphiti.add_episode(
         name=note.file_path,
-        episode_body=note.content
+        episode_body=note.content,
+        source=EpisodeType.text,
+        source_description=f"Obsidian note from {note.file_path}",
+        reference_time=datetime.now(timezone.utc)
     )
+    # Note: Graphiti automatically extracts entities and writes to Neo4j
 
-    # 2. Transform to internal format
-    graph_data = transform_entities(entities)
-
-    # 3. Store in database
-    await graph_crud.save_graph_data(graph_data)
+    # 2. Prepare response for Obsidian feedback cycle
+    # TODO: Query Graphiti for extracted entities
+    # TODO: Format for frontmatter update
+    graph_data = prepare_feedback_data(note.file_path)
 
     return graph_data
 ```
@@ -265,15 +268,23 @@ class GraphData(BaseModel):
    ↓
 5. Service calls Graphiti for entity extraction
    ↓
-6. Service transforms results to GraphData
+6. Graphiti extracts entities and stores directly in Neo4j
+   (add_episode() handles both extraction and DB writes)
    ↓
-7. Service calls CRUD layer to save
+7. Service prepares extracted entities for client
    ↓
-8. CRUD Layer executes Cypher queries
+8. API initiates feedback cycle with Obsidian
    ↓
-9. Service returns GraphData to API
+9. Multiple feedback rounds (optional):
+   - Client may request clarification
+   - User may provide additional context
+   - System refines entities based on feedback
    ↓
-10. API sends "done" with result
+10. Final entities prepared for frontmatter
+   ↓
+11. API sends "done" with entities and relationships
+   ↓
+12. Client updates note frontmatter with verified data
 ```
 
 ### Error Handling Flow
@@ -425,13 +436,22 @@ async with driver.session() as session:
    {"status": "processing", "message": "..."}
 
 5. Server processes (may take seconds)
-   [LLM extraction + DB storage]
+   [Graphiti: LLM extraction + direct Neo4j storage]
 
-6. Server sends result
-   {"status": "done", "data": {...}}
+6. Server sends extracted entities
+   {"status": "entities_extracted", "entities": [...], "relationships": [...]}
 
-7. Connection closes
-   await websocket.close()
+7. Optional: Multiple feedback rounds
+   - Client may send clarifications
+   - Server refines and sends updates
+
+8. Server sends final result with frontmatter
+   {"status": "done", "frontmatter_update": {...}}
+
+9. Client updates note frontmatter
+
+10. Connection closes
+    await websocket.close()
 ```
 
 ### Why WebSocket for Note Processing?
@@ -446,6 +466,164 @@ async with driver.session() as session:
 - REST + polling: More HTTP requests
 - REST + webhooks: Requires callback URL
 - Server-Sent Events: One-way only
+
+## Obsidian Feedback Cycle
+
+### Overview
+
+After Graphiti processes a note and extracts entities, the system initiates a feedback cycle with the Obsidian client. This bidirectional communication allows for entity verification, user clarification, and ultimately updating the note's frontmatter with validated graph data.
+
+### Feedback Cycle Flow
+
+```
+1. Note processed by Graphiti
+   ↓
+2. Entities extracted and stored in Neo4j
+   ↓
+3. Backend sends extracted entities to client
+   {"status": "entities_extracted", "entities": [...], "relationships": [...]}
+   ↓
+4. Optional: Client requests clarification
+   {"action": "clarify", "question": "Is 'Apple' a company or fruit?"}
+   ↓
+5. Optional: Backend refines with additional context
+   - Re-query LLM with user input
+   - Update graph with refined data
+   ↓
+6. Multiple rounds possible (steps 3-5 repeat as needed)
+   ↓
+7. Backend sends final validated entities
+   {"status": "done", "frontmatter_update": {...}}
+   ↓
+8. Client updates note frontmatter
+   - Add/update entities list
+   - Add/update relationships
+   - Mark as processed
+```
+
+### Frontmatter Update Structure
+
+The final message includes structured data for updating the note's YAML frontmatter:
+
+```yaml
+---
+# Original frontmatter preserved
+title: "My Note"
+date: 2025-01-15
+
+# PipGraph additions
+pipgraph:
+  processed: true
+  processed_at: "2025-01-15T10:30:00Z"
+  entities:
+    - name: "Neural Networks"
+      type: "Concept"
+      uuid: "abc-123"
+    - name: "Machine Learning"
+      type: "Field"
+      uuid: "def-456"
+  relationships:
+    - source: "Neural Networks"
+      target: "Machine Learning"
+      type: "PART_OF"
+---
+```
+
+### Feedback Scenarios
+
+#### 1. Simple Case (No Feedback Needed)
+```
+Client → Note content
+Backend → Processing...
+Backend → Entities extracted (high confidence)
+Backend → Done + frontmatter data
+Client → Update frontmatter
+```
+
+#### 2. Clarification Required
+```
+Client → Note content
+Backend → Processing...
+Backend → Entities extracted (low confidence for some)
+Backend → Request clarification: "Is 'Python' the language or snake?"
+Client → User responds: "Programming language"
+Backend → Re-process with context
+Backend → Done + refined frontmatter data
+Client → Update frontmatter
+```
+
+#### 3. User-Initiated Refinement
+```
+Client → Note content
+Backend → Processing...
+Backend → Entities extracted
+Backend → Proposed frontmatter
+Client → User reviews, requests changes: "Add tag: #research"
+Backend → Update graph with user input
+Backend → Done + updated frontmatter
+Client → Update frontmatter
+```
+
+### Implementation Considerations
+
+**Current Status**:
+- ✅ Graphiti integration for entity extraction
+- ✅ Direct Neo4j storage via `add_episode()`
+- ⏳ Feedback cycle messaging protocol (planned)
+- ⏳ Frontmatter formatting logic (planned)
+- ⏳ Multi-round clarification handling (planned)
+
+**Future Enhancements**:
+- Confidence scores for entities
+- Conflict resolution when entities differ from existing frontmatter
+- Batch processing with feedback aggregation
+- Learning from user corrections to improve future extractions
+
+### WebSocket Message Protocol
+
+**Entity Extraction Complete**:
+```json
+{
+  "status": "entities_extracted",
+  "confidence": 0.85,
+  "entities": [
+    {"name": "...", "type": "...", "uuid": "...", "confidence": 0.9}
+  ],
+  "relationships": [
+    {"source": "...", "target": "...", "type": "...", "confidence": 0.8}
+  ],
+  "requires_clarification": false
+}
+```
+
+**Clarification Request**:
+```json
+{
+  "status": "clarification_needed",
+  "questions": [
+    {
+      "entity": "Apple",
+      "question": "Is this a company, fruit, or something else?",
+      "options": ["Company", "Fruit", "Other"]
+    }
+  ]
+}
+```
+
+**Final Update**:
+```json
+{
+  "status": "done",
+  "frontmatter_update": {
+    "pipgraph": {
+      "processed": true,
+      "processed_at": "2025-01-15T10:30:00Z",
+      "entities": [...],
+      "relationships": [...]
+    }
+  }
+}
+```
 
 ## Future Considerations
 

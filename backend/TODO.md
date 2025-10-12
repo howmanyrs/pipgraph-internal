@@ -9,6 +9,14 @@ Backend development tasks and roadmap for PipGraph.
 
 ## High Priority
 
+- [ ] Implement Obsidian feedback cycle for frontmatter updates
+  - Create Pydantic models for feedback messages (entities, relationships, clarifications)
+  - Implement multi-round WebSocket messaging protocol
+  - Add entity extraction result formatting for client consumption
+  - Implement frontmatter update data structure
+  - Query Graphiti for extracted entities after `add_episode()`
+  - Add confidence scoring for entity/relationship suggestions
+  - Support clarification request/response flow
 - [ ] Natural language search endpoint (`POST /api/v1/search`)
   - Convert natural language to Cypher queries
   - Return formatted search results
