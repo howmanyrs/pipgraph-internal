@@ -27,9 +27,9 @@ async def process_note_websocket(websocket: WebSocket):
             "message": f"Note '{payload.file_path}' received, starting processing..."
         })
 
-        # 2. Вызываем бизнес-логику (для прототипа - синхронно)
+        # 2. Вызываем бизнес-логику асинхронно
         # В будущем здесь может быть фоновая задача (Celery, BackgroundTasks)
-        graph_data = note_processor.process_and_store_note(payload)
+        graph_data = await note_processor.process_and_store_note(payload)
 
         # 3. Отправляем финальный результат
         await websocket.send_json({
@@ -40,6 +40,12 @@ async def process_note_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         print("Client disconnected")
     except Exception as e:
-        await websocket.send_json({"status": "error", "message": f"An unexpected error occurred: {str(e)}"})
+        try:
+            await websocket.send_json({"status": "error", "message": f"An unexpected error occurred: {str(e)}"})
+        except RuntimeError:
+            # Connection already closed, cannot send error message
+            pass
     finally:
-        await websocket.close()
+        # Only close if connection is still open
+        if websocket.client_state.name != "DISCONNECTED":
+            await websocket.close()
