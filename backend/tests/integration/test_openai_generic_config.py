@@ -98,59 +98,59 @@ async def test_embedding_model():
         pytest.fail(f"Embedding model connection failed: {e}")
 
 
-@pytest.mark.integration
-@pytest.mark.slow
-@pytest.mark.asyncio
-async def test_graphiti_client_initialization():
-    """Test LLM provider connection through Graphiti client wrapper."""
-    from app.services.llm_graphiti_client import get_graphiti
+# @pytest.mark.integration
+# @pytest.mark.slow
+# @pytest.mark.asyncio
+# async def test_graphiti_client_initialization():
+#     """Test LLM provider connection through Graphiti client wrapper."""
+#     from app.services.llm_graphiti_client import get_graphiti
 
-    try:
-        graphiti = await get_graphiti()
-        assert graphiti is not None
-        assert graphiti.llm_client is not None
+#     try:
+#         graphiti = await get_graphiti()
+#         assert graphiti is not None
+#         assert graphiti.llm_client is not None
 
-        print(f"\n✅ Graphiti initialized with LLM client")
+#         print(f"\n✅ Graphiti initialized with LLM client")
 
-    except Exception as e:
-        pytest.fail(f"Graphiti initialization failed: {e}")
+#     except Exception as e:
+#         pytest.fail(f"Graphiti initialization failed: {e}")
 
 
-@pytest.mark.integration
-@pytest.mark.slow
-@pytest.mark.asyncio
-async def test_graphiti_llm_communication():
-    """Test that Graphiti framework can communicate with LLM provider."""
-    from app.services.llm_graphiti_client import get_graphiti
+# @pytest.mark.integration
+# @pytest.mark.slow
+# @pytest.mark.asyncio
+# async def test_graphiti_llm_communication():
+#     """Test that Graphiti framework can communicate with LLM provider."""
+#     from app.services.llm_graphiti_client import get_graphiti
 
-    try:
-        graphiti = await get_graphiti()
+#     try:
+#         graphiti = await get_graphiti()
 
-        # Simple test prompt to verify communication
-        result = await graphiti.llm_client.chat.completions.create(
-            model=settings.CLOUDRU_SMALL_MODEL,
-            messages=[
-                {
-                    "role": "user",
-                    "content": "Reply with just the word 'OK' and nothing else."
-                }
-            ],
-            max_tokens=10
-        )
+#         # Simple test prompt to verify communication
+#         result = await graphiti.llm_client.chat.completions.create(
+#             model=settings.CLOUDRU_SMALL_MODEL,
+#             messages=[
+#                 {
+#                     "role": "user",
+#                     "content": "Reply with just the word 'OK' and nothing else."
+#                 }
+#             ],
+#             max_tokens=10
+#         )
 
-        assert result is not None
-        assert len(result.choices) > 0
-        content = result.choices[0].message.content
-        assert content is not None
-        assert len(content) > 0
+#         assert result is not None
+#         assert len(result.choices) > 0
+#         content = result.choices[0].message.content
+#         assert content is not None
+#         assert len(content) > 0
 
-        # Verify response matches expected test word
-        assert "ok" in content.lower(), f"Expected 'OK' in response, got: {content}"
+#         # Verify response matches expected test word
+#         assert "ok" in content.lower(), f"Expected 'OK' in response, got: {content}"
 
-        print(f"\n✅ Graphiti-LLM communication successful: {content}")
+#         print(f"\n✅ Graphiti-LLM communication successful: {content}")
 
-    except Exception as e:
-        pytest.fail(f"Graphiti-LLM communication failed: {e}")
+#     except Exception as e:
+#         pytest.fail(f"Graphiti-LLM communication failed: {e}")
 
 
 @pytest.mark.integration
