@@ -4,20 +4,25 @@ from app.models.graph import GraphData, Node
 
 from graphiti_core.nodes import EpisodeType
 from app.services.llm_graphiti_client import get_graphiti
+from app.services.pipgraph_manager import PipGraphManager
 
 async def process_and_store_note(note: NotePayload) -> GraphData:
     """
-    Основная бизнес-логика: обрабатывает заметку с использованием Graphiti.
+    Основная бизнес-логика: обрабатывает заметку с использованием PipGraphManager.
 
-    Использует graphiti.add_episode для обработки и сохранения заметки в граф.
+    Использует PipGraphManager.process_note для пошаговой обработки и сохранения заметки в граф.
+    В будущем здесь будут добавлены точки интервенции для взаимодействия с пользователем.
     """
-    print(f"Processing content from '{note.file_path}' with Graphiti...")
+    print(f"Processing content from '{note.file_path}' with PipGraphManager...")
 
     # Получить экземпляр Graphiti
     graphiti = await get_graphiti()
 
-    # Добавить заметку как эпизод в Graphiti
-    await graphiti.add_episode(
+    # Создать менеджер для контролируемой обработки
+    pipgraph = PipGraphManager(graphiti)
+
+    # Обработать заметку через PipGraphManager
+    result = await pipgraph.process_note(
         name=note.file_path,  # Используем путь к файлу как имя эпизода
         episode_body=note.content,  # Содержимое заметки
         source=EpisodeType.text,  # Тип источника - текст
@@ -25,7 +30,8 @@ async def process_and_store_note(note: NotePayload) -> GraphData:
         reference_time=datetime.now(timezone.utc)
     )
 
-    print(f"Successfully added episode for '{note.file_path}'")
+    print(f"Successfully processed note '{note.file_path}': "
+          f"{len(result.nodes)} nodes, {len(result.edges)} edges")
 
     # Заглушка для возврата GraphData (в будущем можно извлечь из Graphiti)
     graph_data = GraphData(
