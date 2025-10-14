@@ -21,42 +21,42 @@ from app.services.note_processor import process_and_store_note
 #     assert len(result.nodes) > 0
 
 
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_process_person_note():
-    """Test processing a note about a person."""
-    note = NotePayload(
-        file_path="notes/people/john_doe.md",
-        content="""# John Doe
-
-John Doe is a software engineer at TechCorp.
-He works on backend systems and has expertise in Python and FastAPI.
-John graduated from MIT in 2015 with a degree in Computer Science.
-"""
-    )
-
-    result = await process_and_store_note(note)
-    assert result is not None
-    assert result.nodes is not None
-
-
 # @pytest.mark.integration
 # @pytest.mark.asyncio
-# async def test_process_project_note():
-#     """Test processing a note about a project."""
+# async def test_process_person_note():
+#     """Test processing a note about a person."""
 #     note = NotePayload(
-#         file_path="notes/projects/pipgraph.md",
-#         content="""# PipGraph Project
+#         file_path="notes/people/john_doe.md",
+#         content="""# John Doe
 
-# PipGraph is an Obsidian plugin that uses Neo4j graph database.
-# The project uses FastAPI for the backend and TypeScript for the frontend.
-# It integrates with Graphiti for entity extraction and knowledge graph building.
+# John Doe is a software engineer at TechCorp.
+# He works on backend systems and has expertise in Python and FastAPI.
+# John graduated from MIT in 2015 with a degree in Computer Science.
 # """
 #     )
 
 #     result = await process_and_store_note(note)
 #     assert result is not None
 #     assert result.nodes is not None
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_process_project_note():
+    """Test processing a note about a project."""
+    note = NotePayload(
+        file_path="notes/projects/pipgraph.md",
+        content="""# PipGraph Project
+
+PipGraph is an Obsidian plugin that uses Neo4j graph database.
+The project uses FastAPI for the backend and TypeScript for the frontend.
+It integrates with Graphiti for entity extraction and knowledge graph building.
+"""
+    )
+
+    result = await process_and_store_note(note)
+    assert result is not None
+    assert result.nodes is not None
 
 
 # @pytest.mark.integration

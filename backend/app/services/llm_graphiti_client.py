@@ -2,16 +2,16 @@
 LLM Client Configuration Module
 
 Provides configured Graphiti instance with Cloud.ru integration.
-Supports OpenAI-compatible services through OpenAIGenericClient.
+Supports OpenAI-compatible services through CloudRuPatchedClient.
 """
 
 import os
 from graphiti_core import Graphiti
-from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 from graphiti_core.llm_client.config import LLMConfig
 from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
 from config.settings import settings
+from app.services.cloudru_patched_client import CloudRuPatchedClient
 
 # Disable telemetry
 os.environ['GRAPHITI_TELEMETRY_ENABLED'] = 'false'
@@ -39,11 +39,12 @@ async def get_graphiti() -> Graphiti:
         )
 
         # Initialize Graphiti with all components
+        # Using CloudRuPatchedClient for Qwen-compatible JSON schema instructions
         _graphiti_instance = Graphiti(
             settings.NEO4J_URI,
             settings.NEO4J_USER,
             settings.NEO4J_PASSWORD,
-            llm_client=OpenAIGenericClient(config=llm_config),
+            llm_client=CloudRuPatchedClient(config=llm_config),
             embedder=OpenAIEmbedder(
                 config=OpenAIEmbedderConfig(
                     api_key=settings.CLOUDRU_API_KEY,
