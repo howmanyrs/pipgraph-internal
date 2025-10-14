@@ -21,6 +21,9 @@ Server runs at `http://localhost:8000`
 app/
 ├── api/              # FastAPI endpoints, WebSocket handlers
 ├── services/         # Business logic, LLM orchestration
+│   ├── pipgraph_manager.py   # 7-stage note processing wrapper over Graphiti
+│   ├── cloudru_patched_client.py  # Cloud.ru/Qwen LLM client
+│   └── note_processor.py     # Note processing service
 ├── crud/             # Database operations (Neo4j)
 └── models/           # Pydantic data models
 ```
@@ -62,27 +65,39 @@ async def process_note(websocket: WebSocket):
     await websocket.send_json({"status": "done", "data": result.dict()})
 ```
 
-### Service Layer
+### Service Layer - PipGraphManager
+
+The `PipGraphManager` wraps Graphiti and exposes 7 processing stages with intervention points:
 
 ```python
+from app.services.pipgraph_manager import PipGraphManager
+
 async def process_and_store_note(note: NotePayload) -> GraphData:
-    # 1. Extract entities and store (Graphiti handles both)
-    graphiti = await get_graphiti()
-    await graphiti.add_episode(
+    """Process note using PipGraphManager for step-by-step control."""
+    manager = PipGraphManager(graphiti_instance)
+
+    # Process note with full control over each stage
+    result = await manager.process_note(
         name=note.file_path,
-        episode_body=note.content,
-        source=EpisodeType.text,
+        content=note.content,
         reference_time=datetime.now(timezone.utc)
     )
-    # Note: Graphiti automatically extracts entities via LLM
-    # and writes them directly to Neo4j
 
-    # 2. Prepare extracted entities for Obsidian feedback cycle
-    # TODO: Query Graphiti for entities and format for frontmatter
-    graph_data = prepare_feedback_data(note.file_path)
+    # Result contains entities and edges extracted
+    logger.info(f"Extracted {result['entity_count']} entities, "
+                f"{result['edge_count']} edges")
 
-    return graph_data
+    return result
 ```
+
+**7 Processing Stages** (from `docs/attend/pipgraph_manager_discussion.md`):
+1. Input validation
+2. Fact extraction (LLM)
+3. Entity resolution
+4. Relationship extraction
+5. Duplicate detection
+6. Graph updates (Neo4j)
+7. Result formatting
 
 ### CRUD Layer
 
@@ -151,29 +166,45 @@ websocat ws://127.0.0.1:8000/api/v1/ws/notes/process
 
 - **Framework**: FastAPI (async, WebSocket support)
 - **Database**: Neo4j (graph database)
-- **LLM**: Graphiti + OpenRouter
-- **Validation**: Pydantic
+- **LLM Integration**:
+  - Graphiti (entity extraction framework)
+  - OpenRouter (main, small, embedding models)
+  - CloudRuPatchedClient (Cloud.ru/Qwen compatibility)
+- **Validation**: Pydantic + pydantic-settings
 - **Testing**: pytest with markers (unit/integration/e2e)
 - **Package Manager**: uv
 
 ## Important Notes
 
-- **OpenRouter limitation**: No embeddings API support (as of 2025)
-  - Embeddings accessed directly through providers (OpenAI)
-  - Graphiti handles this internally
+- **PipGraphManager Design**:
+  - Copied `add_episode` logic from graphiti_core for controlled modifications
+  - Enables gradual customization without modifying library code
+  - Documents modification points for future enhancements
+  - Based on architectural design from `docs/attend/pipgraph_manager_discussion.md`
+
+- **Duplicate Note Detection** (High Priority TODO):
+  - SHA-256 content hash verification planned
+  - Scenario 1: Skip processing if content unchanged (cost optimization)
+  - Scenario 2: Handle modified note re-processing (design needed)
+  - Requires `find_episode_by_name()` implementation
+
+- **CloudRuPatchedClient**:
+  - Fixes JSON schema duplication in Cloud.ru/Qwen responses
+  - Single-line modification: "return data only, not the schema"
+  - Full compatibility with OpenAIGenericClient
 
 - **WebSocket flow**:
   1. Client connects
   2. Server sends immediate "processing" acknowledgment
-  3. Server processes (Graphiti: LLM extraction + Neo4j storage)
+  3. Server processes via PipGraphManager (7 stages)
   4. Server sends extracted entities to client
-  5. Optional: Multiple feedback rounds with client (clarifications, refinements)
+  5. Optional: Multiple feedback rounds with client
   6. Server sends "done" with frontmatter update data
-  7. Client updates note frontmatter with entities and relationships
+  7. Client updates note frontmatter
 
 - **Layer responsibilities**:
   - API: Validation, transport
-  - Services: Business logic
+  - Services: Business logic (PipGraphManager orchestrates)
   - CRUD: Database only
 
 ## Documentation

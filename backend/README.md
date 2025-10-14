@@ -21,13 +21,22 @@ backend/
 │   │   │   └── notes.py      # <-- WebSocket эндпоинт для заметок
 │   │   └── main.py           # Главный файл FastAPI приложения
 │   ├── crud/                 # Слой доступа к данным (Create, Read, Update, Delete)
-│   │   └── graph_crud.py     # <-- Логика работы с графовой БД (пока заглушка)
+│   │   └── graph_crud.py     # <-- Логика работы с Neo4j
 │   ├── models/               # Pydantic модели (контракты данных)
 │   │   ├── graph.py          # Модели для узлов и связей графа
 │   │   └── note.py           # Модель для входящих данных заметки
 │   └── services/             # Слой бизнес-логики
-│       └── note_processor.py # <-- Основная логика обработки заметки
+│       ├── pipgraph_manager.py     # <-- Обертка над Graphiti с 7 стадиями обработки
+│       ├── cloudru_patched_client.py  # <-- Клиент для Cloud.ru/Qwen
+│       └── note_processor.py       # <-- Основная логика обработки заметки
 │
+├── config/
+│   └── settings.py           # Конфигурация через pydantic-settings
+├── tests/                    # Тестовая инфраструктура
+│   ├── unit/                 # Unit-тесты
+│   ├── integration/          # Integration-тесты (Neo4j, LLM)
+│   └── e2e/                  # End-to-end тесты
+├── scripts/                  # CLI утилиты для ручного тестирования
 └── requirements.txt          # Зависимости проекта
 ```
 
@@ -40,13 +49,17 @@ backend/
 Для корректной работы бэкенда необходимо настроить следующие переменные:
 
 ```bash
-# OpenAI API для LLM обработки
-OPENAI_API_KEY=your_openai_api_key_here
+# OpenRouter API для LLM обработки
+OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 
 # Neo4j соединение
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=your_neo4j_password
+
+# (Опционально) Cloud.ru/Qwen для альтернативного LLM
+CLOUDRU_API_KEY=your_cloudru_key
 ```
 
 #### Способы настройки переменных
@@ -58,7 +71,8 @@ NEO4J_PASSWORD=your_neo4j_password
 ```bash
 cd backend/
 cat > .env << 'EOF'
-OPENAI_API_KEY=your_openai_api_key_here
+OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=your_neo4j_password
@@ -68,7 +82,8 @@ EOF
 **Вариант 2: Переменные окружения системы**
 
 ```bash
-export OPENAI_API_KEY="your_openai_api_key_here"
+export OPENROUTER_API_KEY="sk-or-v1-..."
+export OPENROUTER_BASE_URL="https://openrouter.ai/api/v1"
 export NEO4J_URI="bolt://localhost:7687"
 export NEO4J_USER="neo4j"
 export NEO4J_PASSWORD="your_neo4j_password"
@@ -77,7 +92,7 @@ export NEO4J_PASSWORD="your_neo4j_password"
 **Вариант 3: Передача при запуске**
 
 ```bash
-OPENAI_API_KEY=your_key NEO4J_URI=bolt://localhost:7687 \
+OPENROUTER_API_KEY=sk-or-v1-... NEO4J_URI=bolt://localhost:7687 \
 NEO4J_USER=neo4j NEO4J_PASSWORD=your_password \
 uvicorn app.api.main:app --reload
 ```
@@ -90,7 +105,7 @@ uvicorn app.api.main:app --reload
 from config.settings import settings
 
 # Использование в коде
-openai_key = settings.OPENAI_API_KEY
+openrouter_key = settings.OPENROUTER_API_KEY
 neo4j_uri = settings.NEO4J_URI
 ```
 
@@ -200,31 +215,51 @@ def save_graph_data(graph_data: GraphData) -> bool:
 **`app/services/note_processor.py`:**
 ```python
 from app.models.note import NotePayload
-from app.models.graph import GraphData, Node, Relationship
-from app.crud import graph_crud
+from app.models.graph import GraphData
+from app.services.pipgraph_manager import PipGraphManager
+from datetime import datetime, timezone
+import logging
 
-def process_and_store_note(note: NotePayload) -> GraphData:
+logger = logging.getLogger(__name__)
+
+async def process_and_store_note(note: NotePayload) -> GraphData:
     """
-    Основная бизнес-логика: обрабатывает заметку, извлекает граф и сохраняет его.
+    Основная бизнес-логика: обрабатывает заметку через PipGraphManager.
+
+    PipGraphManager предоставляет 7 стадий обработки с точками контроля:
+    1. Валидация входных данных
+    2. Извлечение фактов через LLM
+    3. Разрешение сущностей
+    4. Извлечение связей
+    5. Обнаружение дубликатов
+    6. Обновление графа в Neo4j
+    7. Форматирование результата
     """
-    # Шаг 1: Вызов LLM для извлечения сущностей (заглушка)
-    # В реальной реализации здесь будет вызов к Разработчику 3
-    print(f"Processing content from '{note.file_path}'...")
-    graph_data = GraphData(
-        nodes=[
-            Node(id="person1", label="Person", properties={"name": "Иван"}),
-            Node(id="company1", label="Company", properties={"name": "ООО 'Рога и копыта'"})
-        ],
-        relationships=[
-            Relationship(source_id="person1", target_id="company1", type="WORKS_AT")
-        ]
+    # Получаем экземпляр Graphiti (из зависимостей)
+    graphiti = await get_graphiti()
+
+    # Создаем менеджер для пошагового контроля
+    manager = PipGraphManager(graphiti)
+
+    # Обрабатываем заметку с полным контролем над процессом
+    result = await manager.process_note(
+        name=note.file_path,
+        content=note.content,
+        reference_time=datetime.now(timezone.utc)
     )
 
-    # Шаг 2: Сохранение извлеченных данных в БД через CRUD слой
-    graph_crud.save_graph_data(graph_data)
+    # Логируем результаты извлечения
+    logger.info(f"Extracted {result['entity_count']} entities, "
+                f"{result['edge_count']} edges from '{note.file_path}'")
 
-    return graph_data
+    return result
 ```
+
+**Новые возможности в реализации:**
+
+- **PipGraphManager** (`app/services/pipgraph_manager.py`) - обертка над Graphiti с 7 стадиями обработки
+- **CloudRuPatchedClient** (`app/services/cloudru_patched_client.py`) - клиент для Cloud.ru/Qwen моделей
+- **Обнаружение дубликатов** - планируется SHA-256 хеширование контента (см. TODO.md)
 
 #### 4. Слой API (`app/api/`)
 
@@ -332,6 +367,38 @@ uvicorn app.api.main:app --reload
     ```
 
 Этот результат подтверждает, что бэкенд готов к интеграции с фронтендом согласно утвержденной архитектуре.
+
+---
+
+## Дополнительная документация
+
+### Архитектурные решения
+
+Подробное описание архитектурных решений и дизайна системы доступно в:
+
+- **[docs/attend/pipgraph_manager_discussion.md](docs/attend/pipgraph_manager_discussion.md)** - Обсуждение дизайна PipGraphManager
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Архитектурные паттерны и решения
+- **[TODO.md](TODO.md)** - Запланированные задачи и технический долг
+- **[CHANGELOG.md](CHANGELOG.md)** - История изменений
+
+### Ключевые компоненты
+
+**PipGraphManager** - Обертка над Graphiti для пошагового контроля обработки заметок:
+- Скопирован код `add_episode` из graphiti_core для контролируемых модификаций
+- 7 стадий обработки с точками вмешательства
+- Документированные места для кастомизации
+- Позволяет постепенную кастомизацию без изменения библиотеки
+
+**CloudRuPatchedClient** - Кастомный LLM клиент для Cloud.ru/Qwen:
+- Исправляет дублирование JSON схемы в ответах Qwen
+- Модифицированная инструкция промпта: "return data only, not the schema"
+- Однострочное изменение с полной совместимостью с OpenAIGenericClient
+
+**Обнаружение дубликатов заметок** (Высокий приоритет в TODO):
+- Планируется верификация через SHA-256 хеш контента
+- Сценарий 1: Пропуск обработки если контент не изменился (оптимизация затрат)
+- Сценарий 2: Обработка модифицированных заметок (требуется дизайн)
+- Включает реализацию `find_episode_by_name()`
 
 ---
 
