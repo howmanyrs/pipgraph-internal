@@ -35,7 +35,7 @@ import typing
 from pydantic import BaseModel
 
 from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
-from graphiti_core.llm_client.client import get_extraction_language_instruction
+from graphiti_core.llm_client.client import MULTILINGUAL_EXTRACTION_RESPONSES
 from graphiti_core.llm_client.config import ModelSize
 from graphiti_core.prompts.models import Message
 
@@ -56,7 +56,6 @@ class CloudRuPatchedClient(OpenAIGenericClient):
         response_model: type[BaseModel] | None = None,
         max_tokens: int | None = None,
         model_size: ModelSize = ModelSize.medium,
-        group_id: str | None = None,
     ) -> dict[str, typing.Any]:
         """
         Generate response with Qwen-friendly JSON schema instructions.
@@ -69,7 +68,6 @@ class CloudRuPatchedClient(OpenAIGenericClient):
             response_model: Pydantic model defining expected response structure
             max_tokens: Maximum tokens in response
             model_size: Size of model to use
-            group_id: Optional group ID for multilingual extraction
 
         Returns:
             dict: Parsed JSON response from LLM
@@ -89,7 +87,7 @@ class CloudRuPatchedClient(OpenAIGenericClient):
             )
 
         # Add multilingual extraction instructions
-        messages[0].content += get_extraction_language_instruction(group_id)
+        messages[0].content += MULTILINGUAL_EXTRACTION_RESPONSES
 
         # Retry logic (unchanged from parent class)
         while retry_count <= self.MAX_RETRIES:
