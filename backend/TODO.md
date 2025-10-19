@@ -16,24 +16,18 @@ Backend development tasks and roadmap for PipGraph.
   - Return validation errors to user via WebSocket with clear warnings
   - Add configuration for max note size limits
   - Support "strict" mode (reject) vs "warn" mode (notify user)
-- [ ] Duplicate note detection and content hash verification
-  - Implement `find_episode_by_name()` method in PipGraphManager using direct Cypher query
-  - Add SHA-256 content hashing for episode deduplication
-  - Store content hash as episode attribute or in episode metadata
-  - **Scenario 1 (SIMPLE)**: Skip processing if content unchanged
-    - Compare existing content_hash with new hash
-    - Return cached result, log "content unchanged, skipping"
-    - Avoid redundant LLM calls (cost optimization)
-  - **Scenario 2 (COMPLEX)**: Handle modified note re-processing
-    - Detect content changes via hash mismatch
-    - Define update strategy (requires separate design task):
-      - Option A: Delete old episode + create new (simple, potential data loss)
-      - Option B: Version episodes (add version_id field, keep history)
-      - Option C: Incremental entity/edge updates (complex, needs research)
-      - How to handle invalidated relationships?
-      - How to preserve user-added metadata?
-      - Should we create a new episode or update existing?
-    - Create sub-task: "Design modified note update strategy"
+- [ ] Handle modified note re-processing (Checknote v2 Phase 2)
+  - **Status**: Detection implemented ✅ | Handling strategy needed ⏳
+  - **Current behavior**: UPDATED notes detected but return existing episode_uuid
+  - **Design update strategy** (requires architecture decision):
+    - Option A: Delete old episode + create new (simple, potential data loss)
+    - Option B: Version episodes (add version_id field, keep history)
+    - Option C: Incremental entity/edge updates (complex, needs research)
+    - How to handle invalidated relationships?
+    - How to preserve user-added metadata?
+    - Should we create a new episode or update existing?
+  - **See**: `docs/checknote_plan_develop/checknote_implementation_plan_v02.md` (Roadmap Phase 2)
+  - **See**: `docs/CHECKNOTE_USAGE.md` (Current limitations)
 - [ ] Implement Obsidian feedback cycle for frontmatter updates
   - Create Pydantic models for feedback messages (entities, relationships, clarifications)
   - Implement multi-round WebSocket messaging protocol
@@ -122,3 +116,15 @@ Backend development tasks and roadmap for PipGraph.
 - [x] Test suite setup (pytest with markers)
 - [x] Configuration management with pydantic-settings
 - [x] CLI utilities for manual testing
+- [x] **Checknote v2 - Duplicate note detection (Phase 1)**
+  - ✅ File-path-first duplicate detection with SQLite metadata tracking
+  - ✅ Composite PRIMARY KEY `(file_path, group_id)` for note identification
+  - ✅ SHA-256 content hashing for deduplication
+  - ✅ Three-status workflow: NEW, DUPLICATE, UPDATED
+  - ✅ Automatic LLM skip for duplicate notes (cost optimization)
+  - ✅ ChecknoteService with `check_note_status()` and metadata management
+  - ✅ Integration in note_processor.py with pre-LLM validation
+  - ✅ Unit and integration tests (test_checknote.py, test_note_processor_checknote.py)
+  - ✅ Migration script for backfilling existing episodes
+  - ✅ User documentation in docs/CHECKNOTE_USAGE.md
+  - 📋 Phase 2 (UPDATED handling) moved to High Priority

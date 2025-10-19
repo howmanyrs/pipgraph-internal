@@ -5,10 +5,26 @@ from app.services import note_processor
 
 router = APIRouter()
 
+
+def _get_status_message(status: str) -> str:
+    """Пользовательские сообщения для каждого статуса"""
+    messages = {
+        "new": "Note processed successfully",
+        "duplicate": "Note already processed with identical content",
+        "updated": "Note content has changed (update handling coming in Phase 2)"
+    }
+    return messages.get(status, "Unknown status")
+
+
 @router.websocket("/ws/notes/process")
 async def process_note_websocket(websocket: WebSocket):
     """
     Принимает WebSocket соединение для полного цикла обработки заметки.
+
+    Возвращает статус обработки:
+    - "new": заметка обработана впервые
+    - "duplicate": повторная обработка идентичного контента (LLM не вызывался)
+    - "updated": обнаружено изменение контента (Phase 2 - пока не обрабатывается)
     """
     await websocket.accept()
     try:
@@ -27,14 +43,18 @@ async def process_note_websocket(websocket: WebSocket):
             "message": f"Note '{payload.file_path}' received, starting processing..."
         })
 
-        # 2. Вызываем бизнес-логику асинхронно
-        # В будущем здесь может быть фоновая задача (Celery, BackgroundTasks)
-        graph_data = await note_processor.process_and_store_note(payload)
+        # 2. Вызываем бизнес-логику асинхронно (с проверкой дубликатов)
+        result = await note_processor.process_and_store_note(payload)
 
         # 3. Отправляем финальный результат
         await websocket.send_json({
-            "status": "done",
-            "data": graph_data.dict() # Сериализуем Pydantic модель в dict
+            "status": result.status,  # "new" | "duplicate" | "updated"
+            "episode_uuid": result.episode_uuid,
+            "content_hash": result.content_hash,
+            "old_content_hash": result.old_content_hash,  # Только для "updated"
+            "nodes_count": len(result.processing_details.nodes) if result.processing_details else 0,
+            "edges_count": len(result.processing_details.edges) if result.processing_details else 0,
+            "message": _get_status_message(result.status)
         })
 
     except WebSocketDisconnect:
