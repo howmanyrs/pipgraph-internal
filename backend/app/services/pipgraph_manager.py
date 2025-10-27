@@ -71,6 +71,13 @@ from graphiti_core.utils.maintenance.node_operations import (
 )
 from graphiti_core.utils.ontology_utils.entity_types_utils import validate_entity_types
 
+# Import PARA configuration
+from config.para_config import (
+    PARA_ENTITY_TYPES,
+    PARA_EDGE_TYPES,
+    PARA_EDGE_TYPE_MAP,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -125,6 +132,7 @@ class PipGraphManager:
         previous_episode_uuids: list[str] | None = None,
         edge_types: dict[str, type[BaseModel]] | None = None,
         edge_type_map: dict[tuple[str, str], list[str]] | None = None,
+        use_para_entities: bool = True,
     ) -> AddEpisodeResults:
         """
         Обработка заметки с пошаговым извлечением сущностей и связей.
@@ -153,6 +161,7 @@ class PipGraphManager:
             Optional. Whether to update communities with new node information
         entity_types : dict[str, BaseModel] | None
             Optional. Dictionary mapping entity type names to their Pydantic model definitions.
+            If None and use_para_entities=True, defaults to PARA entity types.
         excluded_entity_types : list[str] | None
             Optional. List of entity type names to exclude from the graph. Entities classified
             into these types will not be added to the graph. Can include 'Entity' to exclude
@@ -160,6 +169,15 @@ class PipGraphManager:
         previous_episode_uuids : list[str] | None
             Optional.  list of episode uuids to use as the previous episodes. If this is not provided,
             the most recent episodes by created_at date will be used.
+        edge_types : dict[str, BaseModel] | None
+            Optional. Dictionary mapping edge type names to their Pydantic model definitions.
+            If None and use_para_entities=True, defaults to PARA edge types.
+        edge_type_map : dict[tuple[str, str], list[str]] | None
+            Optional. Mapping of (source_entity_type, target_entity_type) to list of allowed edge types.
+            If None and use_para_entities=True, defaults to PARA edge type map.
+        use_para_entities : bool
+            Optional. If True (default), automatically uses PARA entity types, edge types, and edge type map
+            when custom types are not provided. Set to False to use default Graphiti behavior.
 
         Returns
         -------
@@ -171,6 +189,10 @@ class PipGraphManager:
         Оригинальный метод из graphiti_core/graphiti.py (lines 376-573).
         Сохранен для обратной совместимости и постепенной модификации.
 
+        PARA INTEGRATION:
+        По умолчанию использует PARA entity types (Project, Area, Resource, Archive)
+        для автоматической классификации заметок. Для отключения передайте use_para_entities=False.
+
         ТОЧКИ ДЛЯ БУДУЩЕЙ ИНТЕРВЕНЦИИ:
         - После extract_nodes: добавить подтверждение найденных сущностей
         - После resolve_extracted_nodes: ГЛАВНАЯ ТОЧКА - спросить описание новых сущностей
@@ -179,6 +201,23 @@ class PipGraphManager:
         try:
             start = time()
             now = utc_now()
+
+            # TODO: Если будут использоваться другие типы сущностей, а не только para, тогда надо
+            # учесть их объединение. Сейчас либо PARA либо ничего.
+            
+            # Apply PARA defaults if use_para_entities is True and custom types not provided
+            if use_para_entities:
+                if entity_types is None:
+                    entity_types = PARA_ENTITY_TYPES
+                    logger.info("Using default PARA entity types (Project, Area, Resource, Archive)")
+
+                if edge_types is None:
+                    edge_types = PARA_EDGE_TYPES
+                    logger.info("Using default PARA edge types (ContributesTo, SpawnedFrom, UsesResource)")
+
+                if edge_type_map is None:
+                    edge_type_map = PARA_EDGE_TYPE_MAP
+                    logger.info("Using default PARA edge type map")
 
             validate_entity_types(entity_types)
 
