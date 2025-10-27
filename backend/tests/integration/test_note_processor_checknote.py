@@ -12,6 +12,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from app.services.note_processor import process_and_store_note
 from app.models.note import NotePayload
 from app.services.checknote import ChecknoteService
+from app.services.pipgraph_manager import AddEpisodeResults
 from graphiti_core.nodes import EpisodicNode
 
 
@@ -28,10 +29,15 @@ def mock_pipgraph_result():
     mock_episode = Mock(spec=EpisodicNode)
     mock_episode.uuid = "test-episode-uuid-123"
 
-    mock_result = Mock()
-    mock_result.episode = mock_episode
-    mock_result.nodes = [Mock(), Mock()]  # 2 узла
-    mock_result.edges = [Mock()]  # 1 связь
+    # Create a proper AddEpisodeResults instance instead of Mock
+    mock_result = AddEpisodeResults(
+        episode=mock_episode,
+        episodic_edges=[],
+        nodes=[],
+        edges=[],
+        communities=[],
+        community_edges=[]
+    )
 
     return mock_result
 
@@ -166,16 +172,28 @@ async def test_different_files_same_content_both_processed(temp_checknote_servic
         mock_manager = AsyncMock()
 
         # Первый вызов
-        mock_result_1 = Mock()
-        mock_result_1.episode = Mock(uuid="uuid-file1")
-        mock_result_1.nodes = []
-        mock_result_1.edges = []
+        mock_episode_1 = Mock(spec=EpisodicNode)
+        mock_episode_1.uuid = "uuid-file1"
+        mock_result_1 = AddEpisodeResults(
+            episode=mock_episode_1,
+            episodic_edges=[],
+            nodes=[],
+            edges=[],
+            communities=[],
+            community_edges=[]
+        )
 
         # Второй вызов
-        mock_result_2 = Mock()
-        mock_result_2.episode = Mock(uuid="uuid-file2")
-        mock_result_2.nodes = []
-        mock_result_2.edges = []
+        mock_episode_2 = Mock(spec=EpisodicNode)
+        mock_episode_2.uuid = "uuid-file2"
+        mock_result_2 = AddEpisodeResults(
+            episode=mock_episode_2,
+            episodic_edges=[],
+            nodes=[],
+            edges=[],
+            communities=[],
+            community_edges=[]
+        )
 
         mock_manager.process_note = AsyncMock(side_effect=[mock_result_1, mock_result_2])
         MockPipGraphManager.return_value = mock_manager

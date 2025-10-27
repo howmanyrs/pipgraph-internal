@@ -56,7 +56,12 @@ It integrates with Graphiti for entity extraction and knowledge graph building.
 
     result = await process_and_store_note(note)
     assert result is not None
-    assert result.nodes is not None
+    assert result.status in ["new", "duplicate", "updated"]
+    assert result.episode_uuid is not None
+    # For new notes, check processing_details exist
+    if result.status == "new":
+        assert result.processing_details is not None
+        assert result.processing_details.nodes is not None
 
 
 # @pytest.mark.integration
