@@ -2,7 +2,7 @@
 
 ### Анализ текущего предложения (хранение в атрибутах)
 
-Изначальное предложение backend/docs/attend/response_flow/user_check_mvp_plan.md
+Изначальное предложение backend/docs/attend/response_flow/user_check_granularity_proposal.md
 
 
 Вы предлагаете хранить `UserCheckDetail` как сложный JSON-объект (или словарь в Python) внутри свойства `user_check` на самой ноде `EntityNode`.
