@@ -143,3 +143,5 @@
 *   Бэкенд должен выполнить `MERGE` связи с указанным `target_id`, а не с тем, что он сам придумал изначально.
 
 ---
+
+**Навигация:** **← Предыдущий** [06_IMPLEMENTATION_ROADMAP.md](./06_IMPLEMENTATION_ROADMAP.md) | [README](./README.md)

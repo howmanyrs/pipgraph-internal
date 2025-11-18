@@ -1,8 +1,7 @@
-# Implementation Roadmap V3: Constructive Interaction
+# Implementation Roadmap: Constructive Interaction
 
 **Дата обновления:** 2025-11-18
 **Статус:** Active Plan
-**Версия:** 3.0
 **Стратегия:** Top-Down -> Context Injection -> Actionable UI
 
 ---
@@ -87,3 +86,7 @@
 ---
 
 **Готово к старту Phase 1.** 🚀
+
+---
+
+**Навигация:** **← Предыдущий** [05_LANGGRAPH_WORKFLOW.md](./05_LANGGRAPH_WORKFLOW.md) | **Следующий →** [07_USER_INTERACTION_REQUIREMENTS.md](./07_USER_INTERACTION_REQUIREMENTS.md)

@@ -1,19 +1,8 @@
-Вот обновленная версия `04_LANGGRAPH_WORKFLOW_v03.md`.
-
-**Ключевые изменения:**
-1.  **User Decision Model:** Вместо простого `Confirm/Reject` узел обработки ответа теперь умеет обрабатывать `Link Alternative`, `Create Custom` и `Reclassify`.
-2.  **State Management:** Добавлены поля для хранения "сырого" выбора пользователя перед коммитом.
-3.  **Strict Sequence:** Четкое разделение на Phase 1 (Linking) и Phase 2 (Extraction) с двумя разными точками записи (Commit).
-
----
---- START OF FILE 04_LANGGRAPH_WORKFLOW_V3.md ---
-
-# LangGraph Workflow V3: Constructive Interaction
+# LangGraph Workflow: Constructive Interaction
 
 **Дата обновления:** 2025-11-18
 **Статус:** Implementation Guide
-**Версия:** 3.0
-**Связанные документы:** [06_USER_INTERACTION_REQUIREMENTS.md](./06_USER_INTERACTION_REQUIREMENTS.md)
+**Связанные документы:** [07_USER_INTERACTION_REQUIREMENTS.md](./07_USER_INTERACTION_REQUIREMENTS.md)
 
 ---
 
@@ -228,4 +217,4 @@ def should_interrupt_content(state: NoteWorkflowState):
 
 ---
 
-**Следующий документ:** [05_IMPLEMENTATION_ROADMAP_V3.md](./05_IMPLEMENTATION_ROADMAP_V3.md)
+**Навигация:** **← Предыдущий** [04_PIPGRAPH_MANAGER_REFACTORING.md](./04_PIPGRAPH_MANAGER_REFACTORING.md) | **Следующий →** [06_IMPLEMENTATION_ROADMAP.md](./06_IMPLEMENTATION_ROADMAP.md)

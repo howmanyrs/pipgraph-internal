@@ -1,8 +1,7 @@
-# Response Flow Clean v03 - Документация
+# Response Flow Clean - Документация
 
 **Дата обновления:** 2025-11-18
 **Статус:** Final Architectural Guide
-**Версия:** 3.0
 **Стратегия:** Context-First & Constructive Interaction
 
 ---
@@ -11,7 +10,7 @@
 
 Эта серия документов описывает финальную архитектуру системы обработки заметок для PipGraph. Мы перешли от модели "Извлечь всё и разобрать" к модели **"Сначала найти место, потом извлечь смыслы"**.
 
-### Ключевые принципы v3
+### Ключевые принципы
 
 1.  **Top-Down Workflow (Сверху-Вниз):**
     Мы не ищем сущности в вакууме. Сначала система определяет, к какому **Проекту или Области (L1/L2)** относится заметка. Только получив этот контекст, мы запускаем извлечение сущностей (L3).
@@ -35,12 +34,12 @@
 *   **[03_GRAPH_SCHEMA.md](./03_GRAPH_SCHEMA.md)** — *Как храним?* Схема Neo4j, типы узлов и связей, индексы.
 
 ### Реализация
-*   **[03_PIPGRAPH_MANAGER_REFACTORING.md](./03_PIPGRAPH_MANAGER_REFACTORING.md)** — *Инструментарий.* Список методов класса `PipGraphManager`. Разделение на `Identify` (L1/L2) и `Extract` (L3).
-*   **[04_LANGGRAPH_WORKFLOW_V3.md](./04_LANGGRAPH_WORKFLOW_V3.md)** — *Процесс.* Схема графа LangGraph, логика узлов, точки фиксации (Commits) и управление состоянием.
+*   **[04_PIPGRAPH_MANAGER_REFACTORING.md](./04_PIPGRAPH_MANAGER_REFACTORING.md)** — *Инструментарий.* Список методов класса `PipGraphManager`. Разделение на `Identify` (L1/L2) и `Extract` (L3).
+*   **[05_LANGGRAPH_WORKFLOW.md](./05_LANGGRAPH_WORKFLOW.md)** — *Процесс.* Схема графа LangGraph, логика узлов, точки фиксации (Commits) и управление состоянием.
 
 ### Взаимодействие и План
-*   **[06_USER_INTERACTION_REQUIREMENTS.md](./06_USER_INTERACTION_REQUIREMENTS.md)** — *UX/UI.* Требования к плагину Obsidian. Логика "умных" уведомлений и обработки решений пользователя.
-*   **[05_IMPLEMENTATION_ROADMAP_V3.md](./05_IMPLEMENTATION_ROADMAP_V3.md)** — *План действий.* Пошаговая инструкция на 8 дней разработки.
+*   **[06_IMPLEMENTATION_ROADMAP.md](./06_IMPLEMENTATION_ROADMAP.md)** — *План действий.* Пошаговая инструкция на 8 дней разработки.
+*   **[07_USER_INTERACTION_REQUIREMENTS.md](./07_USER_INTERACTION_REQUIREMENTS.md)** — *UX/UI.* Требования к плагину Obsidian. Логика "умных" уведомлений и обработки решений пользователя.
 
 ---
 
@@ -67,8 +66,8 @@ graph LR
 ## Как начать работу?
 
 1.  **Изучите [03_GRAPH_SCHEMA.md](./03_GRAPH_SCHEMA.md)**, чтобы понять, как данные будут лежать в базе. Это изменилось кардинально (связи вместо атрибутов).
-2.  **Откройте [05_IMPLEMENTATION_ROADMAP_V3.md](./05_IMPLEMENTATION_ROADMAP_V3.md)** и начните с **Phase 1**. Ваша первая задача — научить систему просто принимать заметку и привязывать её к правильному проекту, игнорируя пока содержимое текста.
-3.  **Используйте [06_USER_INTERACTION_REQUIREMENTS.md](./06_USER_INTERACTION_REQUIREMENTS.md)** при разработке фронтенда (плагина), чтобы правильно обрабатывать JSON-пейлоады от бэкенда.
+2.  **Откройте [06_IMPLEMENTATION_ROADMAP.md](./06_IMPLEMENTATION_ROADMAP.md)** и начните с **Phase 1**. Ваша первая задача — научить систему просто принимать заметку и привязывать её к правильному проекту, игнорируя пока содержимое текста.
+3.  **Используйте [07_USER_INTERACTION_REQUIREMENTS.md](./07_USER_INTERACTION_REQUIREMENTS.md)** при разработке фронтенда (плагина), чтобы правильно обрабатывать JSON-пейлоады от бэкенда.
 
 ---
 
