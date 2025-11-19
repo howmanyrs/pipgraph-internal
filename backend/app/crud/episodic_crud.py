@@ -1,8 +1,10 @@
-"""CRUD operations for Episode nodes (Episodic memory).
+"""CRUD operations for Episodic nodes (Episodic memory).
 
-Episode nodes represent individual notes/documents in the system.
+Episodic nodes represent individual notes/documents in the system.
 They follow the No-Cache Policy: context is determined through relationship traversal,
 NOT stored in node properties (no project_id field).
+
+Note: Uses 'Episodic' label to match Graphiti conventions.
 """
 
 from typing import Optional, Dict, Any
@@ -15,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class EpisodicCRUD:
-    """CRUD operations for Episode nodes."""
+    """CRUD operations for Episodic nodes."""
 
     def __init__(self, driver=None):
         """Initialize with optional Neo4j driver.
@@ -42,9 +44,9 @@ class EpisodicCRUD:
         content: Optional[str] = None,
         uuid: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Create a new Episode node.
+        """Create a new Episodic node.
 
-        IMPORTANT: No-Cache Policy - Episode does NOT contain project_id or any PARA context.
+        IMPORTANT: No-Cache Policy - Episodic does NOT contain project_id or any PARA context.
         Context is determined by traversing :IS_PART_OF relationships.
 
         Args:
@@ -55,7 +57,7 @@ class EpisodicCRUD:
             uuid: Optional UUID (for Graphiti compatibility)
 
         Returns:
-            Dict with created episode properties
+            Dict with created episodic node properties
         """
         now = datetime.utcnow().isoformat()
         created_at = created_at.isoformat() if created_at else now
@@ -76,7 +78,7 @@ class EpisodicCRUD:
 
         # Build query dynamically
         query = """
-        CREATE (e:Episode)
+        CREATE (e:Episodic)
         SET e = $properties
         RETURN e
         """
@@ -86,27 +88,27 @@ class EpisodicCRUD:
             record = result.single()
 
             if record:
-                episode = dict(record["e"])
-                logger.info(f"✓ Created Episode: {path}")
+                episodic = dict(record["e"])
+                logger.info(f"✓ Created Episodic: {path}")
                 # Verify no project_id in the node
-                if "project_id" in episode:
-                    logger.error(f"⚠️ VIOLATION: Episode has project_id field! This breaks No-Cache Policy!")
-                return episode
+                if "project_id" in episodic:
+                    logger.error("⚠️ VIOLATION: Episodic has project_id field! This breaks No-Cache Policy!")
+                return episodic
             else:
-                logger.error(f"✗ Failed to create Episode: {path}")
+                logger.error(f"✗ Failed to create Episodic: {path}")
                 return {}
 
     def get_episodic(self, path: str) -> Optional[Dict[str, Any]]:
-        """Retrieve an Episode by path (name).
+        """Retrieve an Episodic by path (name).
 
         Args:
-            path: File path (Episode.name)
+            path: File path (Episodic.name)
 
         Returns:
-            Dict with episode properties or None if not found
+            Dict with episodic properties or None if not found
         """
         query = """
-        MATCH (e:Episode {name: $path})
+        MATCH (e:Episodic {name: $path})
         RETURN e
         """
 
@@ -115,13 +117,13 @@ class EpisodicCRUD:
             record = result.single()
 
             if record:
-                episode = dict(record["e"])
+                episodic = dict(record["e"])
                 # Verify No-Cache Policy
-                if "project_id" in episode:
-                    logger.warning(f"⚠️ Episode {path} has project_id field (violates No-Cache Policy)")
-                return episode
+                if "project_id" in episodic:
+                    logger.warning(f"⚠️ Episodic {path} has project_id field (violates No-Cache Policy)")
+                return episodic
             else:
-                logger.warning(f"Episode not found: {path}")
+                logger.warning(f"Episodic not found: {path}")
                 return None
 
     def update_episodic_timestamp(
@@ -129,20 +131,20 @@ class EpisodicCRUD:
         path: str,
         updated_at: Optional[datetime] = None
     ) -> bool:
-        """Update the timestamp of an Episode.
+        """Update the timestamp of an Episodic node.
 
         Args:
-            path: File path (Episode.name)
+            path: File path (Episodic.name)
             updated_at: New timestamp (defaults to now)
 
         Returns:
-            True if updated, False if episode not found
+            True if updated, False if episodic not found
         """
         now = datetime.utcnow().isoformat()
         updated_at = updated_at.isoformat() if updated_at else now
 
         query = """
-        MATCH (e:Episode {name: $path})
+        MATCH (e:Episodic {name: $path})
         SET e.valid_at = $updated_at
         RETURN e
         """
@@ -152,23 +154,23 @@ class EpisodicCRUD:
             record = result.single()
 
             if record:
-                logger.info(f"✓ Updated Episode timestamp: {path}")
+                logger.info(f"✓ Updated Episodic timestamp: {path}")
                 return True
             else:
-                logger.warning(f"Episode not found for update: {path}")
+                logger.warning(f"Episodic not found for update: {path}")
                 return False
 
     def delete_episodic(self, path: str) -> bool:
-        """Delete an Episode and all its relationships.
+        """Delete an Episodic node and all its relationships.
 
         Args:
-            path: File path (Episode.name)
+            path: File path (Episodic.name)
 
         Returns:
             True if deleted, False if not found
         """
         query = """
-        MATCH (e:Episode {name: $path})
+        MATCH (e:Episodic {name: $path})
         DETACH DELETE e
         RETURN count(e) as deleted_count
         """
@@ -178,8 +180,8 @@ class EpisodicCRUD:
             record = result.single()
 
             if record and record["deleted_count"] > 0:
-                logger.info(f"✓ Deleted Episode: {path}")
+                logger.info(f"✓ Deleted Episodic: {path}")
                 return True
             else:
-                logger.warning(f"Episode not found for deletion: {path}")
+                logger.warning(f"Episodic not found for deletion: {path}")
                 return False

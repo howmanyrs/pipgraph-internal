@@ -25,7 +25,8 @@ Here is the updated **README.md**.
     *   Между заметкой и контейнером может быть **несколько связей** `:SUGGESTS` одновременно.
     *   Каждое ребро имеет уникальный `suggestion_id` и тип (`link`, `property_update`), что позволяет пользователю атомарно принимать решения (например, связать с проектом, но отказаться от его переименования).
 3.  **Graphiti Compatibility:**
-    *   Используем стандартные узлы `Episode` и `Entity` для совместимости с Graphiti SDK.
+    *   Используем стандартные узлы `Episodic` и `Entity` для совместимости с Graphiti SDK.
+    *   Entity узлы могут иметь composite labels (`:Entity:Concept`, `:Entity:Task`) при указании `entity_types`.
 4.  **No-Cache Policy:**
     *   Граф — единственный источник истины. Никаких дублирующих полей (`project_id`) в узлах.
 

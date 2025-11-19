@@ -413,6 +413,15 @@ RETURN r;
   ```
 - [ ] 🔍 Вызвать функцию, проверить структуру
 
+**📌 Заметка о Entity labels:**
+Когда Graphiti извлекает entities с указанными типами (через параметр `entity_types`), узлы создаются с composite labels: `:Entity:Concept`, `:Entity:Task` и т.д.
+
+**Важно:** PARA узлы (`:Project`, `:Area`, `:Resource`) - это **отдельные узлы**, НЕ Entity! Не путайте:
+- **PARA контейнеры:** `:Project`, `:Area`, `:Resource` (для организации заметок)
+- **Extracted entities:** `:Entity:Concept`, `:Entity:Task` (извлеченные сущности из контента)
+
+В mock реализации можно использовать простые Entity без типов (просто `:Entity`).
+
 ---
 
 #### 4.2 Context Retrieval & Extraction
@@ -441,10 +450,15 @@ RETURN r;
 **Cypher для проверки:**
 ```cypher
 // Проверить созданные Entity
-MATCH (e:Entity) RETURN e.uuid, e.name, e.labels;
+MATCH (e:Entity) RETURN e.uuid, e.name LIMIT 5;
+
+// Проверить Neo4j labels (могут быть composite если использовали entity_types)
+MATCH (e:Entity) RETURN e.uuid, e.name, labels(e) LIMIT 3;
+// Для mock данных будет просто ["Entity"]
+// Для реального Graphiti с entity_types может быть ["Entity", "Concept"]
 
 // Проверить связи :MENTIONS
-MATCH (ep:Episode {name: "Notes/test.md"})-[r:MENTIONS]->(e:Entity)
+MATCH (ep:Episodic {name: "Notes/test.md"})-[r:MENTIONS]->(e:Entity)
 RETURN e.name, r.status;
 ```
 

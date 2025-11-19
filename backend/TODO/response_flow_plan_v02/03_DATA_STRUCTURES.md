@@ -69,6 +69,13 @@ CREATE CONSTRAINT entity_uuid_unique IF NOT EXISTS
 FOR (e:Entity) REQUIRE e.uuid IS UNIQUE;
 ```
 
+**📌 Entity Labels:**
+Entity узлы могут иметь composite labels при использовании `entity_types` в Graphiti extraction:
+- Без типов: `:Entity`
+- С типами: `:Entity:Concept`, `:Entity:Task` и т.д.
+
+**Важно:** Не путайте с PARA узлами! `:Project`, `:Area`, `:Resource` - это **отдельные узлы для организации**, НЕ Entity.
+
 ---
 
 ### Node Types (Custom Extensions)

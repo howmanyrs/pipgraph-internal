@@ -20,8 +20,8 @@ def create_constraints(driver):
     Constraints ensure data integrity and improve query performance.
     """
     constraints = [
-        # Episode constraint (name = file path, must be unique)
-        "CREATE CONSTRAINT episode_name_unique IF NOT EXISTS FOR (e:Episode) REQUIRE e.name IS UNIQUE",
+        # Episodic constraint (name = file path, must be unique)
+        "CREATE CONSTRAINT episodic_name_unique IF NOT EXISTS FOR (e:Episodic) REQUIRE e.name IS UNIQUE",
 
         # PARA container constraints (each container type has unique ID)
         "CREATE CONSTRAINT project_id_unique IF NOT EXISTS FOR (p:Project) REQUIRE p.id IS UNIQUE",

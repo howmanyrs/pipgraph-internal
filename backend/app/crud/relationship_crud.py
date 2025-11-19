@@ -1,9 +1,11 @@
-"""CRUD operations for relationships between Episodes and PARA containers.
+"""CRUD operations for relationships between Episodic nodes and PARA containers.
 
 This module implements the "Granular Suggestions" approach:
-- Multiple :SUGGESTS edges can exist between same Episode and container
+- Multiple :SUGGESTS edges can exist between same Episodic and container
 - Each suggestion has unique suggestion_id for atomic decision processing
 - Supports both "link" and "property_update" suggestion types
+
+Note: Uses 'Episodic' label to match Graphiti conventions.
 """
 
 from typing import Optional, List, Dict, Any
@@ -16,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class RelationshipCRUD:
-    """CRUD operations for Episode-PARA relationships and suggestions."""
+    """CRUD operations for Episodic-PARA relationships and suggestions."""
 
     def __init__(self, driver=None):
         """Initialize with optional Neo4j driver.
@@ -50,10 +52,10 @@ class RelationshipCRUD:
         """Create a detailed :SUGGESTS relationship.
 
         This creates a suggestion edge with full metadata. Multiple suggestions
-        can exist between the same Episode and container, each with unique suggestion_id.
+        can exist between the same Episodic and container, each with unique suggestion_id.
 
         Args:
-            episodic_path: Episode name (file path)
+            episodic_path: Episodic name (file path)
             container_id: Target PARA container ID
             suggestion_id: Unique UUID for this suggestion (auto-generated if None)
             confidence: LLM confidence score (0.0-1.0)
@@ -84,7 +86,7 @@ class RelationshipCRUD:
             rel_props["suggested_value"] = suggested_value
 
         query = f"""
-        MATCH (e:Episode {{name: $episodic_path}})
+        MATCH (e:Episodic {{name: $episodic_path}})
         MATCH (c:{container_label} {{id: $container_id}})
         CREATE (e)-[r:SUGGESTS]->(c)
         SET r = $rel_props
@@ -114,18 +116,18 @@ class RelationshipCRUD:
                 return {}
 
     def get_suggestions(self, episodic_path: str) -> List[Dict[str, Any]]:
-        """Retrieve all :SUGGESTS relationships for an Episode.
+        """Retrieve all :SUGGESTS relationships for an Episodic node.
 
         Returns all active suggestions that require user decision.
 
         Args:
-            episodic_path: Episode name (file path)
+            episodic_path: Episodic name (file path)
 
         Returns:
             List of dicts with suggestion data (includes container info)
         """
         query = """
-        MATCH (e:Episode {name: $episodic_path})-[r:SUGGESTS]->(c)
+        MATCH (e:Episodic {name: $episodic_path})-[r:SUGGESTS]->(c)
         RETURN
             r.suggestion_id as suggestion_id,
             r.confidence as confidence,
@@ -155,7 +157,7 @@ class RelationshipCRUD:
             Dict with suggestion data or None if not found
         """
         query = """
-        MATCH (e:Episode)-[r:SUGGESTS {suggestion_id: $suggestion_id}]->(c)
+        MATCH (e:Episodic)-[r:SUGGESTS {suggestion_id: $suggestion_id}]->(c)
         RETURN
             e.name as episodic_path,
             r.suggestion_id as suggestion_id,
@@ -216,10 +218,10 @@ class RelationshipCRUD:
     ) -> Dict[str, Any]:
         """Create a confirmed :IS_PART_OF relationship.
 
-        This represents a finalized decision - the Episode is now linked to a PARA container.
+        This represents a finalized decision - the Episodic is now linked to a PARA container.
 
         Args:
-            episodic_path: Episode name (file path)
+            episodic_path: Episodic name (file path)
             container_id: Target PARA container ID
             container_label: Node label (Project, Area, Resource)
 
@@ -227,7 +229,7 @@ class RelationshipCRUD:
             Dict with relationship properties
         """
         query = f"""
-        MATCH (e:Episode {{name: $episodic_path}})
+        MATCH (e:Episodic {{name: $episodic_path}})
         MATCH (c:{container_label} {{id: $container_id}})
         MERGE (e)-[r:IS_PART_OF]->(c)
         RETURN r, c.name as container_name
@@ -251,19 +253,19 @@ class RelationshipCRUD:
                 return {}
 
     def get_episodic_para_context(self, episodic_path: str) -> Optional[Dict[str, Any]]:
-        """Retrieve the PARA context for an Episode via :IS_PART_OF relationship.
+        """Retrieve the PARA context for an Episodic via :IS_PART_OF relationship.
 
         IMPORTANT: This ignores :SUGGESTS relationships and only returns confirmed context.
-        This is used to determine if an Episode has finalized its PARA assignment.
+        This is used to determine if an Episodic has finalized its PARA assignment.
 
         Args:
-            episodic_path: Episode name (file path)
+            episodic_path: Episodic name (file path)
 
         Returns:
             Dict with container info or None if no confirmed link exists
         """
         query = """
-        MATCH (e:Episode {name: $episodic_path})-[:IS_PART_OF]->(c)
+        MATCH (e:Episodic {name: $episodic_path})-[:IS_PART_OF]->(c)
         RETURN
             c.id as container_id,
             c.name as container_name,
@@ -283,18 +285,18 @@ class RelationshipCRUD:
                 return None
 
     def remove_all_suggestions(self, episodic_path: str) -> int:
-        """Remove all :SUGGESTS relationships for an Episode.
+        """Remove all :SUGGESTS relationships for an Episodic node.
 
         Useful when user selects an alternative or creates a custom container.
 
         Args:
-            episodic_path: Episode name (file path)
+            episodic_path: Episodic name (file path)
 
         Returns:
             Number of suggestions removed
         """
         query = """
-        MATCH (e:Episode {name: $episodic_path})-[r:SUGGESTS]->()
+        MATCH (e:Episodic {name: $episodic_path})-[r:SUGGESTS]->()
         DELETE r
         RETURN count(r) as deleted_count
         """
