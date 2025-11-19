@@ -56,18 +56,16 @@
 ### Задачи
 
 #### 1.1 Neo4j Schema Setup
-**Файл:** `app/db/schema.py` или отдельный скрипт с Cypher командами
+**Файл:** `app/db/schema.py` или migration script
 
-**Задача:** Создать схему БД с нуля (constraints и indexes) на чистом Neo4j.
-
-- [ ] Создать constraint для `Episode.name` (UNIQUE)
-- [ ] Создать constraint для `Project.id` (UNIQUE)
-- [ ] Создать constraint для `Area.id` (UNIQUE)
-- [ ] Создать constraint для `Resource.id` (UNIQUE)
-- [ ] Создать index для `Entity.uuid`
-- [ ] **ВАЖНО:** Создать index для `SUGGESTS.suggestion_id`
-- [ ] Выполнить все Cypher команды на локальном Neo4j (Neo4j Browser или скрипт)
-- [ ] 🔍 Проверить через `SHOW CONSTRAINTS` и `SHOW INDEXES`
+- [x] Создать constraint для `Episode.name` (UNIQUE)
+- [x] Создать constraint для `Project.id` (UNIQUE)
+- [x] Создать constraint для `Area.id` (UNIQUE)
+- [x] Создать constraint для `Resource.id` (UNIQUE)
+- [x] Создать index для `Entity.uuid`
+- [x] **ВАЖНО:** Создать index для `SUGGESTS.suggestion_id`
+- [x] Выполнить все Cypher команды на локальном Neo4j (Neo4j Browser или скрипт)
+- [x] 🔍 Проверить через `SHOW CONSTRAINTS` и `SHOW INDEXES`
 
 **Cypher для проверки:**
 ```cypher
@@ -80,13 +78,13 @@ SHOW INDEXES;
 #### 1.2 PARA Container CRUD
 **Файл:** `app/crud/para_crud.py`
 
-- [ ] Создать класс `PARAContainerCRUD`
-- [ ] Реализовать `create_project(project_id, name, status)`
-- [ ] Реализовать `create_area(area_id, name)`
-- [ ] Реализовать `create_resource(resource_id, name)`
-- [ ] Реализовать `get_project(project_id)`
-- [ ] Реализовать `list_projects(status=None)`
-- [ ] Реализовать `ensure_inbox_exists()` (дефолтная Area "Inbox")
+- [x] Создать класс `PARAContainerCRUD`
+- [x] Реализовать `create_project(project_id, name, status)`
+- [x] Реализовать `create_area(area_id, name)`
+- [x] Реализовать `create_resource(resource_id, name)`
+- [x] Реализовать `get_project(project_id)`
+- [x] Реализовать `list_projects(status=None)`
+- [x] Реализовать `ensure_inbox_exists()` (дефолтная Area "Inbox")
 - [ ] 🔍 Создать Project вручную, проверить в Neo4j Browser
 
 **Cypher для проверки:**
@@ -103,11 +101,11 @@ MATCH (a:Area {name: "Inbox"}) RETURN a;
 #### 1.3 Episodic CRUD
 **Файл:** `app/crud/episodic_crud.py`
 
-- [ ] Создать класс `EpisodicCRUD`
-- [ ] Реализовать `create_episodic(path, created_at, updated_at)`
-- [ ] Реализовать `get_episodic(path)`
-- [ ] Реализовать `update_episodic_timestamp(path, updated_at)`
-- [ ] **ВАЖНО:** Убедиться, что в Episode узле НЕТ поля `project_id`
+- [x] Создать класс `EpisodicCRUD`
+- [x] Реализовать `create_episodic(path, created_at, updated_at)`
+- [x] Реализовать `get_episodic(path)`
+- [x] Реализовать `update_episodic_timestamp(path, updated_at)`
+- [x] **ВАЖНО:** Убедиться, что в Episode узле НЕТ поля `project_id`
 - [ ] 🔍 Создать Episode, проверить структуру узла
 
 **Cypher для проверки:**
@@ -121,8 +119,8 @@ MATCH (e:Episode {name: "Notes/test.md"}) RETURN properties(e);
 #### 1.4 Relationship CRUD (Ключевая часть!)
 **Файл:** `app/crud/relationship_crud.py`
 
-- [ ] Создать класс `RelationshipCRUD`
-- [ ] Реализовать `create_suggestion(...)` с параметрами:
+- [x] Создать класс `RelationshipCRUD`
+- [x] Реализовать `create_suggestion(...)` с параметрами:
   - `episodic_path`
   - `container_id`
   - `suggestion_id` (UUID)
@@ -131,11 +129,11 @@ MATCH (e:Episode {name: "Notes/test.md"}) RETURN properties(e);
   - `suggestion_type` ("link" | "property_update")
   - `target_field` (опционально)
   - `suggested_value` (опционально)
-- [ ] Реализовать `get_suggestions(episodic_path)` → список всех :SUGGESTS
-- [ ] Реализовать `get_suggestion_by_id(suggestion_id)` → конкретное ребро
-- [ ] Реализовать `remove_suggestion(suggestion_id)` → удаление по UUID
-- [ ] Реализовать `create_link(episodic_path, container_id)` → :IS_PART_OF
-- [ ] Реализовать `get_episodic_para_context(episodic_path)` → контекст из :IS_PART_OF
+- [x] Реализовать `get_suggestions(episodic_path)` → список всех :SUGGESTS
+- [x] Реализовать `get_suggestion_by_id(suggestion_id)` → конкретное ребро
+- [x] Реализовать `remove_suggestion(suggestion_id)` → удаление по UUID
+- [x] Реализовать `create_link(episodic_path, container_id)` → :IS_PART_OF
+- [x] Реализовать `get_episodic_para_context(episodic_path)` → контекст из :IS_PART_OF
 - [ ] 🔍 Создать 2 разных :SUGGESTS между Episode и Project
 - [ ] 🔍 Проверить, что оба ребра существуют с разными suggestion_id
 
@@ -153,11 +151,11 @@ ORDER BY r.suggestion_id;
 
 ### Definition of Done (Iteration 1)
 
-- [ ] ✅ Neo4j schema создана (constraints, indexes)
-- [ ] ✅ CRUD операции работают для PARA контейнеров и Episode
-- [ ] ✅ Связи :SUGGESTS поддерживают множественность
-- [ ] ✅ Можно создать/удалить конкретное ребро по suggestion_id
-- [ ] ✅ get_episodic_para_context возвращает только :IS_PART_OF (игнорирует :SUGGESTS)
+- [x] ✅ Neo4j schema создана (constraints, indexes)
+- [x] ✅ CRUD операции работают для PARA контейнеров и Episode
+- [x] ✅ Связи :SUGGESTS поддерживают множественность
+- [x] ✅ Можно создать/удалить конкретное ребро по suggestion_id
+- [x] ✅ get_episodic_para_context возвращает только :IS_PART_OF (игнорирует :SUGGESTS)
 
 ---
 
