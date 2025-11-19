@@ -54,6 +54,12 @@ Here is the updated **README.md**.
 5.  **[05_TESTING_STRATEGY.md](./05_TESTING_STRATEGY.md)**
     *   *QA.* Стратегия тестирования: от Unit тестов логики предложений до E2E сценариев.
 
+6.  **[MOCK_IMPLEMENTATION_CHECKLIST.md](./MOCK_IMPLEMENTATION_CHECKLIST.md)** ⭐ **НАЧАТЬ ОТСЮДА**
+    *   *Пошаговый checklist для Mock-First подхода.*
+    *   *Все LLM вызовы заменены моками для быстрой проверки архитектуры.*
+    *   *Фокус на проверке данных в Neo4j Browser без написания тестов на первых этапах.*
+    *   *План миграции с моков на реальные LLM по компонентам.*
+
 ---
 
 ## Roadmap (5 итераций)
@@ -84,7 +90,19 @@ graph LR
 
 ## Как начать разработку?
 
-1.  **Изучите [01_MVP_SCOPE.md](./01_MVP_SCOPE.md)**, чтобы понять новые возможности (Granular Suggestions).
+### Рекомендованный путь: Mock-First подход ⭐
+
+1.  **Откройте [MOCK_IMPLEMENTATION_CHECKLIST.md](./MOCK_IMPLEMENTATION_CHECKLIST.md)**
+2.  **Следуйте пошаговому checklist:**
+    *   Iteration 1: Создайте Neo4j схему и CRUD
+    *   Iteration 2-4: Реализуйте логику с mock-методами
+    *   Iteration 5: Протестируйте полный цикл вручную
+3.  **Проверяйте результаты в Neo4j Browser** (без написания тестов на первых этапах)
+4.  **После проверки архитектуры:** постепенно заменяйте моки на реальные LLM
+
+### Альтернативный путь: С реальными LLM и тестами
+
+1.  **Изучите [01_MVP_SCOPE.md](./01_MVP_SCOPE.md.md)**, чтобы понять новые возможности (Granular Suggestions).
 2.  **Откройте [02_IMPLEMENTATION_STEPS.md](./02_IMPLEMENTATION_STEPS.md)**.
 3.  **Начните с Iteration 1:**
     *   Поднимите локальный Neo4j.
