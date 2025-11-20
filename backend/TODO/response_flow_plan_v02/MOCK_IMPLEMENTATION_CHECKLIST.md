@@ -58,7 +58,7 @@
 #### 1.1 Neo4j Schema Setup
 **Файл:** `app/db/schema.py` или migration script
 
-- [x] Создать constraint для `Episode.name` (UNIQUE)
+- [x] Создать constraint для `Episodic.name` (UNIQUE)
 - [x] Создать constraint для `Project.id` (UNIQUE)
 - [x] Создать constraint для `Area.id` (UNIQUE)
 - [x] Создать constraint для `Resource.id` (UNIQUE)
@@ -105,13 +105,13 @@ MATCH (a:Area {name: "Inbox"}) RETURN a;
 - [x] Реализовать `create_episodic(path, created_at, updated_at)`
 - [x] Реализовать `get_episodic(path)`
 - [x] Реализовать `update_episodic_timestamp(path, updated_at)`
-- [x] **ВАЖНО:** Убедиться, что в Episode узле НЕТ поля `project_id`
-- [ ] 🔍 Создать Episode, проверить структуру узла
+- [x] **ВАЖНО:** Убедиться, что в Episodic узле НЕТ поля `project_id`
+- [ ] 🔍 Создать Episodic, проверить структуру узла
 
 **Cypher для проверки:**
 ```cypher
-// Проверить Episode без project_id
-MATCH (e:Episode {name: "Notes/test.md"}) RETURN properties(e);
+// Проверить Episodic без project_id
+MATCH (e:Episodic {name: "Notes/test.md"}) RETURN properties(e);
 ```
 
 ---
@@ -134,13 +134,13 @@ MATCH (e:Episode {name: "Notes/test.md"}) RETURN properties(e);
 - [x] Реализовать `remove_suggestion(suggestion_id)` → удаление по UUID
 - [x] Реализовать `create_link(episodic_path, container_id)` → :IS_PART_OF
 - [x] Реализовать `get_episodic_para_context(episodic_path)` → контекст из :IS_PART_OF
-- [ ] 🔍 Создать 2 разных :SUGGESTS между Episode и Project
+- [ ] 🔍 Создать 2 разных :SUGGESTS между Episodic и Project
 - [ ] 🔍 Проверить, что оба ребра существуют с разными suggestion_id
 
 **Cypher для проверки:**
 ```cypher
 // Проверить множественные :SUGGESTS
-MATCH (e:Episode {name: "Notes/test.md"})-[r:SUGGESTS]->(p:Project)
+MATCH (e:Episodic {name: "Notes/test.md"})-[r:SUGGESTS]->(p:Project)
 RETURN r.suggestion_id, r.suggestion_type, r.target_field
 ORDER BY r.suggestion_id;
 
@@ -152,7 +152,7 @@ ORDER BY r.suggestion_id;
 ### Definition of Done (Iteration 1)
 
 - [x] ✅ Neo4j schema создана (constraints, indexes)
-- [x] ✅ CRUD операции работают для PARA контейнеров и Episode
+- [x] ✅ CRUD операции работают для PARA контейнеров и Episodic
 - [x] ✅ Связи :SUGGESTS поддерживают множественность
 - [x] ✅ Можно создать/удалить конкретное ребро по suggestion_id
 - [x] ✅ get_episodic_para_context возвращает только :IS_PART_OF (игнорирует :SUGGESTS)
@@ -326,11 +326,11 @@ RETURN r.suggestion_id, r.suggestion_type, r.confidence, r.target_field, r.sugge
 **Cypher для проверки (confirm link):**
 ```cypher
 // До: должно быть :SUGGESTS
-MATCH (e:Episode {name: "Notes/test.md"})-[r:SUGGESTS {suggestion_id: "uuid-123"}]->(p)
+MATCH (e:Episodic {name: "Notes/test.md"})-[r:SUGGESTS {suggestion_id: "uuid-123"}]->(p)
 RETURN r;
 
 // После confirm: должно быть :IS_PART_OF
-MATCH (e:Episode {name: "Notes/test.md"})-[r:IS_PART_OF]->(p)
+MATCH (e:Episodic {name: "Notes/test.md"})-[r:IS_PART_OF]->(p)
 RETURN r;
 ```
 
@@ -547,7 +547,7 @@ RETURN e.name, r.status;
 **Файл:** `docs/neo4j_verification_queries.md`
 
 - [ ] Создать документ с готовыми Cypher запросами для проверки:
-  - [ ] Проверка структуры Episode (нет project_id)
+  - [ ] Проверка структуры Episodic (нет project_id)
   - [ ] Проверка множественных :SUGGESTS
   - [ ] Проверка трансформации :SUGGESTS → :IS_PART_OF
   - [ ] Проверка обновления свойств Project
@@ -579,10 +579,10 @@ RETURN e.name, r.status;
 
 ## Appendix A: Neo4j Verification Queries
 
-### Проверка Episode (No-Cache Policy)
+### Проверка Episodic (No-Cache Policy)
 ```cypher
-// Episode должен быть БЕЗ поля project_id
-MATCH (e:Episode {name: "Notes/test.md"})
+// Episodic должен быть БЕЗ поля project_id
+MATCH (e:Episodic {name: "Notes/test.md"})
 RETURN properties(e);
 // Ожидаем: name, content, created_at, valid_at, uuid, source
 // НЕ должно быть: project_id
@@ -590,8 +590,8 @@ RETURN properties(e);
 
 ### Проверка множественных :SUGGESTS
 ```cypher
-// Должно быть 2 ребра между Episode и Project
-MATCH (e:Episode {name: "Notes/test.md"})-[r:SUGGESTS]->(p:Project)
+// Должно быть 2 ребра между Episodic и Project
+MATCH (e:Episodic {name: "Notes/test.md"})-[r:SUGGESTS]->(p:Project)
 RETURN r.suggestion_id, r.suggestion_type, r.confidence, r.target_field
 ORDER BY r.suggestion_type;
 // Ожидаем:
@@ -603,12 +603,12 @@ ORDER BY r.suggestion_type;
 ```cypher
 // После confirm link
 // :SUGGESTS с type="link" должно исчезнуть
-MATCH (e:Episode {name: "Notes/test.md"})-[r:SUGGESTS {suggestion_type: "link"}]->(p:Project)
+MATCH (e:Episodic {name: "Notes/test.md"})-[r:SUGGESTS {suggestion_type: "link"}]->(p:Project)
 RETURN count(r) as link_suggestions;
 // Ожидаем: 0
 
 // :IS_PART_OF должно появиться
-MATCH (e:Episode {name: "Notes/test.md"})-[r:IS_PART_OF]->(p:Project)
+MATCH (e:Episodic {name: "Notes/test.md"})-[r:IS_PART_OF]->(p:Project)
 RETURN p.name;
 // Ожидаем: "Mock Project Alpha"
 ```
@@ -621,29 +621,29 @@ RETURN p.name;
 // Ожидаем: "Mock Project Alpha v2"
 
 // :SUGGESTS с type="property_update" должно исчезнуть
-MATCH (e:Episode)-[r:SUGGESTS {suggestion_type: "property_update"}]->(p:Project)
+MATCH (e:Episodic)-[r:SUGGESTS {suggestion_type: "property_update"}]->(p:Project)
 RETURN count(r) as update_suggestions;
 // Ожидаем: 0
 ```
 
 ### Проверка :MENTIONS связей
 ```cypher
-// Entities должны быть связаны с Episode
-MATCH (e:Episode {name: "Notes/test.md"})-[r:MENTIONS]->(ent:Entity)
+// Entities должны быть связаны с Episodic
+MATCH (e:Episodic {name: "Notes/test.md"})-[r:MENTIONS]->(ent:Entity)
 RETURN ent.name, ent.labels, r.status;
 // Ожидаем: 2-3 Entity с status="confirmed"
 ```
 
 ### Проверка чистоты графа
 ```cypher
-// Не должно быть Episode без контекста
-MATCH (e:Episode)
+// Не должно быть Episodic без контекста
+MATCH (e:Episodic)
 WHERE NOT EXISTS((e)-[:IS_PART_OF]->())
 RETURN e.name;
 // Ожидаем: пустой результат (или только те, что в процессе обработки)
 
 // Не должно быть старых :SUGGESTS после завершения
-MATCH (e:Episode {name: "Notes/test.md"})-[r:SUGGESTS]->()
+MATCH (e:Episodic {name: "Notes/test.md"})-[r:SUGGESTS]->()
 RETURN count(r) as remaining_suggestions;
 // Ожидаем: 0 (после полного прохождения workflow)
 ```
@@ -736,7 +736,7 @@ app/services/
   - New context created
 
 - [ ] ✅ **No-Cache проверка:**
-  - В Episode узле нет поля project_id
+  - В Episodic узле нет поля project_id
   - Вся информация через traversal связей
 
 ### Технические критерии

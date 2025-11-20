@@ -72,7 +72,7 @@ def test_graphiti_standard_labels():
     """Проверяем соответствие стандартным меткам Graphiti."""
     from app.config.graphiti_config import GRAPHITI_EPISODE_LABEL, GRAPHITI_ENTITY_LABEL
     
-    assert GRAPHITI_EPISODE_LABEL == "Episode"
+    assert GRAPHITI_EPISODE_LABEL == "Episodic"
     assert GRAPHITI_ENTITY_LABEL == "Entity"
 ```
 
@@ -125,7 +125,7 @@ async def test_ensure_inbox_exists(neo4j_session):
 
 @pytest.mark.integration
 async def test_create_episodic_node(neo4j_session):
-    """Создает узел Episode с правильными свойствами."""
+    """Создает узел Episodic с правильными свойствами."""
     crud = EpisodicCRUD(neo4j_session)
 
     episodic = await crud.create_episodic(
@@ -136,9 +136,9 @@ async def test_create_episodic_node(neo4j_session):
 
     assert episodic["path"] == "Notes/test.md"
 
-    # Verify Graphiti compatibility (Label=Episode, name=path)
+    # Verify Graphiti compatibility (Label=Episodic, name=path)
     result = await neo4j_session.run(
-        "MATCH (n:Episode {name: $path}) RETURN n", 
+        "MATCH (n:Episodic {name: $path}) RETURN n", 
         path="Notes/test.md"
     )
     record = await result.single()
@@ -165,7 +165,7 @@ async def test_create_suggestion(neo4j_session, sample_episodic, sample_project)
     # Verify relationship properties
     result = await neo4j_session.run(
         """
-        MATCH (n:Episode {name: $path})-[r:SUGGESTS]->(p:Project)
+        MATCH (n:Episodic {name: $path})-[r:SUGGESTS]->(p:Project)
         RETURN r.confidence, r.reasoning
         """,
         path=sample_episodic["path"]
@@ -364,7 +364,7 @@ async def test_save_entity_creates_mentions(neo4j_session, sample_episodic):
     # Verify relationship
     result = await neo4j_session.run(
         """
-        MATCH (n:Episode {name: $path})-[r:MENTIONS]->(e:Entity {uuid: $uuid})
+        MATCH (n:Episodic {name: $path})-[r:MENTIONS]->(e:Entity {uuid: $uuid})
         RETURN r.status
         """,
         path=sample_episodic["path"],
@@ -444,7 +444,7 @@ async def test_full_episodic_processing_cycle(neo4j_session):
 ```python
 @pytest.fixture
 async def sample_episodic(neo4j_session):
-    """Создает тестовый Episode (Episodic)."""
+    """Создает тестовый Episodic."""
     crud = EpisodicCRUD(neo4j_session)
     return await crud.create_episodic(
         path="Notes/test.md",

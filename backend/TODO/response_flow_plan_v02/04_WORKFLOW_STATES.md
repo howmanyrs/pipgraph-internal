@@ -110,7 +110,7 @@ async def apply_proposal_node(state: NoteWorkflowState) -> NoteWorkflowState:
 ```
 
 **Output (to Graph):**
-- Creates relationships `(Episode)-[:SUGGESTS]->(PARA)` OR `(Episode)-[:IS_PART_OF]->(PARA)`.
+- Creates relationships `(Episodic)-[:SUGGESTS]->(PARA)` OR `(Episodic)-[:IS_PART_OF]->(PARA)`.
 
 ---
 

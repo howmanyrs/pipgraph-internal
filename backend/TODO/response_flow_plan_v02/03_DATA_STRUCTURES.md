@@ -19,8 +19,8 @@
 
 Эти узлы управляются Graphiti SDK (`add_episode`, extraction pipeline). Мы используем их стандартную схему.
 
-#### 1. Episode (в приложении: "Episodic")
-**Label:** `Episode` `[GRAPHITI STANDARD]`
+#### 1. Episodic
+**Label:** `Episodic` `[GRAPHITI STANDARD]`
 **Описание:** Файл заметки в Obsidian, загруженный как эпизод.
 
 **Properties:**
@@ -43,7 +43,7 @@
 **Constraints:**
 ```cypher
 CREATE CONSTRAINT episode_name_unique IF NOT EXISTS
-FOR (n:Episode) REQUIRE n.name IS UNIQUE;
+FOR (n:Episodic) REQUIRE n.name IS UNIQUE;
 ```
 
 ---
@@ -150,7 +150,7 @@ FOR (r:Resource) REQUIRE r.id IS UNIQUE;
 
 #### 1. [:MENTIONS] `[GRAPHITI STANDARD]`
 **Описание:** Стандартная связь Graphiti между Эпизодом и Сущностью.
-**From:** `Episode`
+**From:** `Episodic`
 **To:** `Entity`
 
 **Properties:**
@@ -162,14 +162,14 @@ FOR (r:Resource) REQUIRE r.id IS UNIQUE;
 
 **Example:**
 ```cypher
-(n:Episode)-[:MENTIONS {status: "confirmed"}]->(e:Entity)
+(n:Episodic)-[:MENTIONS {status: "confirmed"}]->(e:Entity)
 ```
 
 ---
 
 #### 2. [:SUGGESTS] `[CUSTOM]`
 **Описание:** Гипотеза системы. Может быть несколько связей между одними и теми же узлами, если предлагаются разные действия (связь, уточнение атрибутов).
-**From:** `Episode`
+**From:** `Episodic`
 **To:** `Project | Area | Resource`
 
 **Properties:**
@@ -187,7 +187,7 @@ FOR (r:Resource) REQUIRE r.id IS UNIQUE;
 
 **Example 1 (Simple Link):**
 ```cypher
-(n:Episode)-[:SUGGESTS {
+(n:Episodic)-[:SUGGESTS {
     suggestion_id: "550e8400-e29b-41d4-a716-446655440000",
     confidence: 0.85,
     suggestion_type: "link",
@@ -197,7 +197,7 @@ FOR (r:Resource) REQUIRE r.id IS UNIQUE;
 
 **Example 2 (Property Update - Parallel Edge):**
 ```cypher
-(n:Episode)-[:SUGGESTS {
+(n:Episodic)-[:SUGGESTS {
     suggestion_id: "770e8400-e29b-...-...",
     confidence: 0.90,
     suggestion_type: "property_update",
@@ -211,7 +211,7 @@ FOR (r:Resource) REQUIRE r.id IS UNIQUE;
 
 #### 3. [:IS_PART_OF] `[CUSTOM]`
 **Описание:** Утвержденный контекст (Факт).
-**From:** `Episode`
+**From:** `Episodic`
 **To:** `Project | Area | Resource`
 
 **Properties:**
@@ -223,7 +223,7 @@ FOR (r:Resource) REQUIRE r.id IS UNIQUE;
 
 **Example:**
 ```cypher
-(n:Episode)-[:IS_PART_OF {created_at: datetime()}]->(p:Project)
+(n:Episodic)-[:IS_PART_OF {created_at: datetime()}]->(p:Project)
 ```
 
 ---
@@ -312,7 +312,7 @@ class NoteWorkflowState(BaseModel):
     """LangGraph state."""
     
     # Input
-    note_path: str = Field(..., description="Obsidian file path (maps to Episode.name)")
+    note_path: str = Field(..., description="Obsidian file path (maps to Episodic.name)")
     note_content: str = Field(..., description="Content")
 
     # L1/L2 State
@@ -344,7 +344,7 @@ ALLOWED_ENTITY_LABELS = ["Concept", "Person", "Task", "Decision"]
 ### Graphiti Configuration
 ```python
 # Стандартные имена для Graphiti
-GRAPHITI_EPISODE_LABEL = "Episode"
+GRAPHITI_EPISODE_LABEL = "Episodic"
 GRAPHITI_ENTITY_LABEL = "Entity"
 ```
 

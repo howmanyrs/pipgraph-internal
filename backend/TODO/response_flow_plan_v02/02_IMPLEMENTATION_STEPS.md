@@ -18,7 +18,7 @@
   ```cypher
   // Unique constraints
   CREATE CONSTRAINT episodic_path_unique IF NOT EXISTS
-  FOR (n:Episode) REQUIRE n.name IS UNIQUE;
+  FOR (n:Episodic) REQUIRE n.name IS UNIQUE;
 
   CREATE CONSTRAINT project_id_unique IF NOT EXISTS
   FOR (p:Project) REQUIRE p.id IS UNIQUE;
@@ -96,7 +96,7 @@ class EpisodicCRUD:
 ```
 
 **Важно:**
-- В узле `Episode` НЕТ поля `project_id`.
+- В узле `Episodic` НЕТ поля `project_id`.
 - Только: `name` (path), `created_at`, `valid_at`.
 
 **Тесты:**
@@ -149,7 +149,7 @@ class RelationshipCRUD:
 **Cypher examples:**
 ```cypher
 // Create Suggestion (Multiple edges allowed)
-MATCH (n:Episode {name: $episodic_path})
+MATCH (n:Episodic {name: $episodic_path})
 MATCH (c {id: $container_id}) WHERE c:Project OR c:Area OR c:Resource
 MERGE (n)-[r:SUGGESTS {suggestion_id: $suggestion_id}]->(c)
 SET r.confidence = $confidence, 
@@ -159,12 +159,12 @@ SET r.confidence = $confidence,
     r.suggested_value = $suggested_value
 
 // Transform Link Suggestion to Fact (Transaction)
-MATCH (n:Episode)-[r:SUGGESTS {suggestion_id: $suggestion_id}]->(c)
+MATCH (n:Episodic)-[r:SUGGESTS {suggestion_id: $suggestion_id}]->(c)
 DELETE r
 MERGE (n)-[:IS_PART_OF {created_at: datetime()}]->(c)
 
 // Apply Property Update Suggestion
-MATCH (n:Episode)-[r:SUGGESTS {suggestion_id: $suggestion_id}]->(c)
+MATCH (n:Episodic)-[r:SUGGESTS {suggestion_id: $suggestion_id}]->(c)
 SET c[r.target_field] = r.suggested_value
 DELETE r
 ```
@@ -415,7 +415,7 @@ class EntityCRUD:
 
 **Cypher examples:**
 ```cypher
-MATCH (n:Episode {name: $path})
+MATCH (n:Episodic {name: $path})
 MATCH (e:Entity {uuid: $uuid})
 MERGE (n)-[r:MENTIONS]->(e)
 SET r.status = $status
