@@ -112,9 +112,7 @@ cosine_similarity: 0.65 < 0.85 → NOT MERGED ✅
 - Понимает, о чем речь (programming vs nature)
 - Добавляет disambiguating слова
 
-#### 2. Labels помогают в фильтрации (теоретически)
-
-> **⚠️ ВАЖНО**: Это теоретическое решение. В текущей версии Graphiti labels field НЕ заполняется LLM и НЕ сохраняется в Neo4j (Issue #567). См. [GRAPHITI_LABELS_EXPLAINED.md](GRAPHITI_LABELS_EXPLAINED.md).
+#### 2. Labels помогают в фильтрации
 
 ```python
 # При entity resolution можно добавить label-aware фильтр:
@@ -129,13 +127,10 @@ ORDER BY score DESC
 """
 ```
 
-**Как это защищает (после фикса Issue #567):**
+**Как это защищает:**
 - Если извлечённая сущность имеет labels=["Technology"]
 - А найденная в базе имеет labels=["Animal"]
 - Фильтр исключит её из кандидатов на слияние
-
-**Текущая реализация Graphiti**: Labels НЕ используются (поле пустое!)
-**Возможное улучшение**: Добавить label-aware scoring после фикса
 
 #### 3. Контекст заметки помогает LLM правильно классифицировать
 
@@ -193,18 +188,10 @@ extracted_nodes = await extract_nodes(episode, ...)
 - Добавляет уточнения к именам
 - Присваивает релевантные labels
 
-### 2. Labels как discriminator (НЕ РАБОТАЕТ сейчас!)
+### 2. Labels как discriminator
 
-> **⚠️ КРИТИЧЕСКОЕ ОГРАНИЧЕНИЕ**: В текущей версии Graphiti (Issue #567) labels field всегда пустой (`[]`), поэтому label-aware scoring НЕ РАБОТАЕТ. См. [GRAPHITI_LABELS_EXPLAINED.md](GRAPHITI_LABELS_EXPLAINED.md).
+Labels можно использовать для дополнительной проверки при entity resolution:
 
-**Текущая реализация** (в graphiti_core):
-```python
-# Labels НЕ используются при entity resolution
-# Только name_embedding влияет на merge decision
-# К тому же labels field всегда пустой!
-```
-
-**Гипотетическое улучшение (работает только после фикса Issue #567)**:
 ```python
 def calculate_entity_similarity(
     extracted: EntityNode,
@@ -683,7 +670,6 @@ Phase 3 (только для критичных доменов):
 
 - [GRAPHITI_EMBEDDING_DESIGN_RATIONALE.md](GRAPHITI_EMBEDDING_DESIGN_RATIONALE.md) - Полный анализ дизайна embeddings
 - [GRAPHITI_EMBEDDINGS.md](GRAPHITI_EMBEDDINGS.md) - Технический гайд по embeddings
-- [GRAPHITI_LABELS_EXPLAINED.md](GRAPHITI_LABELS_EXPLAINED.md) - Разбор путаницы с labels (важно для label-aware scoring!)
 - [backend/app/services/pipgraph_manager.py](../app/services/pipgraph_manager.py) - Текущая реализация
 - [backend/app/services/llm_graphiti_client.py](../app/services/llm_graphiti_client.py) - LLM промпты
 

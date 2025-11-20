@@ -607,8 +607,6 @@ EntityNode(name="Python")  # Фильм "Monty Python"?
   ```
 - `labels` не участвуют в embedding, но могут использоваться в фильтрации
 
-> **ВАЖНО**: В текущей версии Graphiti (Issue #567) labels field НЕ заполняется автоматически и НЕ сохраняется как Neo4j labels. См. [GRAPHITI_LABELS_EXPLAINED.md](GRAPHITI_LABELS_EXPLAINED.md) для деталей.
-
 **Рекомендация для PipGraph:**
 - Использовать Graphiti Entity Types для уточнения категорий
 - В критических случаях: добавить `disambiguator` в attributes
