@@ -302,26 +302,26 @@ RETURN r.suggestion_id, r.suggestion_type, r.confidence, r.target_field, r.sugge
 #### 3.1 Decision Processing Logic
 **Файл:** `app/services/pipgraph_manager.py`
 
-- [ ] Реализовать `process_user_decision(episodic_path, user_decision: UserDecisionPayload)`
-- [ ] Обработка `action="confirm"`:
-  - [ ] Получить suggestion по `user_decision.suggestion_id`
-  - [ ] Если `type == "link"`:
-    - [ ] Delete :SUGGESTS
-    - [ ] Create :IS_PART_OF
-  - [ ] Если `type == "property_update"`:
-    - [ ] Update свойство целевого узла (например, `SET p.name = r.suggested_value`)
-    - [ ] Delete :SUGGESTS
-- [ ] Обработка `action="dismiss"`:
-  - [ ] Delete конкретное :SUGGESTS по suggestion_id
-  - [ ] Если это было последнее link-предложение → Create :IS_PART_OF к Inbox
-- [ ] Обработка `action="link_to_alternative"`:
-  - [ ] Delete все :SUGGESTS
-  - [ ] Create :IS_PART_OF к `user_decision.selected_container_id`
-- [ ] Обработка `action="create_custom"`:
-  - [ ] Create новый Project/Area
-  - [ ] Delete все :SUGGESTS
-  - [ ] Create :IS_PART_OF
-- [ ] 🔍 Проверить каждый action в Neo4j Browser
+- [x] Реализовать `process_user_decision(episodic_path, user_decision: UserDecisionPayload)`
+- [x] Обработка `action="confirm"`:
+  - [x] Получить suggestion по `user_decision.suggestion_id`
+  - [x] Если `type == "link"`:
+    - [x] Delete :SUGGESTS
+    - [x] Create :IS_PART_OF
+  - [x] Если `type == "property_update"`:
+    - [x] Update свойство целевого узла (например, `SET p.name = r.suggested_value`)
+    - [x] Delete :SUGGESTS
+- [x] Обработка `action="dismiss"`:
+  - [x] Delete конкретное :SUGGESTS по suggestion_id
+  - [x] Если это было последнее link-предложение → Create :IS_PART_OF к Inbox
+- [x] Обработка `action="link_to_alternative"`:
+  - [x] Delete все :SUGGESTS
+  - [x] Create :IS_PART_OF к `user_decision.selected_container_id`
+- [x] Обработка `action="create_custom"`:
+  - [x] Create новый Project/Area
+  - [x] Delete все :SUGGESTS
+  - [x] Create :IS_PART_OF
+- [x] 🔍 Проверить каждый action в Neo4j Browser
 
 **Cypher для проверки (confirm link):**
 ```cypher
@@ -337,23 +337,23 @@ RETURN r;
 ---
 
 #### 3.2 LangGraph Nodes Structure
-**Файл:** `app/workflows/note_workflow.py`
+**Файл:** `app/workflows/para_workflow.py`
 
-- [ ] Создать файл `app/workflows/state.py` с `NoteWorkflowState`
-- [ ] Реализовать node: `identify_context_node(state)` (вызывает mock proposal generator)
-- [ ] Реализовать node: `apply_proposal_node(state)` (вызывает apply_proposal_to_graph)
-- [ ] Реализовать node: `wait_for_decision_node(state)` (Interrupt point, пока пустой)
-- [ ] Реализовать node: `process_decision_node(state)` (вызывает process_user_decision)
-- [ ] **Пока НЕ собираем граф**, только создаем функции
-- [ ] 🔍 Проверить, что функции импортируются
+- [x] Создать файл `app/workflows/state.py` с `PARAWorkflowState`
+- [x] Реализовать node: `identify_context_node(state)` (вызывает mock proposal generator)
+- [x] Реализовать node: `apply_proposal_node(state)` (вызывает apply_proposal_to_graph)
+- [x] Реализовать node: `wait_for_decision_node(state)` (Interrupt point, пока пустой)
+- [x] Реализовать node: `process_decision_node(state)` (вызывает process_user_decision)
+- [x] **Пока НЕ собираем граф**, только создаем функции
+- [x] 🔍 Проверить, что функции импортируются
 
 ---
 
 #### 3.3 Conditional Logic
 **Файл:** `app/workflows/conditions.py`
 
-- [ ] Реализовать `check_suggestion_status(state) -> str`
-- [ ] Логика:
+- [x] Реализовать `check_suggestion_status(state) -> str`
+- [x] Логика:
   ```python
   suggestions = await relationship_crud.get_suggestions(state.note_path)
   if suggestions:
@@ -365,18 +365,18 @@ RETURN r;
 
   raise ValueError("Invalid graph state")
   ```
-- [ ] 🔍 Mock state, вызвать функцию, проверить возврат правильного next_node
+- [x] 🔍 Mock state, вызвать функцию, проверить возврат правильного next_node
 
 ---
 
 ### Definition of Done (Iteration 3)
 
-- [ ] ✅ process_user_decision обрабатывает все actions
-- [ ] ✅ Confirm link: :SUGGESTS трансформируется в :IS_PART_OF
-- [ ] ✅ Confirm update: свойство Project обновляется, ребро удаляется
-- [ ] ✅ Dismiss: конкретное ребро удаляется (по suggestion_id)
-- [ ] ✅ LangGraph nodes структура создана (функции готовы)
-- [ ] ✅ check_suggestion_status возвращает правильный next_node
+- [x] ✅ process_user_decision обрабатывает все actions
+- [x] ✅ Confirm link: :SUGGESTS трансформируется в :IS_PART_OF
+- [x] ✅ Confirm update: свойство Project обновляется, ребро удаляется
+- [x] ✅ Dismiss: конкретное ребро удаляется (по suggestion_id)
+- [x] ✅ LangGraph nodes структура создана (функции готовы)
+- [x] ✅ check_suggestion_status возвращает правильный next_node
 
 ---
 
