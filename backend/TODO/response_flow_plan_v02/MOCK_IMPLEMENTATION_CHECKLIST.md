@@ -170,17 +170,26 @@ ORDER BY r.suggestion_id;
 #### 2.1 Mock Infrastructure Setup
 **Файлы:**
 - `app/services/mocks/__init__.py`
-- `app/config.py` (добавить USE_MOCKS)
+- `app/services/para/__init__.py` (экспорт сервисов)
 
 - [ ] Создать директорию `app/services/mocks/`
 - [ ] Создать `__init__.py` в mocks
-- [ ] Добавить в `app/config.py`:
+- [ ] Создать `app/services/para/__init__.py` с экспортом через импорты:
   ```python
-  class Settings(BaseSettings):
-      USE_MOCKS: bool = Field(default=True)
-      # ... остальные настройки
+  # app/services/para/__init__.py
+  # Переключение мок/реальный через изменение импорта
+
+  # Пока используем моки:
+  from app.services.mocks.mock_classifier import classify_note_para
+  from app.services.mocks.mock_proposal_generator import generate_para_proposal
+
+  # Когда готовы - раскомментировать:
+  # from app.services.llm.real_classifier import classify_note_para
+  # from app.services.llm.real_proposal_generator import generate_para_proposal
+
+  __all__ = ["classify_note_para", "generate_para_proposal"]
   ```
-- [ ] 🔍 Проверить импорт: `from app.services.mocks import mock_classifier`
+- [ ] 🔍 Проверить импорт: `from app.services.para import classify_note_para`
 
 ---
 
@@ -260,21 +269,15 @@ RETURN r.suggestion_id, r.suggestion_type, r.confidence, r.target_field, r.sugge
 
 ---
 
-#### 2.5 Integration with Config
+#### 2.5 Integration via Import
 **Файл:** `app/services/pipgraph_manager.py`
 
-- [ ] Добавить conditional import:
+- [ ] Использовать единый импорт из `app/services/para`:
   ```python
-  from app.config import settings
-
-  if settings.USE_MOCKS:
-      from app.services.mocks.mock_classifier import classify_note_para
-      from app.services.mocks.mock_proposal_generator import generate_para_proposal
-  else:
-      from app.services.llm.real_classifier import classify_note_para
-      from app.services.llm.real_proposal_generator import generate_para_proposal
+  # Всегда импортируем из para - переключение внутри __init__.py
+  from app.services.para import classify_note_para, generate_para_proposal
   ```
-- [ ] 🔍 Переключить USE_MOCKS=True/False, проверить импорт
+- [ ] 🔍 Проверить что импорт работает и возвращает mock-функции
 
 ---
 
@@ -654,7 +657,11 @@ RETURN count(r) as remaining_suggestions;
 
 - [ ] Реализовать `app/services/llm/real_classifier.py`
 - [ ] Использовать OpenRouter API для классификации PARA type
-- [ ] Переключить `USE_MOCKS=False` только для классификатора
+- [ ] Изменить импорт в `app/services/para/__init__.py`:
+  ```python
+  from app.services.llm.real_classifier import classify_note_para
+  # from app.services.mocks.mock_classifier import classify_note_para
+  ```
 - [ ] Проверить, что остальные моки работают
 
 ### Этап 2: L2 Proposal Generator
@@ -663,24 +670,48 @@ RETURN count(r) as remaining_suggestions;
 - [ ] Реализовать `app/services/llm/real_proposal_generator.py`
 - [ ] Embeddings для поиска похожих контейнеров
 - [ ] LLM для генерации PARAProposal (с множественными suggestions)
-- [ ] Переключить L2 на реальный LLM
+- [ ] Изменить импорт в `app/services/para/__init__.py`:
+  ```python
+  from app.services.llm.real_proposal_generator import generate_para_proposal
+  ```
 
 ### Этап 3: L3 Graphiti Extraction
 **Когда:** После стабилизации L1+L2
 
 - [ ] Интегрировать Graphiti SDK
 - [ ] Реализовать context injection в промпт
-- [ ] Переключить L3 на реальный Graphiti
+- [ ] Изменить импорт в `app/services/graphiti/__init__.py`:
+  ```python
+  from app.services.graphiti.real_graphiti import extract_entities
+  ```
 - [ ] Удалить все моки (или оставить для тестов)
 
-### Конфигурация для поэтапной миграции
+### Подход к поэтапной миграции
+
+**Принцип:** Каждый сервис имеет свой `__init__.py`, который экспортирует функции. Переключение мок/реальный происходит изменением импорта в этом файле.
+
 ```python
-# app/config.py
-class Settings(BaseSettings):
-    USE_MOCK_CLASSIFIER: bool = Field(default=False)
-    USE_MOCK_PROPOSAL: bool = Field(default=False)
-    USE_MOCK_GRAPHITI: bool = Field(default=False)
+# Структура директорий:
+app/services/
+├── para/
+│   ├── __init__.py          # Экспорт: переключаем импорты здесь
+│   └── ...
+├── graphiti/
+│   ├── __init__.py          # Экспорт: переключаем импорты здесь
+│   └── ...
+├── mocks/
+│   ├── mock_classifier.py
+│   ├── mock_proposal_generator.py
+│   └── mock_graphiti.py
+└── llm/
+    ├── real_classifier.py
+    └── real_proposal_generator.py
 ```
+
+**Преимущества:**
+- Каждый коммит показывает что именно перешло с мока на реальную реализацию
+- Нет глобальных флагов которые нужно удалять
+- Явная история миграции в git
 
 ---
 
