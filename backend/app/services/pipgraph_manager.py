@@ -30,6 +30,7 @@ PipGraph Manager - Core Note Processing Wrapper
 import logging
 from datetime import datetime
 from time import time
+from typing import Dict, Any, Optional, List
 
 from pydantic import BaseModel
 
@@ -370,3 +371,478 @@ class PipGraphManager:
 
         except Exception as e:
             raise e
+
+
+# ============================================================================
+# Decision Processing (Iteration 3)
+# ============================================================================
+
+async def process_user_decision(
+    episodic_path: str,
+    user_decision,
+    driver=None
+) -> Dict[str, Any]:
+    """
+    Process user decision on a specific suggestion.
+
+    Handles 4 action types:
+    - confirm: Transform :SUGGESTS to :IS_PART_OF (link) or update property (property_update)
+    - dismiss: Delete specific :SUGGESTS, link to Inbox if no link remains
+    - link_to_alternative: Delete all suggestions, create :IS_PART_OF to selected container
+    - create_custom: Create new container, delete all suggestions, create :IS_PART_OF
+
+    Args:
+        episodic_path: Path to the Episodic node (file path)
+        user_decision: UserDecisionPayload with action and parameters
+        driver: Optional Neo4j driver (creates one if None)
+
+    Returns:
+        Dict with processing result:
+        - action: The action that was performed
+        - success: Boolean indicating success
+        - details: Additional information about the result
+    """
+    from app.crud.relationship_crud import RelationshipCRUD
+    from app.crud.para_crud import PARAContainerCRUD
+    from uuid import uuid4
+
+    relationship_crud = RelationshipCRUD(driver)
+    para_crud = PARAContainerCRUD(driver)
+
+    action = user_decision.action
+    suggestion_id = user_decision.suggestion_id
+
+    logger.info(f"[process_user_decision] Processing action={action} for suggestion={suggestion_id[:8]}...")
+
+    result = {
+        "action": action,
+        "success": False,
+        "details": {}
+    }
+
+    try:
+        if action == "confirm":
+            result = await _handle_confirm(
+                episodic_path,
+                suggestion_id,
+                relationship_crud,
+                para_crud
+            )
+
+        elif action == "dismiss":
+            result = await _handle_dismiss(
+                episodic_path,
+                suggestion_id,
+                relationship_crud,
+                para_crud
+            )
+
+        elif action == "link_to_alternative":
+            result = await _handle_link_to_alternative(
+                episodic_path,
+                suggestion_id,
+                user_decision.selected_container_id,
+                relationship_crud
+            )
+
+        elif action == "create_custom":
+            result = await _handle_create_custom(
+                episodic_path,
+                user_decision.custom_container_type,
+                user_decision.custom_container_name,
+                relationship_crud,
+                para_crud
+            )
+
+        else:
+            logger.error(f"Unknown action: {action}")
+            result = {
+                "action": action,
+                "success": False,
+                "details": {"error": f"Unknown action: {action}"}
+            }
+
+        return result
+
+    except Exception as e:
+        logger.error(f"[process_user_decision] Error: {e}", exc_info=True)
+        return {
+            "action": action,
+            "success": False,
+            "details": {"error": str(e)}
+        }
+
+
+async def _handle_confirm(
+    episodic_path: str,
+    suggestion_id: str,
+    relationship_crud,
+    para_crud
+) -> Dict[str, Any]:
+    """
+    Handle confirm action.
+
+    For link: Transform :SUGGESTS to :IS_PART_OF
+    For property_update: Update container property, delete :SUGGESTS
+    """
+    # Get the suggestion details
+    suggestion = relationship_crud.get_suggestion_by_id(suggestion_id)
+
+    if not suggestion:
+        return {
+            "action": "confirm",
+            "success": False,
+            "details": {"error": f"Suggestion not found: {suggestion_id}"}
+        }
+
+    suggestion_type = suggestion["suggestion_type"]
+    container_id = suggestion["container_id"]
+    container_type = suggestion["container_type"]
+
+    if suggestion_type == "link":
+        # Delete :SUGGESTS and create :IS_PART_OF
+        relationship_crud.remove_suggestion(suggestion_id)
+        link = relationship_crud.create_link(
+            episodic_path,
+            container_id,
+            container_label=container_type
+        )
+
+        logger.info(f"✓ Confirmed link: {episodic_path} -> {suggestion['container_name']}")
+
+        return {
+            "action": "confirm",
+            "success": True,
+            "details": {
+                "type": "link",
+                "container_id": container_id,
+                "container_name": suggestion["container_name"],
+                "link_created": bool(link)
+            }
+        }
+
+    elif suggestion_type == "property_update":
+        # Update the container property
+        target_field = suggestion["target_field"]
+        suggested_value = suggestion["suggested_value"]
+
+        # Execute property update
+        updated = _update_container_property(
+            relationship_crud.driver,
+            container_id,
+            container_type,
+            target_field,
+            suggested_value
+        )
+
+        # Delete the suggestion
+        relationship_crud.remove_suggestion(suggestion_id)
+
+        logger.info(f"✓ Confirmed property update: {container_type}.{target_field} = {suggested_value}")
+
+        return {
+            "action": "confirm",
+            "success": True,
+            "details": {
+                "type": "property_update",
+                "container_id": container_id,
+                "target_field": target_field,
+                "new_value": suggested_value,
+                "updated": updated
+            }
+        }
+
+    else:
+        return {
+            "action": "confirm",
+            "success": False,
+            "details": {"error": f"Unknown suggestion_type: {suggestion_type}"}
+        }
+
+
+async def _handle_dismiss(
+    episodic_path: str,
+    suggestion_id: str,
+    relationship_crud,
+    para_crud
+) -> Dict[str, Any]:
+    """
+    Handle dismiss action.
+
+    Delete specific :SUGGESTS.
+    If no link suggestions remain, create :IS_PART_OF to Inbox.
+    """
+    # Get suggestion info before deleting
+    suggestion = relationship_crud.get_suggestion_by_id(suggestion_id)
+
+    if not suggestion:
+        return {
+            "action": "dismiss",
+            "success": False,
+            "details": {"error": f"Suggestion not found: {suggestion_id}"}
+        }
+
+    # Delete the dismissed suggestion
+    deleted = relationship_crud.remove_suggestion(suggestion_id)
+
+    if not deleted:
+        return {
+            "action": "dismiss",
+            "success": False,
+            "details": {"error": "Failed to delete suggestion"}
+        }
+
+    # Check if there are remaining link suggestions
+    remaining_suggestions = relationship_crud.get_suggestions(episodic_path)
+    remaining_links = [s for s in remaining_suggestions if s["suggestion_type"] == "link"]
+
+    linked_to_inbox = False
+
+    # If no link suggestions remain and no existing :IS_PART_OF, link to Inbox
+    if not remaining_links:
+        existing_context = relationship_crud.get_episodic_para_context(episodic_path)
+
+        if not existing_context:
+            # Ensure Inbox exists and link to it
+            inbox = para_crud.ensure_inbox_exists()
+            if inbox:
+                relationship_crud.create_link(
+                    episodic_path,
+                    inbox["id"],
+                    container_label="Area"
+                )
+                linked_to_inbox = True
+                logger.info(f"✓ No links remaining, linked to Inbox: {episodic_path}")
+
+    logger.info(f"✓ Dismissed suggestion: {suggestion_id[:8]}...")
+
+    return {
+        "action": "dismiss",
+        "success": True,
+        "details": {
+            "dismissed_suggestion_id": suggestion_id,
+            "remaining_suggestions": len(remaining_suggestions),
+            "linked_to_inbox": linked_to_inbox
+        }
+    }
+
+
+async def _handle_link_to_alternative(
+    episodic_path: str,
+    suggestion_id: str,
+    selected_container_id: str,
+    relationship_crud
+) -> Dict[str, Any]:
+    """
+    Handle link_to_alternative action.
+
+    Delete all suggestions and create :IS_PART_OF to selected container.
+    """
+    if not selected_container_id:
+        return {
+            "action": "link_to_alternative",
+            "success": False,
+            "details": {"error": "selected_container_id is required"}
+        }
+
+    # Get container info to determine label
+    # First try to find it in any PARA type
+    container_info = _get_container_info(relationship_crud.driver, selected_container_id)
+
+    if not container_info:
+        return {
+            "action": "link_to_alternative",
+            "success": False,
+            "details": {"error": f"Container not found: {selected_container_id}"}
+        }
+
+    # Delete all suggestions for this episodic
+    deleted_count = relationship_crud.remove_all_suggestions(episodic_path)
+
+    # Create link to selected container
+    link = relationship_crud.create_link(
+        episodic_path,
+        selected_container_id,
+        container_label=container_info["label"]
+    )
+
+    logger.info(f"✓ Linked to alternative: {episodic_path} -> {container_info['name']}")
+
+    return {
+        "action": "link_to_alternative",
+        "success": True,
+        "details": {
+            "container_id": selected_container_id,
+            "container_name": container_info["name"],
+            "container_type": container_info["label"],
+            "deleted_suggestions": deleted_count,
+            "link_created": bool(link)
+        }
+    }
+
+
+async def _handle_create_custom(
+    episodic_path: str,
+    custom_container_type: str,
+    custom_container_name: str,
+    relationship_crud,
+    para_crud
+) -> Dict[str, Any]:
+    """
+    Handle create_custom action.
+
+    Create new container, delete all suggestions, create :IS_PART_OF.
+    """
+    from uuid import uuid4
+
+    if not custom_container_type or not custom_container_name:
+        return {
+            "action": "create_custom",
+            "success": False,
+            "details": {"error": "custom_container_type and custom_container_name are required"}
+        }
+
+    # Generate ID for new container
+    new_id = f"{custom_container_type.lower()}-{str(uuid4())[:8]}"
+
+    # Create the new container
+    if custom_container_type == "Project":
+        container = para_crud.create_project(new_id, custom_container_name)
+    elif custom_container_type == "Area":
+        container = para_crud.create_area(new_id, custom_container_name)
+    elif custom_container_type == "Resource":
+        container = para_crud.create_resource(new_id, custom_container_name)
+    else:
+        return {
+            "action": "create_custom",
+            "success": False,
+            "details": {"error": f"Invalid container type: {custom_container_type}"}
+        }
+
+    if not container:
+        return {
+            "action": "create_custom",
+            "success": False,
+            "details": {"error": "Failed to create container"}
+        }
+
+    # Delete all suggestions
+    deleted_count = relationship_crud.remove_all_suggestions(episodic_path)
+
+    # Create link to new container
+    link = relationship_crud.create_link(
+        episodic_path,
+        new_id,
+        container_label=custom_container_type
+    )
+
+    logger.info(f"✓ Created custom {custom_container_type}: {custom_container_name}")
+
+    return {
+        "action": "create_custom",
+        "success": True,
+        "details": {
+            "container_id": new_id,
+            "container_name": custom_container_name,
+            "container_type": custom_container_type,
+            "deleted_suggestions": deleted_count,
+            "link_created": bool(link)
+        }
+    }
+
+
+# ============================================================================
+# Helper Functions for Decision Processing
+# ============================================================================
+
+def _update_container_property(
+    driver,
+    container_id: str,
+    container_type: str,
+    target_field: str,
+    new_value: str
+) -> bool:
+    """
+    Update a property on a PARA container.
+
+    Args:
+        driver: Neo4j driver
+        container_id: Container identifier
+        container_type: Container label (Project, Area, Resource)
+        target_field: Field name to update
+        new_value: New value for the field
+
+    Returns:
+        True if updated, False otherwise
+    """
+    # Validate field name to prevent injection
+    allowed_fields = {"name", "status", "goal", "description"}
+    if target_field not in allowed_fields:
+        logger.error(f"Invalid target_field: {target_field}")
+        return False
+
+    query = f"""
+    MATCH (c:{container_type} {{id: $container_id}})
+    SET c.{target_field} = $new_value
+    RETURN c
+    """
+
+    with driver.session() as session:
+        result = session.run(
+            query,
+            container_id=container_id,
+            new_value=new_value
+        )
+        record = result.single()
+
+        if record:
+            logger.info(f"✓ Updated {container_type}.{target_field} = {new_value}")
+            return True
+        else:
+            logger.error(f"✗ Failed to update property: {container_id}.{target_field}")
+            return False
+
+
+def _get_container_info(driver, container_id: str) -> Optional[Dict[str, str]]:
+    """
+    Get container info by ID from any PARA type.
+
+    Args:
+        driver: Neo4j driver
+        container_id: Container identifier
+
+    Returns:
+        Dict with 'id', 'name', 'label' or None if not found
+    """
+    query = """
+    MATCH (c {id: $container_id})
+    WHERE c:Project OR c:Area OR c:Resource
+    RETURN c.id as id, c.name as name, labels(c)[0] as label
+    """
+
+    with driver.session() as session:
+        result = session.run(query, container_id=container_id)
+        record = result.single()
+
+        if record:
+            return {
+                "id": record["id"],
+                "name": record["name"],
+                "label": record["label"]
+            }
+        return None
+
+
+def _check_remaining_link_suggestions(relationship_crud, episodic_path: str) -> List[Dict]:
+    """
+    Check for remaining link-type suggestions.
+
+    Args:
+        relationship_crud: RelationshipCRUD instance
+        episodic_path: Path to the Episodic node
+
+    Returns:
+        List of remaining link suggestions
+    """
+    suggestions = relationship_crud.get_suggestions(episodic_path)
+    return [s for s in suggestions if s["suggestion_type"] == "link"]
