@@ -172,9 +172,9 @@ ORDER BY r.suggestion_id;
 - `app/services/mocks/__init__.py`
 - `app/services/para/__init__.py` (экспорт сервисов)
 
-- [ ] Создать директорию `app/services/mocks/`
-- [ ] Создать `__init__.py` в mocks
-- [ ] Создать `app/services/para/__init__.py` с экспортом через импорты:
+- [x] Создать директорию `app/services/mocks/`
+- [x] Создать `__init__.py` в mocks
+- [x] Создать `app/services/para/__init__.py` с экспортом через импорты:
   ```python
   # app/services/para/__init__.py
   # Переключение мок/реальный через изменение импорта
@@ -189,33 +189,33 @@ ORDER BY r.suggestion_id;
 
   __all__ = ["classify_note_para", "generate_para_proposal"]
   ```
-- [ ] 🔍 Проверить импорт: `from app.services.para import classify_note_para`
+- [x] 🔍 Проверить импорт: `from app.services.para import classify_note_para`
 
 ---
 
 #### 2.2 Mock Classifier (L1)
 **Файл:** `app/services/mocks/mock_classifier.py`
 
-- [ ] Создать функцию `classify_note_para(note_content: str) -> str`
-- [ ] Всегда возвращает `"Project"` (или выбор на основе ключевых слов в content)
-- [ ] **Простая реализация:**
+- [x] Создать функцию `classify_note_para(note_content: str) -> str`
+- [x] Всегда возвращает `"Project"` (или выбор на основе ключевых слов в content)
+- [x] **Простая реализация:**
   ```python
   def classify_note_para(note_content: str) -> str:
       """Mock L1: всегда возвращает 'Project'."""
       return "Project"
   ```
-- [ ] 🔍 Вызвать функцию, проверить результат
+- [x] 🔍 Вызвать функцию, проверить результат
 
 ---
 
 #### 2.3 Mock Proposal Generator (L2)
 **Файл:** `app/services/mocks/mock_proposal_generator.py`
 
-- [ ] Создать функцию `generate_para_proposal(note_content: str) -> PARAProposal`
-- [ ] Возвращает `PARAProposal` с:
+- [x] Создать функцию `generate_para_proposal(note_content: str) -> PARAProposal`
+- [x] Возвращает `PARAProposal` с:
   - `primary_candidate`: Link предложение (confidence: 0.8)
   - `alternatives[0]`: Property update "name" (confidence: 0.75)
-- [ ] **Простая реализация:**
+- [x] **Простая реализация:**
   ```python
   from app.models.proposal import PARAProposal, PARACandidate
 
@@ -242,52 +242,52 @@ ORDER BY r.suggestion_id;
           ]
       )
   ```
-- [ ] 🔍 Вызвать функцию, проверить структуру PARAProposal
+- [x] 🔍 Вызвать функцию, проверить структуру PARAProposal
 
 ---
 
 #### 2.4 Apply Proposal to Graph
-**Файл:** `app/services/pipgraph_manager.py`
+**Файл:** `app/services/proposal_manager.py`
 
-- [ ] Создать класс `PipGraphManager`
-- [ ] Реализовать `apply_proposal_to_graph(episodic_path, proposal)`
-- [ ] Логика:
+- [x] Создать класс `ProposalManager`
+- [x] Реализовать `apply_proposal_to_graph(episodic_path, proposal)`
+- [x] Логика:
   - Iterates through `primary_candidate` + `alternatives`
   - Для каждого candidate:
     - Генерирует UUID для `suggestion_id`
     - Если `confidence > 0.95` И `type == "link"` → создает :IS_PART_OF
     - Иначе → создает :SUGGESTS со всеми атрибутами
-- [ ] Использовать `relationship_crud.create_suggestion()` и `create_link()`
-- [ ] 🔍 Применить proposal, проверить в Neo4j Browser 2 ребра :SUGGESTS
+- [x] Использовать `relationship_crud.create_suggestion()` и `create_link()`
+- [x] 🔍 Применить proposal, проверить в Neo4j Browser 2 ребра :SUGGESTS
 
 **Cypher для проверки:**
 ```cypher
 // Проверить предложения после apply_proposal
-MATCH (e:Episode {name: "Notes/test.md"})-[r:SUGGESTS]->(p)
+MATCH (e:Episodic {name: "Notes/test_iteration2.md"})-[r:SUGGESTS]->(p)
 RETURN r.suggestion_id, r.suggestion_type, r.confidence, r.target_field, r.suggested_value;
 ```
 
 ---
 
 #### 2.5 Integration via Import
-**Файл:** `app/services/pipgraph_manager.py`
+**Файл:** `app/services/proposal_manager.py`
 
-- [ ] Использовать единый импорт из `app/services/para`:
+- [x] Использовать единый импорт из `app/services/para`:
   ```python
   # Всегда импортируем из para - переключение внутри __init__.py
   from app.services.para import classify_note_para, generate_para_proposal
   ```
-- [ ] 🔍 Проверить что импорт работает и возвращает mock-функции
+- [x] 🔍 Проверить что импорт работает и возвращает mock-функции
 
 ---
 
 ### Definition of Done (Iteration 2)
 
-- [ ] ✅ Mock инфраструктура создана (директория, config переключатель)
-- [ ] ✅ Mock classifier возвращает "Project"
-- [ ] ✅ Mock proposal generator возвращает 2 candidates (link + rename)
-- [ ] ✅ apply_proposal_to_graph создает правильные :SUGGESTS в Neo4j
-- [ ] ✅ В Neo4j существует 2 ребра с разными suggestion_id
+- [x] ✅ Mock инфраструктура создана (директория, config переключатель)
+- [x] ✅ Mock classifier возвращает "Project"
+- [x] ✅ Mock proposal generator возвращает 2 candidates (link + rename)
+- [x] ✅ apply_proposal_to_graph создает правильные :SUGGESTS в Neo4j
+- [x] ✅ В Neo4j существует 2 ребра с разными suggestion_id
 
 ---
 
