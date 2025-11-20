@@ -9,6 +9,10 @@ from app.workflows.state import (
     serialize_proposal,
     serialize_user_decision,
     deserialize_user_decision,
+    serialize_entity,
+    deserialize_entity,
+    serialize_entities,
+    deserialize_entities,
 )
 from app.workflows.para_workflow import (
     identify_context_node,
@@ -30,6 +34,10 @@ __all__ = [
     "serialize_proposal",
     "serialize_user_decision",
     "deserialize_user_decision",
+    "serialize_entity",
+    "deserialize_entity",
+    "serialize_entities",
+    "deserialize_entities",
     # Nodes
     "identify_context_node",
     "apply_proposal_node",

@@ -391,9 +391,9 @@ RETURN r;
 #### 4.1 Mock Graphiti
 **Файл:** `app/services/mocks/mock_graphiti.py`
 
-- [ ] Создать функцию `extract_entities(episodic_content: str, context: dict) -> list[ExtractedCandidate]`
-- [ ] Возвращает список из 2-3 Entity
-- [ ] **Простая реализация:**
+- [x] Создать функцию `extract_entities(episodic_content: str, context: dict) -> list[ExtractedCandidate]`
+- [x] Возвращает список из 2-3 Entity
+- [x] **Простая реализация:**
   ```python
   from app.models.entity import ExtractedCandidate
 
@@ -414,7 +414,7 @@ RETURN r;
           )
       ]
   ```
-- [ ] 🔍 Вызвать функцию, проверить структуру
+- [x] 🔍 Вызвать функцию, проверить структуру
 
 **📌 Заметка о Entity labels:**
 Когда Graphiti извлекает entities с указанными типами (через параметр `entity_types`), узлы создаются с composite labels: `:Entity:Concept`, `:Entity:Task` и т.д.
@@ -430,25 +430,25 @@ RETURN r;
 #### 4.2 Context Retrieval & Extraction
 **Файл:** `app/services/pipgraph_manager.py`
 
-- [ ] Реализовать `extract_entities_with_context(episodic_path, episodic_content)`
-- [ ] Логика:
+- [x] Реализовать `extract_entities_with_context(episodic_path, episodic_content)`
+- [x] Логика:
   1. Получить контекст: `context = relationship_crud.get_episodic_para_context(episodic_path)`
   2. Если нет контекста → raise Error
   3. Вызвать mock Graphiti: `entities = mock_graphiti.extract_entities(content, context)`
   4. Вернуть список entities
-- [ ] **ВАЖНО:** Проверить, что context.name попадает в вызов (для будущего промпта)
-- [ ] 🔍 Проверить, что функция читает контекст из графа
+- [x] **ВАЖНО:** Проверить, что context.name попадает в вызов (для будущего промпта)
+- [x] 🔍 Проверить, что функция читает контекст из графа
 
 ---
 
 #### 4.3 Entity CRUD
 **Файл:** `app/crud/entity_crud.py`
 
-- [ ] Создать класс `EntityCRUD`
-- [ ] Реализовать `save_entity_node(entity: ExtractedCandidate)`
-- [ ] Реализовать `link_entity_to_episodic(episodic_path, entity_uuid, status="confirmed")`
-- [ ] Реализовать `batch_save_entities(entities: list, episodic_path)`
-- [ ] 🔍 Сохранить entities, проверить в Neo4j Browser
+- [x] Создать класс `EntityCRUD`
+- [x] Реализовать `save_entity_node(entity: ExtractedCandidate)`
+- [x] Реализовать `link_entity_to_episodic(episodic_path, entity_uuid, status="confirmed")`
+- [x] Реализовать `batch_save_entities(entities: list, episodic_path)`
+- [x] 🔍 Сохранить entities, проверить в Neo4j Browser
 
 **Cypher для проверки:**
 ```cypher
@@ -468,21 +468,21 @@ RETURN e.name, r.status;
 ---
 
 #### 4.4 LangGraph Extraction Nodes
-**Файл:** `app/workflows/note_workflow.py`
+**Файл:** `app/workflows/para_workflow.py`
 
-- [ ] Реализовать node: `extract_content_node(state)` (вызывает extract_entities_with_context)
-- [ ] Реализовать node: `save_entities_node(state)` (вызывает entity_crud.batch_save_entities)
-- [ ] 🔍 Проверить, что nodes импортируются
+- [x] Реализовать node: `extract_content_node(state)` (вызывает extract_entities_with_context)
+- [x] Реализовать node: `save_entities_node(state)` (вызывает entity_crud.batch_save_entities)
+- [x] 🔍 Проверить, что nodes импортируются
 
 ---
 
 ### Definition of Done (Iteration 4)
 
-- [ ] ✅ Mock Graphiti возвращает список Entity
-- [ ] ✅ extract_entities_with_context читает контекст из :IS_PART_OF
-- [ ] ✅ Entity nodes сохраняются в Neo4j
-- [ ] ✅ Связи :MENTIONS создаются с атрибутом status="confirmed"
-- [ ] ✅ LangGraph extraction nodes готовы
+- [x] ✅ Mock Graphiti возвращает список Entity
+- [x] ✅ extract_entities_with_context читает контекст из :IS_PART_OF
+- [x] ✅ Entity nodes сохраняются в Neo4j
+- [x] ✅ Связи :MENTIONS создаются с атрибутом status="confirmed"
+- [x] ✅ LangGraph extraction nodes готовы
 
 ---
 

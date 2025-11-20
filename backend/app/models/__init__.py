@@ -10,6 +10,7 @@ from app.models.note import NotePayload
 from app.models.graph import GraphData
 from app.models.para_entities import Project, Area, Resource, Archive
 from app.models.proposal import PARACandidate, PARAProposal, UserDecisionPayload
+from app.models.entity import ExtractedCandidate
 
 __all__ = [
     "NotePayload",
@@ -21,4 +22,5 @@ __all__ = [
     "PARACandidate",
     "PARAProposal",
     "UserDecisionPayload",
+    "ExtractedCandidate",
 ]

@@ -15,8 +15,10 @@ Mock-методы возвращают детерминированные дан
 
 from app.services.mocks.mock_classifier import classify_note_para
 from app.services.mocks.mock_proposal_generator import generate_para_proposal
+from app.services.mocks.mock_graphiti import extract_entities
 
 __all__ = [
     "classify_note_para",
     "generate_para_proposal",
+    "extract_entities",
 ]

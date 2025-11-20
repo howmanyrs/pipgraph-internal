@@ -130,3 +130,71 @@ def deserialize_user_decision(data: Dict[str, Any]):
         custom_container_type=data.get("custom_container_type"),
         custom_container_name=data.get("custom_container_name"),
     )
+
+
+# ============================================================================
+# Entity serialization (L3 Extraction)
+# ============================================================================
+
+def serialize_entity(entity) -> Dict[str, Any]:
+    """
+    Сериализация ExtractedCandidate для хранения в LangGraph state.
+
+    Args:
+        entity: ExtractedCandidate instance
+
+    Returns:
+        dict с сериализованными данными
+    """
+    return {
+        "uuid": entity.uuid,
+        "name": entity.name,
+        "labels": entity.labels,
+        "summary": entity.summary,
+    }
+
+
+def deserialize_entity(data: Dict[str, Any]):
+    """
+    Десериализация ExtractedCandidate из state.
+
+    Args:
+        data: dict из state
+
+    Returns:
+        ExtractedCandidate instance
+    """
+    from app.models.entity import ExtractedCandidate
+
+    return ExtractedCandidate(
+        uuid=data["uuid"],
+        name=data["name"],
+        labels=data.get("labels", ["Entity"]),
+        summary=data.get("summary"),
+    )
+
+
+def serialize_entities(entities: list) -> List[Dict[str, Any]]:
+    """
+    Сериализация списка ExtractedCandidate для хранения в state.
+
+    Args:
+        entities: Список ExtractedCandidate instances
+
+    Returns:
+        Список dict с сериализованными данными
+    """
+    return [serialize_entity(e) for e in entities]
+
+
+def deserialize_entities(data: List[Dict[str, Any]]) -> list:
+    """
+    Десериализация списка ExtractedCandidate из state.
+
+    Args:
+        data: Список dict из state
+
+    Returns:
+        Список ExtractedCandidate instances
+    """
+    return [deserialize_entity(d) for d in data]

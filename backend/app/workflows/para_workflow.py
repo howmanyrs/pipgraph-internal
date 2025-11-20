@@ -27,11 +27,14 @@ from app.workflows.state import (
     PARAWorkflowState,
     serialize_proposal,
     deserialize_user_decision,
+    serialize_entities,
+    deserialize_entities,
 )
 from app.services.para import classify_note_para, generate_para_proposal
 from app.services.proposal_manager import apply_proposal_to_graph
-from app.services.pipgraph_manager import process_user_decision
+from app.services.pipgraph_manager import process_user_decision, extract_entities_with_context
 from app.crud.relationship_crud import RelationshipCRUD
+from app.crud.entity_crud import EntityCRUD
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,7 @@ async def identify_context_node(state: PARAWorkflowState) -> dict:
         logger.info(f"[identify_context_node] L1 Classification: {para_type}")
 
         # L2: Generate proposal with candidates
+        # TODO: In future, pass para_type to guide proposal generation
         proposal = generate_para_proposal(note_content)
         logger.info(
             f"[identify_context_node] L2 Generated proposal with "
@@ -313,32 +317,61 @@ async def extract_content_node(state: PARAWorkflowState) -> dict:
     Node 5: L3 Context-Aware Entity Extraction.
 
     Извлекает сущности с учетом PARA контекста.
-    TODO: Реализация в Iteration 4.
+    Uses extract_entities_with_context() from pipgraph_manager.
 
     Returns:
         dict с полями:
-        - extracted_entities: list[dict] - извлеченные сущности
+        - extracted_entities: list[dict] - сериализованные извлеченные сущности
         - status: str - "processing"
     """
     note_path = state["note_path"]
+    note_content = state["note_content"]
 
     logger.info(f"[extract_content_node] Extracting entities for: {note_path}")
 
-    # TODO: Implement in Iteration 4
-    # Will use mock_graphiti.extract_entities() with context from confirmed_context
+    try:
+        # Extract entities using context from confirmed :IS_PART_OF
+        entities = await extract_entities_with_context(
+            episodic_path=note_path,
+            episodic_content=note_content
+        )
 
-    return {
-        "extracted_entities": [],
-        "status": "processing",
-    }
+        # Serialize entities for state persistence
+        serialized_entities = serialize_entities(entities)
+
+        logger.info(
+            f"[extract_content_node] Extracted {len(entities)} entities for: {note_path}"
+        )
+
+        return {
+            "extracted_entities": serialized_entities,
+            "status": "processing",
+        }
+
+    except ValueError as e:
+        # No context available - this is expected if no :IS_PART_OF exists
+        logger.error(f"[extract_content_node] Context error: {e}")
+        return {
+            "extracted_entities": [],
+            "status": "error",
+            "error": str(e),
+        }
+
+    except Exception as e:
+        logger.error(f"[extract_content_node] Error: {e}", exc_info=True)
+        return {
+            "extracted_entities": [],
+            "status": "error",
+            "error": str(e),
+        }
 
 
 async def save_entities_node(state: PARAWorkflowState) -> dict:
     """
     Node 6: Save Extracted Entities.
 
-    Сохраняет извлеченные сущности в Neo4j.
-    TODO: Реализация в Iteration 4.
+    Сохраняет извлеченные сущности в Neo4j с созданием :MENTIONS связей.
+    Uses EntityCRUD.batch_save_entities().
 
     Returns:
         dict с полями:
@@ -346,15 +379,45 @@ async def save_entities_node(state: PARAWorkflowState) -> dict:
         - status: str - "completed"
     """
     note_path = state["note_path"]
+    extracted_entities_data = state.get("extracted_entities", [])
 
-    logger.info(f"[save_entities_node] Saving entities for: {note_path}")
+    logger.info(f"[save_entities_node] Saving {len(extracted_entities_data)} entities for: {note_path}")
 
-    # TODO: Implement in Iteration 4
-    # Will use entity_crud.batch_save_entities()
+    if not extracted_entities_data:
+        logger.info("[save_entities_node] No entities to save")
+        completed_at = datetime.now(timezone.utc).isoformat()
+        return {
+            "processing_completed_at": completed_at,
+            "status": "completed",
+        }
 
-    completed_at = datetime.now(timezone.utc).isoformat()
+    try:
+        # Deserialize entities from state
+        entities = deserialize_entities(extracted_entities_data)
 
-    return {
-        "processing_completed_at": completed_at,
-        "status": "completed",
-    }
+        # Save entities and create :MENTIONS relationships
+        entity_crud = EntityCRUD()
+        result = entity_crud.batch_save_entities(
+            entities=entities,
+            episodic_path=note_path
+        )
+
+        logger.info(
+            f"[save_entities_node] Saved {result['saved_count']} entities, "
+            f"linked {result['linked_count']} to {note_path}"
+        )
+
+        completed_at = datetime.now(timezone.utc).isoformat()
+
+        return {
+            "processing_completed_at": completed_at,
+            "status": "completed",
+        }
+
+    except Exception as e:
+        logger.error(f"[save_entities_node] Error: {e}", exc_info=True)
+        return {
+            "processing_completed_at": None,
+            "status": "error",
+            "error": str(e),
+        }

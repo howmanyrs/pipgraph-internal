@@ -846,3 +846,72 @@ def _check_remaining_link_suggestions(relationship_crud, episodic_path: str) -> 
     """
     suggestions = relationship_crud.get_suggestions(episodic_path)
     return [s for s in suggestions if s["suggestion_type"] == "link"]
+
+
+# ============================================================================
+# L3 Entity Extraction (Iteration 4)
+# ============================================================================
+
+async def extract_entities_with_context(
+    episodic_path: str,
+    episodic_content: str,
+    driver=None
+) -> List:
+    """
+    Extract entities from note content with PARA context awareness.
+
+    This function:
+    1. Retrieves the confirmed PARA context (via :IS_PART_OF)
+    2. Calls the entity extraction (mock or real Graphiti)
+    3. Returns the extracted entities
+
+    The context is used to inform entity extraction - for example,
+    entities extracted from a Project note will use the project name
+    in their prompts.
+
+    Args:
+        episodic_path: Path to the Episodic node (file path)
+        episodic_content: Text content of the note
+        driver: Optional Neo4j driver (creates one if None)
+
+    Returns:
+        List of ExtractedCandidate objects
+
+    Raises:
+        ValueError: If no confirmed PARA context exists
+    """
+    from app.crud.relationship_crud import RelationshipCRUD
+    from app.services.mocks.mock_graphiti import extract_entities
+    from app.models.entity import ExtractedCandidate
+
+    relationship_crud = RelationshipCRUD(driver)
+
+    # Step 1: Get confirmed context
+    context = relationship_crud.get_episodic_para_context(episodic_path)
+
+    if not context:
+        error_msg = f"No confirmed PARA context for: {episodic_path}. Cannot extract entities without context."
+        logger.error(f"✗ {error_msg}")
+        raise ValueError(error_msg)
+
+    logger.info(
+        f"[extract_entities_with_context] Using context: "
+        f"{context['container_type']} '{context['container_name']}'"
+    )
+
+    # Step 2: Prepare context dict for extraction
+    extraction_context = {
+        "id": context["container_id"],
+        "name": context["container_name"],
+        "label": context["container_type"]
+    }
+
+    # Step 3: Call entity extraction (mock or real)
+    entities = extract_entities(episodic_content, extraction_context)
+
+    logger.info(
+        f"✓ Extracted {len(entities)} entities for: {episodic_path} "
+        f"(context: {context['container_name']})"
+    )
+
+    return entities
