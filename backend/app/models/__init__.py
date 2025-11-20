@@ -9,6 +9,7 @@ Exports all Pydantic models for:
 from app.models.note import NotePayload
 from app.models.graph import GraphData
 from app.models.para_entities import Project, Area, Resource, Archive
+from app.models.proposal import PARACandidate, PARAProposal, UserDecisionPayload
 
 __all__ = [
     "NotePayload",
@@ -17,4 +18,7 @@ __all__ = [
     "Area",
     "Resource",
     "Archive",
+    "PARACandidate",
+    "PARAProposal",
+    "UserDecisionPayload",
 ]
