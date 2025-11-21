@@ -72,6 +72,11 @@ async def identify_context_node(state: PARAWorkflowState) -> dict:
 
         # L2: Generate proposal with candidates
         # TODO: In future, pass para_type to guide proposal generation
+        """
+        # TODO: Надо уточнить где делать поиск уже существующих узлов с подходящим типом.
+        в методе classify_note_para мы уже можем искать возможные релевантные узлы,
+        т.е. кандидаты уже становятся известны
+        """
         proposal = generate_para_proposal(note_content)
         logger.info(
             f"[identify_context_node] L2 Generated proposal with "

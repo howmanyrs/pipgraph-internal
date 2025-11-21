@@ -46,6 +46,10 @@ class EpisodicCRUD:
     ) -> Dict[str, Any]:
         """Create a new Episodic node.
 
+        TODO: Это кастомнй метод. Надо уточнить,
+        стоит ли использовать методы graphiti для создания только 
+        узла Episodic. Тут есть за и против, надо подумать.
+
         IMPORTANT: No-Cache Policy - Episodic does NOT contain project_id or any PARA context.
         Context is determined by traversing :IS_PART_OF relationships.
 

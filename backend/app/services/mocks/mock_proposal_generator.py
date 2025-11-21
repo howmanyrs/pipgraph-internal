@@ -15,6 +15,11 @@ def generate_para_proposal(note_content: str) -> PARAProposal:
     """
     Mock L2: Генерирует предложение по связыванию заметки с PARA контейнером.
 
+    TODO: In future, pass para_type to guide proposal generation
+    смотри сопуствующий метод classify_note_para - есть нюансы по очередности, 
+    когда их надо находить
+
+
     В реальной реализации будет использовать:
     - Embeddings для поиска похожих контейнеров
     - LLM для генерации reasoning и suggestions
