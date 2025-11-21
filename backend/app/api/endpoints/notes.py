@@ -3,7 +3,11 @@ from pydantic import ValidationError, BaseModel
 from typing import Optional, Dict, Any
 from app.models.note import NotePayload
 from app.services import note_processor
-from app.services.note_workflow import start_workflow, resume_workflow, get_workflow_status
+from app.workflows.para_graph import (
+    start_workflow_legacy as start_workflow,
+    resume_workflow_legacy as resume_workflow,
+    get_workflow_status,
+)
 
 router = APIRouter()
 

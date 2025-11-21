@@ -92,8 +92,11 @@ backend/
 ├── app/
 │   ├── models/
 │   │   └── workflow_state.py          ✨ НОВЫЙ
-│   ├── services/
-│   │   └── note_workflow.py           ✨ НОВЫЙ
+│   ├── workflows/
+│   │   ├── para_graph.py              ✨ Основной workflow (заменил note_workflow.py)
+│   │   ├── para_workflow.py           ✨ PARA workflow nodes
+│   │   ├── conditions.py              ✨ Conditional edges
+│   │   └── state.py                   ✨ State definitions
 │   ├── api/
 │   │   ├── endpoints/
 │   │   │   └── notes.py               📝 ОБНОВЛЕН (добавлены workflow endpoints)
@@ -107,6 +110,9 @@ backend/
     ├── WORKFLOW_MVP.md                 ✨ НОВЫЙ (полная документация)
     └── ...
 ```
+
+> **Note:** `app/services/note_workflow.py` был удалён как устаревший MVP.
+> Используйте `app/workflows/para_graph.py` - полноценный PARA workflow.
 
 ---
 

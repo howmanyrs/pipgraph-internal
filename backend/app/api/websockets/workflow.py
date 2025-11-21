@@ -21,9 +21,9 @@ from typing import Any, Dict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
 
-from app.services.note_workflow import (
-    start_workflow,
-    resume_workflow,
+from app.workflows.para_graph import (
+    start_workflow_legacy as start_workflow,
+    resume_workflow_legacy as resume_workflow,
     get_workflow_status,
     app as workflow_app,
 )

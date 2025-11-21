@@ -19,9 +19,9 @@ from app.api.schemas.workflow import (
     WorkflowResumeResponse,
     generate_workflow_id,
 )
-from app.services.note_workflow import (
-    start_workflow as start_langgraph_workflow,
-    resume_workflow as resume_langgraph_workflow,
+from app.workflows.para_graph import (
+    start_workflow_legacy as start_langgraph_workflow,
+    resume_workflow_legacy as resume_langgraph_workflow,
     get_workflow_status as get_langgraph_status,
 )
 

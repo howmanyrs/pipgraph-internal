@@ -310,3 +310,125 @@ def get_default_workflow():
         _default_workflow = create_para_workflow()
 
     return _default_workflow
+
+
+# ============================================================================
+# Legacy-compatible API (matches note_workflow.py signatures)
+# ============================================================================
+
+import aiosqlite
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+# Lazy initialization for SQLite checkpointer
+_sqlite_checkpointer: Optional[AsyncSqliteSaver] = None
+_sqlite_connection = None
+_compiled_app = None
+
+
+async def get_compiled_app():
+    """
+    Get or create the compiled workflow with SQLite checkpointer.
+
+    Uses lazy initialization to properly set up the async SQLite connection.
+    This provides persistence across restarts.
+    """
+    global _sqlite_checkpointer, _sqlite_connection, _compiled_app
+
+    if _compiled_app is None:
+        # Create database connection and checkpointer
+        _sqlite_connection = await aiosqlite.connect("workflow_checkpoints.db")
+        _sqlite_checkpointer = AsyncSqliteSaver(_sqlite_connection)
+        await _sqlite_checkpointer.setup()
+
+        # Compile workflow with SQLite checkpointer
+        _compiled_app = create_para_workflow(checkpointer=_sqlite_checkpointer)
+        logger.info("[get_compiled_app] PARA workflow compiled with SQLite checkpointer")
+
+    return _compiled_app
+
+
+# Expose app variable for compatibility with websockets/workflow.py
+app = None  # Will be set by get_compiled_app()
+
+
+async def start_workflow_legacy(file_path: str, content: str) -> str:
+    """
+    Start a new PARA workflow for a note.
+
+    Legacy-compatible wrapper that matches note_workflow.py signature.
+
+    Args:
+        file_path: Path to the note
+        content: Note content
+
+    Returns:
+        thread_id: Thread ID for tracking
+    """
+    from datetime import datetime, timezone
+
+    thread_id = f"note:{file_path}"
+    config = {"configurable": {"thread_id": thread_id}}
+
+    initial_state = {
+        "note_path": file_path,
+        "note_content": content,
+        "processing_started_at": datetime.now(timezone.utc).isoformat(),
+        "status": "processing",
+        "pending_suggestions": [],
+        "extracted_entities": [],
+    }
+
+    logger.info(f"[start_workflow_legacy] Starting PARA workflow for {file_path}")
+
+    # Get compiled app and run workflow (until first interrupt)
+    workflow_app = await get_compiled_app()
+    await workflow_app.ainvoke(initial_state, config)
+
+    return thread_id
+
+
+async def resume_workflow_legacy(thread_id: str, user_answer: dict) -> dict:
+    """
+    Resume workflow after user's answer.
+
+    Legacy-compatible wrapper that matches note_workflow.py signature.
+
+    Args:
+        thread_id: Thread ID
+        user_answer: User's answer (dict)
+
+    Returns:
+        dict with final state
+    """
+    from langgraph.types import Command
+
+    config = {"configurable": {"thread_id": thread_id}}
+
+    logger.info(f"[resume_workflow_legacy] Resuming workflow {thread_id}")
+
+    # Get compiled app and resume workflow with user answer
+    workflow_app = await get_compiled_app()
+    result = await workflow_app.ainvoke(Command(resume=user_answer), config)
+
+    return result
+
+
+async def get_workflow_status(thread_id: str) -> dict:
+    """
+    Get current workflow state.
+
+    Legacy-compatible wrapper that matches note_workflow.py signature.
+
+    Args:
+        thread_id: Thread ID
+
+    Returns:
+        dict with current state
+    """
+    config = {"configurable": {"thread_id": thread_id}}
+
+    # Get compiled app and retrieve state from checkpointer
+    workflow_app = await get_compiled_app()
+    state = await workflow_app.aget_state(config)
+
+    return state.values if state else {}

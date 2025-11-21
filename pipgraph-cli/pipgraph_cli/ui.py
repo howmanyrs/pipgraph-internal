@@ -290,10 +290,14 @@ class UI:
 
         lines = []
         while True:
-            line = input()
-            if not line:
+            try:
+                line = input()
+                if not line:
+                    break
+                lines.append(line)
+            except EOFError:
+                # Handle Ctrl+D or closed input stream
                 break
-            lines.append(line)
 
         return "\n".join(lines)
 

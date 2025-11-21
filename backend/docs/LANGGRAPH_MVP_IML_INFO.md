@@ -4,15 +4,17 @@
 
 ## 📦 Что создано
 
-**Новые файлы (10 файлов):**
+**Файлы workflow:**
 
+- `app/workflows/para_graph.py` - **основной workflow** (PARA идентификация)
+- `app/workflows/para_workflow.py` - узлы PARA workflow
+- `app/workflows/conditions.py` - условные переходы
+- `app/workflows/state.py` - определения состояния
 - `app/models/workflow_state.py` - модели состояния для LangGraph
-- `app/services/note_workflow.py` - workflow с 3 узлами (extract → ask → finalize)
 - `app/api/websockets/workflow.py` - WebSocket endpoint
-- `test_workflow_mvp.py` - автоматический тест
-- `docs/WORKFLOW_MVP.md` - полное руководство
-- `QUICKSTART_WORKFLOW.md` - быстрый старт
-- `WORKFLOW_MVP_CHANGELOG.md` - changelog изменений
+
+> **DEPRECATED:** `app/services/note_workflow.py` был удалён.
+> Используйте `app/workflows/para_graph.py` вместо него.
 
 **Изменённые файлы:**
 
@@ -22,21 +24,29 @@
 
 ## 🎯 Архитектура
 
+**Текущий PARA Workflow (para_graph.py):**
+
 ```mermaid
-graph LR
-    START --> extract[Extract Entities<br/>PipGraphManager]
-    extract --> check{Needs<br/>confirmation?}
-    check -->|Yes| ask[Ask User<br/>INTERRUPT ⏸]
-    check -->|No| finalize[Finalize]
-    ask --> finalize
-    finalize --> END
+graph TD
+    START --> identify[identify_context<br/>L1/L2 классификация]
+    identify --> apply[apply_proposal<br/>Создание :SUGGESTS]
+    apply --> check{check_suggestion_status}
+    check -->|Has :SUGGESTS| wait[wait_for_decision<br/>INTERRUPT ⏸]
+    check -->|Has :IS_PART_OF| extract[extract_content<br/>L3]
+    wait --> process[process_decision]
+    process --> check
+    extract --> save[save_entities]
+    save --> END
 ```
 
-**3 узла:**
+**Узлы:**
 
-- `extract_entities` - использует ваш `PipGraphManager.process_note()`
-- `ask_user` - один вопрос (INTERRUPT) про первую сущность
-- `finalize` - завершение обработки
+- `identify_context` - L1/L2: классификация PARA типа + генерация предложений
+- `apply_proposal` - создание связей :SUGGESTS/:IS_PART_OF
+- `wait_for_decision` - INTERRUPT для решения пользователя
+- `process_decision` - обработка решения + cascade
+- `extract_content` - L3: извлечение сущностей С УЧЕТОМ контекста
+- `save_entities` - сохранение в Neo4j
 
 **Persistence:** AsyncSqliteSaver → `workflow_checkpoints.db`
 

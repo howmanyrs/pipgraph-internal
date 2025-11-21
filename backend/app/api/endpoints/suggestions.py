@@ -20,7 +20,7 @@ from app.api.schemas.suggestions import (
     InboxResponse,
     InboxCountResponse,
 )
-from app.services.note_workflow import get_workflow_status as get_langgraph_status
+from app.workflows.para_graph import get_workflow_status as get_langgraph_status
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
             answer["custom_container_name"] = request.custom_container_name
 
         # Resume workflow with decision
-        from app.services.note_workflow import resume_workflow as resume_langgraph_workflow
+        from app.workflows.para_graph import resume_workflow_legacy as resume_langgraph_workflow
         final_state = await resume_langgraph_workflow(thread_id, answer)
 
         # Get cascade results

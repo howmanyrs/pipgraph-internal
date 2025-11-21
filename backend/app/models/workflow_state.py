@@ -9,7 +9,7 @@ from typing import TypedDict, Optional, List, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel
 
-from app.models.para_entities import EntityNode
+from graphiti_core.nodes import EntityNode
 
 
 # ============================================================================
