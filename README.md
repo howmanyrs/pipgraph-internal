@@ -102,16 +102,29 @@ pipgraph-monorepo/
 
 **6.1. API и WebSocket**
 
-*   **WebSocket** будет основным способом для обработки заметок.
+*   **WebSocket** используется для real-time обработки заметок.
     *   Клиент (плагин) устанавливает WebSocket-соединение с эндпоинтом `ws://<host>/api/v1/ws/notes/process`.
     *   После установки соединения клиент отправляет JSON-сообщение с данными заметки (`{ "file_path": "...", "content": "..." }`).
     *   Бэкенд немедленно отвечает сообщением-подтверждением: `{ "status": "processing", "message": "Note received..." }`.
     *   После завершения длительной задачи (обработка LLM, сохранение в БД), бэкенд отправляет итоговое сообщение с извлеченными данными: `{ "status": "done", "data": { ... } }`.
     *   Если происходит ошибка, бэкенд отправляет сообщение: `{ "status": "error", "message": "..." }`.
 
-*   **REST API (FastAPI)** будет использоваться для запросов, которые могут быть выполнены быстро.
-    *   `POST /search` — выполнить поиск на естественном языке.
-    *   `GET /suggestions/{note_id}` — получить сущности со статусом "на рассмотрении".
+*   **REST API (FastAPI)** используется для workflow управления и синхронных запросов.
+
+    **Workflow Management:**
+    *   `POST /api/v1/workflow/start` — запустить workflow для заметки
+    *   `GET /api/v1/workflow/{id}/status` — получить статус workflow
+    *   `POST /api/v1/workflow/{id}/resume` — продолжить workflow с ответом пользователя
+    *   `GET /api/v1/workflow/{id}/suggestions` — получить pending suggestions
+
+    **Suggestions & Decisions:**
+    *   `POST /api/v1/suggestion/{id}/decision` — отправить решение пользователя
+    *   `GET /api/v1/inbox/suggestions` — получить все pending suggestions
+    *   `GET /api/v1/inbox/count` — количество pending suggestions
+
+    **Legacy (deprecated):**
+    *   `POST /search` — выполнить поиск на естественном языке
+    *   `GET /suggestions/{note_id}` — получить сущности со статусом "на рассмотрении"
 
 **6.2. Пример сценария: Обработка новой заметки**
 
