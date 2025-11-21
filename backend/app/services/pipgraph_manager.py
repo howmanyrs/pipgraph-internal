@@ -517,6 +517,7 @@ async def _handle_confirm(
                 "type": "link",
                 "container_id": container_id,
                 "container_name": suggestion["container_name"],
+                "container_label": container_type,
                 "link_created": bool(link)
             }
         }

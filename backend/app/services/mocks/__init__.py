@@ -16,9 +16,17 @@ Mock-методы возвращают детерминированные дан
 from app.services.mocks.mock_classifier import classify_note_para
 from app.services.mocks.mock_proposal_generator import generate_para_proposal
 from app.services.mocks.mock_graphiti import extract_entities
+from app.services.mocks.mock_cascade import (
+    mock_find_cascade_candidates,
+    mock_apply_cascade,
+    get_mock_cascade_test_data,
+)
 
 __all__ = [
     "classify_note_para",
     "generate_para_proposal",
     "extract_entities",
+    "mock_find_cascade_candidates",
+    "mock_apply_cascade",
+    "get_mock_cascade_test_data",
 ]

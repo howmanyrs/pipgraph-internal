@@ -1,13 +1,15 @@
 # PipGraph CLI
 
-Terminal frontend for PipGraph backend via WebSocket API.
+Terminal frontend for PipGraph backend via WebSocket and REST API.
 
 ## Features
 
+- **Workflow Mode** - interactive processing with clarification questions (REST API)
 - **Interactive Mode** - interactive note input via console
 - **Demo Mode** - run pre-built examples for testing
 - **File Mode** - process notes from files
 - **WebSocket Communication** - async communication with backend
+- **REST API Support** - workflow management and suggestions
 - **Rich UI** - beautiful colored output with formatting (optional)
 
 ## Installation
@@ -46,7 +48,57 @@ Backend will be available at `http://localhost:8000`
 
 ### CLI Modes
 
-#### 1. Demo Mode (default)
+#### 1. Workflow Mode (recommended)
+
+Interactive workflow with clarification questions via REST API:
+
+```bash
+pipgraph --workflow
+# or short form
+pipgraph -w
+```
+
+Features:
+- Start workflow and receive suggestions
+- Review suggestions with confidence scores
+- Make decisions: confirm, dismiss, modify, create_custom
+- See cascade auto-resolution results
+
+Example session:
+
+```
+Enter file path (or 'quit'): notes/meeting.md
+Enter note content (end with empty line):
+# Meeting with John Smith
+Discussed PipGraph project timeline.
+
+Starting workflow...
+Workflow started: wf_a1b2c3d4
+Status: waiting_user
+
+Suggestion #1:
+  Type: para_link
+  Container: PipGraph Project (Project)
+  Confidence: 0.92
+
+Available actions:
+  confirm - Accept this suggestion
+  dismiss - Reject this suggestion
+  modify - Change the suggested value
+  create_custom - Create a new container
+
+Enter action: confirm
+Decision 'confirm' applied successfully!
+
+Cascade auto-resolved 2 similar suggestion(s):
+  - meetings/other.md (confidence: 0.88)
+  - notes/planning.md (confidence: 0.85)
+
+Workflow completed successfully!
+Episode UUID: ep_xyz789
+```
+
+#### 2. Demo Mode (default)
 
 Run 3 pre-built examples for testing:
 
@@ -56,7 +108,7 @@ pipgraph
 pipgraph --demo
 ```
 
-#### 2. Interactive Mode
+#### 3. Interactive Mode
 
 Interactive note input via console:
 
@@ -81,7 +133,7 @@ This is a test note with some content.
 <Ctrl+D>
 ```
 
-#### 3. File Mode
+#### 4. File Mode
 
 Process note from file:
 
@@ -207,15 +259,17 @@ pytest
 
 ## API Protocol
 
-CLI communicates with backend via WebSocket:
+CLI communicates with backend via WebSocket and REST API.
 
-### Endpoint
+### WebSocket API (Demo/Interactive/File modes)
+
+#### Endpoint
 
 ```
 ws://localhost:8000/api/v1/ws/notes/process
 ```
 
-### Request Format
+#### Request Format
 
 ```json
 {
@@ -224,7 +278,7 @@ ws://localhost:8000/api/v1/ws/notes/process
 }
 ```
 
-### Response Formats
+#### Response Formats
 
 **Processing (intermediate status)**:
 ```json
@@ -250,6 +304,80 @@ ws://localhost:8000/api/v1/ws/notes/process
 {
   "status": "error",
   "message": "Error description"
+}
+```
+
+### REST API (Workflow mode)
+
+#### Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/workflow/start` | Start new workflow |
+| GET | `/api/v1/workflow/{id}/status` | Get workflow status |
+| POST | `/api/v1/workflow/{id}/resume` | Resume with answer |
+| GET | `/api/v1/workflow/{id}/suggestions` | Get suggestions |
+| POST | `/api/v1/suggestion/{id}/decision` | Submit decision |
+| GET | `/api/v1/inbox/suggestions` | Get all pending |
+
+#### Start Workflow
+
+```bash
+curl -X POST http://localhost:8000/api/v1/workflow/start \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "notes/test.md", "content": "# Test"}'
+```
+
+Response:
+```json
+{
+  "workflow_id": "wf_a1b2c3d4",
+  "status": "waiting_user",
+  "file_path": "notes/test.md"
+}
+```
+
+#### Get Suggestions
+
+```bash
+curl http://localhost:8000/api/v1/workflow/wf_a1b2c3d4/suggestions
+```
+
+Response:
+```json
+{
+  "workflow_id": "wf_a1b2c3d4",
+  "suggestions": [
+    {
+      "suggestion_id": "q_123",
+      "suggestion_type": "para_link",
+      "container_type": "Project",
+      "container_name": "Project Alpha",
+      "confidence": 0.92,
+      "alternatives": []
+    }
+  ]
+}
+```
+
+#### Submit Decision
+
+```bash
+curl -X POST http://localhost:8000/api/v1/suggestion/q_123/decision \
+  -H "Content-Type: application/json" \
+  -d '{"action": "confirm"}'
+```
+
+Response:
+```json
+{
+  "success": true,
+  "workflow_id": "wf_a1b2c3d4",
+  "suggestion_id": "q_123",
+  "action": "confirm",
+  "cascade_applied": [
+    {"suggestion_id": "q_456", "note_path": "other.md", "confidence": 0.88}
+  ]
 }
 ```
 
@@ -307,6 +435,8 @@ MIT
 
 ## TODO
 
+- [x] Workflow mode with clarification questions (REST API)
+- [x] Cascade auto-resolution display
 - [ ] Add search command for graph queries
 - [ ] Implement batch file processing
 - [ ] Add configuration via file (.pipgraph.yaml)

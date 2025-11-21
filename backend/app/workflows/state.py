@@ -46,6 +46,9 @@ class PARAWorkflowState(TypedDict, total=False):
     # === Context (после подтверждения) ===
     confirmed_context: Optional[Dict[str, Any]]  # Информация о контейнере после :IS_PART_OF
 
+    # === Cascade auto-resolution ===
+    cascade_result: Optional[Dict[str, Any]]  # Результат cascade auto-resolution
+
     # === L3 Extraction ===
     extracted_entities: List[Dict[str, Any]]  # Сериализованные ExtractedCandidate
     episode_uuid: str  # UUID созданного Episode

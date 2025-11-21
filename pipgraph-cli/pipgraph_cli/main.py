@@ -211,6 +211,128 @@ async def check_backend(backend_url: str) -> bool:
         return False
 
 
+async def workflow_mode(backend_url: str):
+    """
+    Workflow mode with REST API for clarification questions.
+
+    This mode uses the new REST endpoints to:
+    1. Start a workflow
+    2. Get suggestions when waiting for user input
+    3. Submit decisions on suggestions
+    4. Track cascade auto-resolutions
+
+    Args:
+        backend_url: Backend WebSocket URL
+    """
+    ui = get_ui()
+    client = PipGraphClient(backend_url)
+
+    ui.print_header("PipGraph Workflow Mode")
+    ui.print_info("This mode allows you to process notes with clarification questions.")
+    ui.print_info("Type 'quit' to exit.\n")
+
+    while True:
+        ui.print_separator()
+        file_path = ui.prompt("Enter file path (or 'quit')").strip()
+
+        if file_path.lower() in ['quit', 'exit', 'q']:
+            ui.print_info("Exiting workflow mode...")
+            break
+
+        if not file_path:
+            ui.print_error("File path cannot be empty!")
+            continue
+
+        # Get content
+        content = ui.prompt_multiline("Enter note content")
+
+        if not content.strip():
+            ui.print_error("Content cannot be empty!")
+            continue
+
+        try:
+            # Start workflow
+            ui.print_info("\nStarting workflow...")
+            workflow_response = await client.start_workflow(file_path, content)
+            workflow_id = workflow_response["workflow_id"]
+            ui.print_workflow_started(workflow_id, workflow_response["status"])
+
+            # Process workflow until completed
+            while True:
+                # Get current status
+                status = await client.get_workflow_status(workflow_id)
+                current_status = status.get("status", "unknown")
+
+                if current_status == "completed":
+                    ui.print_workflow_complete(status.get("episode_uuid"))
+                    break
+
+                elif current_status == "error":
+                    ui.print_error(status.get("error", "Unknown error"))
+                    break
+
+                elif current_status == "waiting_user":
+                    # Get suggestions
+                    suggestions_response = await client.get_suggestions(workflow_id)
+                    suggestions = suggestions_response.get("suggestions", [])
+
+                    if not suggestions:
+                        ui.print_info("No suggestions to review.")
+                        break
+
+                    # Process each suggestion
+                    for i, suggestion in enumerate(suggestions):
+                        ui.print_suggestion(suggestion, i)
+                        ui.print_decision_options()
+
+                        # Get user action
+                        action = ui.prompt("Enter action").strip().lower()
+
+                        if action not in ["confirm", "dismiss", "modify", "create_custom"]:
+                            ui.print_error(f"Invalid action: {action}")
+                            action = "dismiss"  # Default to dismiss
+
+                        # Get additional input if needed
+                        modified_value = None
+                        custom_name = None
+
+                        if action == "modify":
+                            modified_value = ui.prompt("Enter new value").strip()
+                        elif action == "create_custom":
+                            custom_name = ui.prompt("Enter new container name").strip()
+
+                        # Submit decision
+                        ui.print_info(f"\nSubmitting decision: {action}...")
+                        decision_response = await client.submit_decision(
+                            suggestion["suggestion_id"],
+                            action,
+                            modified_value=modified_value,
+                            custom_container_name=custom_name
+                        )
+
+                        if decision_response.get("success"):
+                            ui.print_success(f"Decision '{action}' applied successfully!")
+
+                            # Show cascade results
+                            cascade = decision_response.get("cascade_applied", [])
+                            ui.print_cascade_result(cascade)
+                        else:
+                            ui.print_error("Decision failed")
+
+                elif current_status == "processing":
+                    ui.print_info("Workflow is still processing...")
+                    await asyncio.sleep(1)
+
+                else:
+                    ui.print_info(f"Unknown status: {current_status}")
+                    break
+
+        except Exception as e:
+            ui.print_error(f"Workflow error: {e}")
+            import traceback
+            traceback.print_exc()
+
+
 async def async_main():
     """Async main function."""
     parser = argparse.ArgumentParser(
@@ -220,6 +342,7 @@ async def async_main():
 Examples:
   pipgraph                    # Run demo examples (default)
   pipgraph -i                 # Interactive mode
+  pipgraph -w                 # Workflow mode with clarification questions
   pipgraph -d                 # Run demo examples
   pipgraph -f note.md         # Process note from file
   pipgraph --backend-url ws://localhost:8080  # Custom backend URL
@@ -230,6 +353,12 @@ Examples:
         '--interactive', '-i',
         action='store_true',
         help='Run in interactive mode'
+    )
+
+    parser.add_argument(
+        '--workflow', '-w',
+        action='store_true',
+        help='Run in workflow mode with clarification questions (REST API)'
     )
 
     parser.add_argument(
@@ -276,6 +405,9 @@ Examples:
     try:
         if args.file:
             await test_from_file(args.backend_url, args.file)
+
+        elif args.workflow:
+            await workflow_mode(args.backend_url)
 
         elif args.demo:
             await run_demo_examples(args.backend_url)

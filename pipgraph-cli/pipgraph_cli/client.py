@@ -1,4 +1,4 @@
-"""WebSocket client for PipGraph backend API."""
+"""WebSocket and REST client for PipGraph backend API."""
 
 import asyncio
 import json
@@ -10,6 +10,11 @@ try:
     from websockets.client import WebSocketClientProtocol
 except ImportError:
     raise ImportError("websockets library not installed. Run: pip install websockets")
+
+try:
+    import httpx
+except ImportError:
+    raise ImportError("httpx library not installed. Run: pip install httpx")
 
 
 @dataclass
@@ -26,7 +31,7 @@ class NotePayload:
 
 
 class PipGraphClient:
-    """Client for interacting with PipGraph backend WebSocket API."""
+    """Client for interacting with PipGraph backend WebSocket and REST API."""
 
     def __init__(self, backend_url: str = "ws://localhost:8000"):
         """
@@ -37,6 +42,8 @@ class PipGraphClient:
         """
         self.backend_url = backend_url.rstrip("/")
         self.ws_endpoint = f"{self.backend_url}/api/v1/ws/notes/process"
+        # Convert WebSocket URL to HTTP for REST endpoints
+        self.http_base = self.backend_url.replace("ws://", "http://").replace("wss://", "https://")
 
     async def process_note(
         self,
@@ -124,6 +131,147 @@ class PipGraphClient:
             if on_error:
                 on_error(error_msg)
             raise
+
+    # ========================================================================
+    # REST API Methods for Workflow Management
+    # ========================================================================
+
+    async def start_workflow(self, file_path: str, content: str) -> dict:
+        """
+        Start a new workflow for note processing.
+
+        Args:
+            file_path: Path to the note file
+            content: Content of the note
+
+        Returns:
+            dict with workflow_id, status, file_path
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{self.http_base}/api/v1/workflow/start",
+                json={"file_path": file_path, "content": content}
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_workflow_status(self, workflow_id: str) -> dict:
+        """
+        Get current status of a workflow.
+
+        Args:
+            workflow_id: Workflow identifier
+
+        Returns:
+            dict with workflow_id, status, pending_question, etc.
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{self.http_base}/api/v1/workflow/{workflow_id}/status"
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def resume_workflow(self, workflow_id: str, answer: dict) -> dict:
+        """
+        Resume a workflow with user's answer.
+
+        Args:
+            workflow_id: Workflow identifier
+            answer: User's answer to the pending question
+
+        Returns:
+            dict with updated status, next_question, etc.
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min for LLM
+            response = await client.post(
+                f"{self.http_base}/api/v1/workflow/{workflow_id}/resume",
+                json={"answer": answer}
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_suggestions(self, workflow_id: str) -> dict:
+        """
+        Get suggestions for a workflow.
+
+        Args:
+            workflow_id: Workflow identifier
+
+        Returns:
+            dict with workflow_id and list of suggestions
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{self.http_base}/api/v1/workflow/{workflow_id}/suggestions"
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def submit_decision(
+        self,
+        suggestion_id: str,
+        action: str,
+        modified_value: Optional[str] = None,
+        custom_container_name: Optional[str] = None
+    ) -> dict:
+        """
+        Submit a decision on a suggestion.
+
+        Args:
+            suggestion_id: Suggestion identifier
+            action: Decision action (confirm, dismiss, modify, create_custom)
+            modified_value: New value for 'modify' action
+            custom_container_name: Name for 'create_custom' action
+
+        Returns:
+            dict with success, workflow_id, cascade_applied
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        payload = {"action": action}
+        if modified_value:
+            payload["modified_value"] = modified_value
+        if custom_container_name:
+            payload["custom_container_name"] = custom_container_name
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{self.http_base}/api/v1/suggestion/{suggestion_id}/decision",
+                json=payload
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_inbox(self) -> dict:
+        """
+        Get all pending suggestions from inbox.
+
+        Returns:
+            dict with suggestions list and total_count
+
+        Raises:
+            httpx.HTTPStatusError: If request fails
+        """
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{self.http_base}/api/v1/inbox/suggestions"
+            )
+            response.raise_for_status()
+            return response.json()
 
 
 async def test_connection(backend_url: str = "ws://localhost:8000") -> bool:
