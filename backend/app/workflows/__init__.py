@@ -27,6 +27,13 @@ from app.workflows.conditions import (
     should_continue_decisions,
     check_error_status,
 )
+from app.workflows.para_graph import (
+    create_para_workflow,
+    start_workflow,
+    resume_workflow,
+    get_workflow_state,
+    get_default_workflow,
+)
 
 __all__ = [
     # State
@@ -49,4 +56,10 @@ __all__ = [
     "check_suggestion_status",
     "should_continue_decisions",
     "check_error_status",
+    # Workflow graph
+    "create_para_workflow",
+    "start_workflow",
+    "resume_workflow",
+    "get_workflow_state",
+    "get_default_workflow",
 ]

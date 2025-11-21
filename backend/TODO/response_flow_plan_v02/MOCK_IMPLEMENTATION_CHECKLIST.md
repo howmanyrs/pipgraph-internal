@@ -495,13 +495,13 @@ RETURN e.name, r.status;
 ### Задачи
 
 #### 5.1 Complete LangGraph Workflow Assembly
-**Файл:** `app/workflows/note_workflow.py`
+**Файл:** `app/workflows/para_graph.py`
 
-- [ ] Собрать StateGraph:
+- [x] Собрать StateGraph:
   ```python
   from langgraph.graph import StateGraph, END
 
-  workflow = StateGraph(NoteWorkflowState)
+  workflow = StateGraph(PARAWorkflowState)
   workflow.add_node("identify_context", identify_context_node)
   workflow.add_node("apply_proposal", apply_proposal_node)
   workflow.add_node("wait_for_decision", wait_for_decision_node)
@@ -509,24 +509,24 @@ RETURN e.name, r.status;
   workflow.add_node("extract_content", extract_content_node)
   workflow.add_node("save_entities", save_entities_node)
   ```
-- [ ] Добавить edges:
-  - [ ] Entry point: "identify_context"
-  - [ ] "identify_context" → "apply_proposal"
-  - [ ] "apply_proposal" → conditional (check_suggestion_status)
-  - [ ] "wait_for_decision" → "process_decision"
-  - [ ] "process_decision" → conditional (check_suggestion_status)
-  - [ ] "extract_content" → "save_entities"
-  - [ ] "save_entities" → END
-- [ ] Скомпилировать: `compiled_workflow = workflow.compile()`
-- [ ] 🔍 Проверить, что workflow компилируется без ошибок
+- [x] Добавить edges:
+  - [x] Entry point: "identify_context"
+  - [x] "identify_context" → "apply_proposal"
+  - [x] "apply_proposal" → conditional (check_suggestion_status)
+  - [x] "wait_for_decision" → "process_decision"
+  - [x] "process_decision" → conditional (should_continue_decisions)
+  - [x] "extract_content" → "save_entities"
+  - [x] "save_entities" → END
+- [x] Скомпилировать: `compiled_workflow = workflow.compile(checkpointer)`
+- [x] 🔍 Проверить, что workflow компилируется без ошибок
 
 ---
 
 #### 5.2 Manual Test Script
-**Файл:** `scripts/test_mock_flow.py`
+**Файл:** `scripts/test_iteration5_workflow.py`
 
-- [ ] Создать скрипт для ручного тестирования
-- [ ] Структура скрипта:
+- [x] Создать скрипт для ручного тестирования
+- [x] Структура скрипта:
   ```python
   # 1. Setup: создать Project "Mock Alpha" в Neo4j
   # 2. Step 1: запустить workflow с note_path и note_content
@@ -539,41 +539,41 @@ RETURN e.name, r.status;
   # 9. Step 4: workflow продолжается, извлекает entities
   # 10. Финал: проверить :MENTIONS в Neo4j
   ```
-- [ ] 🔍 Запустить скрипт, проверить каждый шаг в Neo4j Browser
+- [x] 🔍 Запустить скрипт, проверить каждый шаг в Neo4j Browser
 
 ---
 
 #### 5.3 Neo4j Verification Queries
 **Файл:** `docs/neo4j_verification_queries.md`
 
-- [ ] Создать документ с готовыми Cypher запросами для проверки:
-  - [ ] Проверка структуры Episodic (нет project_id)
-  - [ ] Проверка множественных :SUGGESTS
-  - [ ] Проверка трансформации :SUGGESTS → :IS_PART_OF
-  - [ ] Проверка обновления свойств Project
-  - [ ] Проверка :MENTIONS связей
-  - [ ] Проверка чистоты графа (нет висячих узлов)
+- [x] Создать документ с готовыми Cypher запросами для проверки:
+  - [x] Проверка структуры Episodic (нет project_id)
+  - [x] Проверка множественных :SUGGESTS
+  - [x] Проверка трансформации :SUGGESTS → :IS_PART_OF
+  - [x] Проверка обновления свойств Project
+  - [x] Проверка :MENTIONS связей
+  - [x] Проверка чистоты графа (нет висячих узлов)
 
 ---
 
 #### 5.4 Mock Documentation
 **Файл:** `app/services/mocks/README.md`
 
-- [ ] Создать документацию для mock-структуры:
-  - [ ] Описание каждого мока
-  - [ ] Какие данные возвращает
-  - [ ] Как переключить на реальные LLM
-  - [ ] План миграции (по компонентам)
+- [x] Создать документацию для mock-структуры:
+  - [x] Описание каждого мока
+  - [x] Какие данные возвращает
+  - [x] Как переключить на реальные LLM
+  - [x] План миграции (по компонентам)
 
 ---
 
 ### Definition of Done (Iteration 5)
 
-- [ ] ✅ LangGraph workflow собран и компилируется
-- [ ] ✅ Manual test script работает
-- [ ] ✅ Полный цикл проверен вручную в Neo4j Browser
-- [ ] ✅ Граф остается чистым после завершения
-- [ ] ✅ Документация для моков создана
+- [x] ✅ LangGraph workflow собран и компилируется
+- [x] ✅ Manual test script работает
+- [x] ✅ Полный цикл проверен вручную в Neo4j Browser
+- [x] ✅ Граф остается чистым после завершения
+- [x] ✅ Документация для моков создана
 
 ---
 
@@ -718,33 +718,33 @@ app/services/
 ## Критерии успеха Mock MVP
 
 ### Функциональные критерии
-- [ ] ✅ **Happy Path (Simple Link):**
+- [x] ✅ **Happy Path (Simple Link):**
   - Mock AI создает :SUGGESTS (link)
   - User confirms
   - Transform to :IS_PART_OF
   - Mock L3 Extraction
 
-- [ ] ✅ **Complex Path (Link + Update):**
+- [x] ✅ **Complex Path (Link + Update):**
   - Mock AI создает 2 ребра :SUGGESTS
   - User confirms Link
   - User confirms Update (Project renamed)
   - Mock L3 Extraction (использует новое имя)
 
-- [ ] ✅ **Alternative/Custom Path:**
+- [x] ✅ **Alternative/Custom Path:**
   - User selects alternative
   - Old suggestions deleted
   - New context created
 
-- [ ] ✅ **No-Cache проверка:**
+- [x] ✅ **No-Cache проверка:**
   - В Episodic узле нет поля project_id
   - Вся информация через traversal связей
 
 ### Технические критерии
-- [ ] ✅ Все CRUD операции работают
-- [ ] ✅ Множественные :SUGGESTS корректно создаются и удаляются
-- [ ] ✅ LangGraph workflow компилируется
-- [ ] ✅ Manual test script проходит полный цикл
-- [ ] ✅ Граф остается чистым (нет висячих узлов, suggestions)
+- [x] ✅ Все CRUD операции работают
+- [x] ✅ Множественные :SUGGESTS корректно создаются и удаляются
+- [x] ✅ LangGraph workflow компилируется
+- [x] ✅ Manual test script проходит полный цикл
+- [x] ✅ Граф остается чистым (нет висячих узлов, suggestions)
 
 ---
 
