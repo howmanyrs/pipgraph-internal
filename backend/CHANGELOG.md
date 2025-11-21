@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Mock MVP for PARA Workflow** (5 iterations completed)
+  - Neo4j Schema & CRUD foundation with constraints and indexes
+  - Mock L1/L2 PARA identification (classifier, proposal generator)
+  - User decision processing with LangGraph structure
+  - Mock L3 context-aware entity extraction
+  - Full LangGraph workflow assembly with interrupt/resume support
+  - Manual test scripts for verification
+- **REST API for Workflow Management**
+  - `POST /api/v1/workflow/start` - start new workflow
+  - `GET /api/v1/workflow/{id}/status` - get workflow status
+  - `POST /api/v1/workflow/{id}/resume` - resume with user answer
+  - `GET /api/v1/workflow/{id}/suggestions` - get pending suggestions
+  - `POST /api/v1/suggestion/{id}/decision` - submit user decision
+  - `GET /api/v1/inbox/suggestions` - get all pending suggestions
+  - `GET /api/v1/inbox/count` - count pending suggestions
+  - URL-safe workflow_id format (`wf_xxx` instead of `note:path`)
+  - Pydantic schemas for all requests/responses
+- **Cascade Auto-Resolution Feature**
+  - CascadeService for automatic suggestion resolution
+  - Threshold-based cascade (confidence > 0.85 auto-resolves)
+  - Batch operations for efficient Neo4j transactions
+  - Mock cascade with deterministic behavior for testing
+  - Extended RelationshipCRUD with cascade queries
+- **CLI Workflow Mode**
+  - REST API integration for CLI testing
+  - Examples and documentation for workflow operations
 - Graphiti integration for LLM-based entity extraction
 - WebSocket support for async note processing (`/api/v1/ws/notes/process`)
 - Pydantic-based configuration management via `config/settings.py`
