@@ -307,3 +307,146 @@ class RelationshipCRUD:
             count = record["deleted_count"] if record else 0
             logger.info(f"✓ Removed {count} suggestions for: {episodic_path}")
             return count
+
+    # =============================================================================
+    # Cascade Support Methods
+    # =============================================================================
+
+    def get_suggestions_by_container(self, container_id: str) -> List[Dict[str, Any]]:
+        """Get all :SUGGESTS relationships pointing to a specific container.
+
+        Used for cascade feature - find all suggestions to the same container
+        when user confirms one suggestion.
+
+        Args:
+            container_id: Target PARA container ID
+
+        Returns:
+            List of dicts with episodic_path, confidence, suggestion_id
+        """
+        query = """
+        MATCH (e:Episodic)-[r:SUGGESTS]->(c {id: $container_id})
+        RETURN
+            e.name as episodic_path,
+            r.suggestion_id as suggestion_id,
+            r.confidence as confidence,
+            r.reasoning as reasoning,
+            r.suggestion_type as suggestion_type,
+            c.name as container_name,
+            labels(c)[0] as container_type
+        ORDER BY r.confidence DESC
+        """
+
+        with self.driver.session() as session:
+            result = session.run(query, container_id=container_id)
+            suggestions = [dict(record) for record in result]
+            logger.info(f"Found {len(suggestions)} suggestions for container: {container_id[:8]}...")
+            return suggestions
+
+    def get_all_pending_suggestions(self) -> List[Dict[str, Any]]:
+        """Get all :SUGGESTS relationships in the graph.
+
+        Used for Inbox endpoint - returns all pending suggestions
+        across all notes that require user decisions.
+
+        Returns:
+            List of dicts with note_path, container info, confidence
+        """
+        query = """
+        MATCH (e:Episodic)-[r:SUGGESTS]->(c)
+        RETURN
+            e.name as note_path,
+            r.suggestion_id as suggestion_id,
+            r.confidence as confidence,
+            r.reasoning as reasoning,
+            r.suggestion_type as suggestion_type,
+            c.id as container_id,
+            c.name as container_name,
+            labels(c)[0] as container_type
+        ORDER BY r.confidence DESC
+        """
+
+        with self.driver.session() as session:
+            result = session.run(query)
+            suggestions = [dict(record) for record in result]
+            logger.info(f"Found {len(suggestions)} total pending suggestions in graph")
+            return suggestions
+
+    def find_episodics_for_container(self, container_id: str) -> List[str]:
+        """Find all Episodic nodes with :IS_PART_OF to a container.
+
+        Used to get context for cascade - which notes are already
+        confirmed as part of this container.
+
+        Args:
+            container_id: Target PARA container ID
+
+        Returns:
+            List of episodic paths (note names)
+        """
+        query = """
+        MATCH (e:Episodic)-[:IS_PART_OF]->(c {id: $container_id})
+        RETURN e.name as episodic_path
+        ORDER BY e.name
+        """
+
+        with self.driver.session() as session:
+            result = session.run(query, container_id=container_id)
+            episodics = [record["episodic_path"] for record in result]
+            logger.info(f"Found {len(episodics)} episodics linked to container: {container_id[:8]}...")
+            return episodics
+
+    def batch_resolve_suggestions(
+        self,
+        suggestion_ids: List[str],
+        container_id: str,
+        container_label: str = "Project"
+    ) -> Dict[str, Any]:
+        """Batch resolve multiple suggestions - delete :SUGGESTS and create :IS_PART_OF.
+
+        Used for cascade feature - efficiently resolve multiple suggestions
+        in a single transaction.
+
+        Args:
+            suggestion_ids: List of suggestion UUIDs to resolve
+            container_id: Target container for :IS_PART_OF links
+            container_label: Node label (Project, Area, Resource)
+
+        Returns:
+            Dict with resolved_count and created_links
+        """
+        if not suggestion_ids:
+            return {"resolved_count": 0, "created_links": []}
+
+        # Transaction: delete suggestions and create links
+        query = f"""
+        UNWIND $suggestion_ids as sid
+        MATCH (e:Episodic)-[r:SUGGESTS {{suggestion_id: sid}}]->(c:{container_label} {{id: $container_id}})
+        WITH e, r, c
+        DELETE r
+        WITH e, c
+        MERGE (e)-[link:IS_PART_OF]->(c)
+        RETURN e.name as episodic_path, c.name as container_name
+        """
+
+        with self.driver.session() as session:
+            result = session.run(
+                query,
+                suggestion_ids=suggestion_ids,
+                container_id=container_id
+            )
+            records = list(result)
+            created_links = [
+                {"episodic_path": r["episodic_path"], "container_name": r["container_name"]}
+                for r in records
+            ]
+
+            logger.info(
+                f"✓ Batch resolved {len(created_links)} suggestions -> "
+                f"container {container_id[:8]}..."
+            )
+
+            return {
+                "resolved_count": len(created_links),
+                "created_links": created_links
+            }

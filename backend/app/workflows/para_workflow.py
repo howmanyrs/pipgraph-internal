@@ -33,6 +33,7 @@ from app.workflows.state import (
 from app.services.para import classify_note_para, generate_para_proposal
 from app.services.proposal_manager import apply_proposal_to_graph
 from app.services.pipgraph_manager import process_user_decision, extract_entities_with_context
+from app.services.cascade_service import CascadeService
 from app.crud.relationship_crud import RelationshipCRUD
 from app.crud.entity_crud import EntityCRUD
 
@@ -285,6 +286,33 @@ async def process_decision_node(state: PARAWorkflowState) -> dict:
         if processed_id in pending:
             pending.remove(processed_id)
 
+        # Apply cascade for confirm actions on link suggestions
+        cascade_result = None
+        if user_decision.action == "confirm" and result.get("details", {}).get("type") == "link":
+            cascade_service = CascadeService()
+            cascade_response = cascade_service.process_decision_with_cascade(
+                suggestion_id=processed_id,
+                decision=user_decision,
+                decision_result=result
+            )
+
+            if cascade_response.cascade_result:
+                cascade_result = {
+                    "applied": [c.model_dump() for c in cascade_response.cascade_result.applied],
+                    "skipped": [c.model_dump() for c in cascade_response.cascade_result.skipped],
+                    "threshold": cascade_response.cascade_result.threshold
+                }
+
+                # Remove auto-resolved suggestions from pending list
+                for candidate in cascade_response.cascade_result.applied:
+                    if candidate.suggestion_id in pending:
+                        pending.remove(candidate.suggestion_id)
+
+                logger.info(
+                    f"[process_decision_node] Cascade applied: "
+                    f"{len(cascade_response.cascade_result.applied)} auto-resolved"
+                )
+
         # Get updated context if link was created
         confirmed_context = None
         relationship_crud = RelationshipCRUD()
@@ -300,6 +328,7 @@ async def process_decision_node(state: PARAWorkflowState) -> dict:
         return {
             "pending_suggestions": pending,
             "confirmed_context": confirmed_context,
+            "cascade_result": cascade_result,
             "user_decision": None,  # Clear for next iteration
             "status": "processing",
         }
