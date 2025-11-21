@@ -170,6 +170,133 @@ class UI:
         else:
             print(message)
 
+    # ========================================================================
+    # Workflow-specific UI methods
+    # ========================================================================
+
+    def print_workflow_started(self, workflow_id: str, status: str):
+        """Print workflow started message."""
+        if self.use_rich:
+            self.console.print(f"\n[bold green]Workflow started:[/bold green] {workflow_id}")
+            self.console.print(f"[bold cyan]Status:[/bold cyan] {status}")
+        else:
+            print(f"\nWorkflow started: {workflow_id}")
+            print(f"Status: {status}")
+
+    def print_workflow_status(self, status: dict):
+        """Print workflow status details."""
+        if self.use_rich:
+            self.console.print(f"\n[bold cyan]Workflow Status:[/bold cyan]")
+            self.console.print(f"  ID: {status.get('workflow_id', 'unknown')}")
+            self.console.print(f"  Status: {status.get('status', 'unknown')}")
+            if status.get('file_path'):
+                self.console.print(f"  File: {status.get('file_path')}")
+            if status.get('episode_uuid'):
+                self.console.print(f"  Episode: {status.get('episode_uuid')}")
+            if status.get('error'):
+                self.console.print(f"  [red]Error: {status.get('error')}[/red]")
+        else:
+            print(f"\nWorkflow Status:")
+            print(f"  ID: {status.get('workflow_id', 'unknown')}")
+            print(f"  Status: {status.get('status', 'unknown')}")
+            if status.get('file_path'):
+                print(f"  File: {status.get('file_path')}")
+            if status.get('episode_uuid'):
+                print(f"  Episode: {status.get('episode_uuid')}")
+            if status.get('error'):
+                print(f"  Error: {status.get('error')}")
+
+    def print_suggestion(self, suggestion: dict, index: int = 0):
+        """Print a single suggestion for user review."""
+        if self.use_rich:
+            self.console.print(f"\n[bold yellow]Suggestion #{index + 1}:[/bold yellow]")
+            self.console.print(f"  Type: {suggestion.get('suggestion_type', 'unknown')}")
+            self.console.print(f"  Container: {suggestion.get('container_name', 'unknown')} ({suggestion.get('container_type', '')})")
+            confidence = suggestion.get('confidence', 0)
+            color = "green" if confidence > 0.8 else "yellow" if confidence > 0.5 else "red"
+            self.console.print(f"  Confidence: [{color}]{confidence:.2f}[/{color}]")
+
+            alternatives = suggestion.get('alternatives', [])
+            if alternatives:
+                self.console.print(f"  Alternatives:")
+                for alt in alternatives:
+                    self.console.print(f"    - {alt.get('container_name', 'unknown')} ({alt.get('confidence', 0):.2f})")
+        else:
+            print(f"\nSuggestion #{index + 1}:")
+            print(f"  Type: {suggestion.get('suggestion_type', 'unknown')}")
+            print(f"  Container: {suggestion.get('container_name', 'unknown')} ({suggestion.get('container_type', '')})")
+            print(f"  Confidence: {suggestion.get('confidence', 0):.2f}")
+
+            alternatives = suggestion.get('alternatives', [])
+            if alternatives:
+                print(f"  Alternatives:")
+                for alt in alternatives:
+                    print(f"    - {alt.get('container_name', 'unknown')} ({alt.get('confidence', 0):.2f})")
+
+    def print_decision_options(self):
+        """Print available decision options."""
+        if self.use_rich:
+            self.console.print("\n[bold]Available actions:[/bold]")
+            self.console.print("  [green]confirm[/green] - Accept this suggestion")
+            self.console.print("  [red]dismiss[/red] - Reject this suggestion")
+            self.console.print("  [yellow]modify[/yellow] - Change the suggested value")
+            self.console.print("  [blue]create_custom[/blue] - Create a new container")
+        else:
+            print("\nAvailable actions:")
+            print("  confirm - Accept this suggestion")
+            print("  dismiss - Reject this suggestion")
+            print("  modify - Change the suggested value")
+            print("  create_custom - Create a new container")
+
+    def print_cascade_result(self, cascade_applied: list):
+        """Print cascade auto-resolution results."""
+        if not cascade_applied:
+            return
+
+        if self.use_rich:
+            self.console.print(f"\n[bold magenta]Cascade auto-resolved {len(cascade_applied)} similar suggestion(s):[/bold magenta]")
+            for item in cascade_applied:
+                self.console.print(f"  - {item.get('note_path', 'unknown')} (confidence: {item.get('confidence', 0):.2f})")
+        else:
+            print(f"\nCascade auto-resolved {len(cascade_applied)} similar suggestion(s):")
+            for item in cascade_applied:
+                print(f"  - {item.get('note_path', 'unknown')} (confidence: {item.get('confidence', 0):.2f})")
+
+    def print_workflow_complete(self, episode_uuid: str = None):
+        """Print workflow completion message."""
+        if self.use_rich:
+            self.console.print(f"\n[bold green]✓ Workflow completed successfully![/bold green]")
+            if episode_uuid:
+                self.console.print(f"[dim]Episode UUID: {episode_uuid}[/dim]")
+        else:
+            print(f"\n✓ Workflow completed successfully!")
+            if episode_uuid:
+                print(f"Episode UUID: {episode_uuid}")
+
+    def prompt_multiline(self, message: str) -> str:
+        """
+        Prompt user for multiline input.
+
+        Args:
+            message: Prompt message
+
+        Returns:
+            User input (end with empty line)
+        """
+        if self.use_rich:
+            self.console.print(f"[bold cyan]{message}[/bold cyan] (end with empty line):")
+        else:
+            print(f"{message} (end with empty line):")
+
+        lines = []
+        while True:
+            line = input()
+            if not line:
+                break
+            lines.append(line)
+
+        return "\n".join(lines)
+
 
 # Singleton instance
 _ui_instance: Optional[UI] = None
