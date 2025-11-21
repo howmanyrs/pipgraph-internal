@@ -29,7 +29,36 @@ Backend will start at `http://localhost:8000`
 
 ## 3. Using CLI
 
-### Demo examples (easiest way)
+### Workflow mode (recommended)
+
+```bash
+pipgraph -w
+```
+
+This is the most feature-rich mode:
+1. Enter file path and content
+2. Review suggestions with confidence scores
+3. Make decisions (confirm/dismiss/modify)
+4. See cascade auto-resolution results
+
+Example:
+```
+Enter file path: notes/meeting.md
+Enter note content:
+# Meeting with John
+Discussed project timeline.
+
+Suggestion #1:
+  Type: para_link
+  Container: Project Alpha (Project)
+  Confidence: 0.92
+
+Enter action: confirm
+Decision 'confirm' applied successfully!
+Workflow completed successfully!
+```
+
+### Demo examples (easiest way to test)
 
 ```bash
 pipgraph
@@ -121,7 +150,19 @@ NEO4J_PASSWORD=your_password
 
 ## Usage Examples
 
-### 1. Quick test
+### 1. Quick test with workflow
+
+```bash
+# Terminal 1: Backend
+cd backend/ && uvicorn app.api.main:app --reload
+
+# Terminal 2: CLI workflow mode
+cd pipgraph-cli/ && pipgraph -w
+
+# Enter path and content, review suggestions, make decisions
+```
+
+### 2. Quick test with demo
 
 ```bash
 # Terminal 1: Backend
@@ -131,14 +172,14 @@ cd backend/ && uvicorn app.api.main:app --reload
 cd pipgraph-cli/ && pipgraph
 ```
 
-### 2. Process real note
+### 3. Process real note
 
 ```bash
 # If you have an Obsidian vault
 pipgraph -f ~/Documents/ObsidianVault/Notes/meeting.md
 ```
 
-### 3. Interactive work
+### 4. Interactive work
 
 ```bash
 pipgraph -i
@@ -153,7 +194,7 @@ notes/ideas/ai_research.md
 <Ctrl+D>
 ```
 
-### 4. Without rich formatting
+### 5. Without rich formatting
 
 ```bash
 # For piping to file or scripts

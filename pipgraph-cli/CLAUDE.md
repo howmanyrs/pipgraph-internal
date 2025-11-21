@@ -12,6 +12,7 @@ uv venv && source .venv/bin/activate
 uv pip install -e .
 
 # Run CLI (make sure backend is running first)
+pipgraph -w           # Workflow mode (recommended)
 pipgraph              # Demo examples
 pipgraph -i           # Interactive mode
 pipgraph -f note.md   # Process file
@@ -36,10 +37,10 @@ pipgraph-cli/
 
 ## Architecture
 
-**Layered design**: CLI → Client → Backend WebSocket API
+**Layered design**: CLI → Client → Backend WebSocket/REST API
 
 - **main.py**: Argument parsing, mode selection, orchestration
-- **client.py**: WebSocket communication, protocol handling
+- **client.py**: WebSocket and REST API communication
 - **ui.py**: Terminal formatting, user interaction
 - **examples.py**: Demo data for testing
 
@@ -71,7 +72,9 @@ async def async_main():
         sys.exit(1)
 
     # Run mode based on args
-    if args.interactive:
+    if args.workflow:
+        await workflow_mode(backend_url)  # REST API mode
+    elif args.interactive:
         await interactive_mode(backend_url)
     elif args.demo:
         await run_demo_examples(backend_url)
@@ -114,6 +117,48 @@ class PipGraphClient:
 - **Send**: `{"file_path": "...", "content": "..."}`
 - **Receive**: `{"status": "processing|done|error", "message": "...", "data": {...}}`
 
+### 2b. REST API Client (client.py)
+
+REST methods for workflow management:
+
+```python
+class PipGraphClient:
+    def __init__(self, backend_url: str = "ws://localhost:8000"):
+        self.http_base = backend_url.replace("ws://", "http://")
+
+    async def start_workflow(self, file_path: str, content: str) -> dict:
+        """POST /api/v1/workflow/start"""
+        ...
+
+    async def get_workflow_status(self, workflow_id: str) -> dict:
+        """GET /api/v1/workflow/{id}/status"""
+        ...
+
+    async def get_suggestions(self, workflow_id: str) -> dict:
+        """GET /api/v1/workflow/{id}/suggestions"""
+        ...
+
+    async def submit_decision(
+        self,
+        suggestion_id: str,
+        action: str,
+        modified_value: Optional[str] = None,
+        custom_container_name: Optional[str] = None
+    ) -> dict:
+        """POST /api/v1/suggestion/{id}/decision"""
+        ...
+
+    async def get_inbox(self) -> dict:
+        """GET /api/v1/inbox/suggestions"""
+        ...
+```
+
+**Actions for submit_decision**:
+- `confirm` - Accept suggestion
+- `dismiss` - Reject suggestion
+- `modify` - Change value (pass `modified_value`)
+- `create_custom` - Create new container (pass `custom_container_name`)
+
 ### 3. Console UI (ui.py)
 
 Singleton UI manager with rich support:
@@ -148,6 +193,24 @@ def get_demo_examples() -> List[Dict[str, str]]:
 ```
 
 ## CLI Modes
+
+### Workflow Mode (Recommended)
+
+```bash
+pipgraph --workflow
+pipgraph -w
+```
+
+Interactive workflow with REST API:
+1. Prompt for file path and content
+2. Start workflow via POST /workflow/start
+3. Check status via GET /workflow/{id}/status
+4. If waiting_user, get suggestions via GET /workflow/{id}/suggestions
+5. Display suggestions with confidence scores
+6. Prompt for decision (confirm/dismiss/modify/create_custom)
+7. Submit decision via POST /suggestion/{id}/decision
+8. Display cascade results
+9. Repeat until completed
 
 ### Demo Mode (Default)
 
@@ -215,19 +278,38 @@ uv pip install -e .  # Installs all from pyproject.toml
 
 ## Backend Integration
 
-### WebSocket Endpoint
+### WebSocket Endpoint (Demo/Interactive/File modes)
 
 ```
 ws://localhost:8000/api/v1/ws/notes/process
 ```
 
-### Protocol Flow
+### REST Endpoints (Workflow mode)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/workflow/start` | Start workflow |
+| GET | `/api/v1/workflow/{id}/status` | Get status |
+| GET | `/api/v1/workflow/{id}/suggestions` | Get suggestions |
+| POST | `/api/v1/suggestion/{id}/decision` | Submit decision |
+| GET | `/api/v1/inbox/suggestions` | Get all pending |
+
+### WebSocket Protocol Flow
 
 1. **Connect** to WebSocket
 2. **Send** note payload: `{"file_path": "...", "content": "..."}`
 3. **Receive** processing status: `{"status": "processing", "message": "..."}`
 4. **Receive** result: `{"status": "done", "data": {...}}`
 5. **Close** connection
+
+### REST Protocol Flow
+
+1. **POST** /workflow/start → get workflow_id
+2. **GET** /workflow/{id}/status → check status
+3. If `waiting_user`:
+   - **GET** /workflow/{id}/suggestions → get suggestions
+   - **POST** /suggestion/{id}/decision → submit decision
+4. Repeat until `completed`
 
 ### Error Handling
 
