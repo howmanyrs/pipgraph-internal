@@ -153,6 +153,7 @@ async def test_workflow_start(workflow):
     print_section("TEST 3: Start Workflow")
 
     thread_id = f"test-thread-{uuid.uuid4().hex[:8]}"
+    episode_crud = EpisodicCRUD()
 
     try:
         note_path = "Notes/test_iteration5_workflow.md"
@@ -167,6 +168,16 @@ It contains information about user authentication and login implementation.
 - Create login form
 - Add password validation
         """.strip()
+
+        # Create Episodic node first (required for :SUGGESTS relationships)
+        from datetime import datetime, timezone
+        episode_crud.create_episodic(
+            path=note_path,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            content=note_content
+        )
+        print(f"✓ Created Episodic: {note_path}")
 
         print(f"Starting workflow for: {note_path}")
         print(f"Thread ID: {thread_id}")
