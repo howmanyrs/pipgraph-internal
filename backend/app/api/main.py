@@ -1,5 +1,15 @@
+import logging
+import os
+
 from fastapi import FastAPI
 from dotenv import load_dotenv
+
+# Настройка логирования для backend (до импорта модулей)
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, log_level),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 from app.api.endpoints import notes
 from app.api.endpoints import workflow as workflow_endpoints
 from app.api.endpoints import suggestions
