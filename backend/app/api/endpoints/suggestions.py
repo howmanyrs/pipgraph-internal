@@ -183,7 +183,7 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
         if final_state is None:
             raise ValueError(f"Workflow resume returned None for thread_id={thread_id}")
         logger.debug(f"[submit_decision] final_state before .get('cascade_result'): {final_state}")
-        cascade_applied = final_state.get("cascade_result", {}).get("applied", [])
+        cascade_applied = (final_state.get("cascade_result") or {}).get("applied", [])
 
         return DecisionResponse(
             success=True,
