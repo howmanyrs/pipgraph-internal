@@ -11,13 +11,13 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
-# DEBUG только для модулей приложения
-if log_level == "DEBUG":
-    logging.getLogger("app.api.endpoints.suggestions").setLevel(logging.DEBUG)
-    logging.getLogger("app.api.endpoints.workflow").setLevel(logging.DEBUG)
-    logging.getLogger("app.workflows").setLevel(logging.DEBUG)
-    logging.getLogger("app.services").setLevel(logging.DEBUG)
-    logging.getLogger("app.crud").setLevel(logging.DEBUG)
+# # DEBUG только для модулей приложения
+# if log_level == "DEBUG":
+logging.getLogger("app.api.endpoints.suggestions").setLevel(logging.DEBUG)
+logging.getLogger("app.api.endpoints.workflow").setLevel(logging.DEBUG)
+logging.getLogger("app.workflows").setLevel(logging.DEBUG)
+logging.getLogger("app.services").setLevel(logging.DEBUG)
+logging.getLogger("app.crud").setLevel(logging.DEBUG)
 
 # Заглушить шумные библиотеки
 logging.getLogger("neo4j").setLevel(logging.WARNING)
