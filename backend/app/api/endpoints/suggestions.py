@@ -165,6 +165,7 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
         if request.action == "create_custom" and request.custom_container_name:
             answer["custom_container_name"] = request.custom_container_name
             # Determine container type from suggestion
+            logger.debug(f"[submit_decision] suggestion before .get('container_type'): {suggestion}")
             answer["custom_container_type"] = suggestion.get("container_type", "Project")
 
         # Resume workflow with decision
@@ -179,6 +180,7 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
         # Get cascade results (with None check)
         if final_state is None:
             raise ValueError(f"Workflow resume returned None for thread_id={thread_id}")
+        logger.debug(f"[submit_decision] final_state before .get('cascade_result'): {final_state}")
         cascade_applied = final_state.get("cascade_result", {}).get("applied", [])
 
         return DecisionResponse(
