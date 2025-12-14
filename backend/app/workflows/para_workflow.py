@@ -159,9 +159,13 @@ async def apply_proposal_node(state: PARAWorkflowState) -> dict:
             f"{len(result.get('created_links', []))} auto-links"
         )
 
+        # If we have suggestions, set status to waiting_user
+        # (this happens BEFORE interrupt, so ainvoke() will return correct status)
+        status = "waiting_user" if pending_suggestions else "processing"
+
         return {
             "pending_suggestions": pending_suggestions,
-            "status": "processing",
+            "status": status,
         }
 
     except Exception as e:
@@ -225,7 +229,7 @@ async def wait_for_decision_node(state: PARAWorkflowState) -> dict:
     return {
         "current_suggestion_id": pending_suggestions[0] if pending_suggestions else None,
         "user_decision": user_decision,
-        "status": "processing",
+        "status": "waiting_user",
     }
 
 

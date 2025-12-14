@@ -9,6 +9,7 @@ Provides REST API for managing LangGraph workflows:
 
 import logging
 from typing import Dict
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 
 from app.api.schemas.workflow import (
@@ -20,10 +21,13 @@ from app.api.schemas.workflow import (
     generate_workflow_id,
 )
 from app.workflows.para_graph import (
-    start_workflow_legacy as start_langgraph_workflow,
-    resume_workflow_legacy as resume_langgraph_workflow,
+    start_workflow as start_langgraph_workflow,
+    resume_workflow as resume_langgraph_workflow,
     get_workflow_status as get_langgraph_status,
+    get_compiled_app,
 )
+from app.crud.episodic_crud import EpisodicCRUD
+from app.crud.para_crud import PARAContainerCRUD
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +75,48 @@ async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateRespon
         # Generate new workflow_id
         workflow_id = generate_workflow_id()
 
-        # Start LangGraph workflow
-        thread_id = await start_langgraph_workflow(
-            file_path=request.file_path,
-            content=request.content,
+        # Ensure required nodes exist in Neo4j before starting workflow
+        episodic_crud = EpisodicCRUD()
+        para_crud = PARAContainerCRUD()
+
+        # 1. Create Episodic node if it doesn't exist
+        existing_episodic = episodic_crud.get_episodic(request.file_path)
+        if not existing_episodic:
+            logger.info(f"[start_workflow] Creating Episodic node: {request.file_path}")
+            episodic_crud.create_episodic(
+                path=request.file_path,
+                content=request.content,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc)
+            )
+        else:
+            logger.info(f"[start_workflow] Episodic node already exists: {request.file_path}")
+
+        # 2. Ensure mock container exists (required by mock_proposal_generator)
+        mock_project_id = "mock-project-alpha"
+        existing_project = para_crud.get_project(mock_project_id)
+        if not existing_project:
+            logger.info(f"[start_workflow] Creating mock Project: {mock_project_id}")
+            para_crud.create_project(
+                project_id=mock_project_id,
+                name="Mock Project Alpha",
+                status="active"
+            )
+        else:
+            logger.info(f"[start_workflow] Mock Project already exists: {mock_project_id}")
+
+        # Generate thread_id
+        thread_id = f"note:{request.file_path}"
+
+        # Get compiled workflow app
+        workflow_app = await get_compiled_app()
+
+        # Start workflow and get result state
+        result = await start_langgraph_workflow(
+            workflow=workflow_app,
+            note_path=request.file_path,
+            note_content=request.content,
+            thread_id=thread_id,
         )
 
         # Store mapping
@@ -83,13 +125,8 @@ async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateRespon
             "file_path": request.file_path,
         }
 
-        # Get current state
-        state = await get_langgraph_status(thread_id)
-
-        # Determine status
-        status = state.get("status", "processing")
-        if state.get("pending_question"):
-            status = "waiting_user"
+        # Use result directly - it contains current state after ainvoke()
+        status = result.get("status", "processing")
 
         logger.info(f"[start_workflow] Created workflow {workflow_id} -> {thread_id}")
 
@@ -124,8 +161,6 @@ async def get_workflow_status(workflow_id: str) -> WorkflowStatusResponse:
 
         # Determine status
         status = state.get("status", "unknown")
-        if state.get("pending_question") and status != "completed":
-            status = "waiting_user"
 
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
@@ -163,17 +198,19 @@ async def resume_workflow(workflow_id: str, request: WorkflowResumeRequest) -> W
     try:
         thread_id = _get_thread_id(workflow_id)
 
-        # Resume workflow
+        # Get compiled workflow app
+        workflow_app = await get_compiled_app()
+
+        # Resume workflow with user's answer
         final_state = await resume_langgraph_workflow(
+            workflow=workflow_app,
+            user_decision=request.answer,
             thread_id=thread_id,
-            user_answer=request.answer,
         )
 
-        # Determine status
-        status = final_state.get("status", "unknown")
+        # Extract status and pending question
+        status = final_state.get("status", "completed")
         next_question = final_state.get("pending_question")
-        if next_question and status != "completed":
-            status = "waiting_user"
 
         # Get cascade results if available
         cascade_applied = final_state.get("cascade_result", {}).get("applied", [])
