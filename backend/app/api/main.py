@@ -1,15 +1,31 @@
 import logging
-import os
 
 from fastapi import FastAPI
-from dotenv import load_dotenv
+
+from config.settings import settings
 
 # Настройка логирования для backend (до импорта модулей)
-log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level = settings.LOG_LEVEL.upper()
 logging.basicConfig(
-    level=getattr(logging, log_level),
+    level=logging.INFO,  # Базовый уровень для всех
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+
+# DEBUG только для модулей приложения
+if log_level == "DEBUG":
+    logging.getLogger("app.api.endpoints.suggestions").setLevel(logging.DEBUG)
+    logging.getLogger("app.api.endpoints.workflow").setLevel(logging.DEBUG)
+    logging.getLogger("app.workflows").setLevel(logging.DEBUG)
+    logging.getLogger("app.services").setLevel(logging.DEBUG)
+    logging.getLogger("app.crud").setLevel(logging.DEBUG)
+
+# Заглушить шумные библиотеки
+logging.getLogger("neo4j").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+print(f"🔧 Logging level set to: {log_level}")
 from app.api.endpoints import notes
 from app.api.endpoints import workflow as workflow_endpoints
 from app.api.endpoints import suggestions
