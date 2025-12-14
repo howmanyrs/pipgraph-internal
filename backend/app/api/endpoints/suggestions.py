@@ -166,6 +166,8 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
             answer["custom_container_name"] = request.custom_container_name
             # Determine container type from suggestion
             logger.debug(f"[submit_decision] suggestion before .get('container_type'): {suggestion}")
+            # TODO: Делать проверку на ключ 'container_type' в suggestion
+            # TODO: Нельзя просто брать значение по умолчанию "Project", если ключ отсутствует
             answer["custom_container_type"] = suggestion.get("container_type", "Project")
 
         # Resume workflow with decision
