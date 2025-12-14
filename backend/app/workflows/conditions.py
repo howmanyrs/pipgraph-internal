@@ -13,7 +13,7 @@ from app.crud.relationship_crud import RelationshipCRUD
 logger = logging.getLogger(__name__)
 
 
-async def check_suggestion_status(
+def check_suggestion_status(
     state: PARAWorkflowState
 ) -> Literal["wait_for_decision_node", "extract_content_node"]:
     """
@@ -60,13 +60,12 @@ async def check_suggestion_status(
         )
         return "extract_content_node"
 
-    # Invalid state - no suggestions and no context
-    error_msg = (
-        f"Invalid graph state for {note_path}: "
-        f"no suggestions and no confirmed context"
+    # No suggestions and no context - proceed to extraction
+    logger.warning(
+        f"[check_suggestion_status] No suggestions or confirmed context for {note_path}, "
+        f"proceeding directly to extract_content_node"
     )
-    logger.error(f"[check_suggestion_status] {error_msg}")
-    raise ValueError(error_msg)
+    return "extract_content_node"
 
 
 def should_continue_decisions(
