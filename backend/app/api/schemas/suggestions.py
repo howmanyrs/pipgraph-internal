@@ -11,10 +11,14 @@ class SuggestionItem(BaseModel):
     """Single suggestion item."""
 
     suggestion_id: str = Field(..., description="Unique suggestion identifier")
-    suggestion_type: str = Field(..., description="Type: para_link or property_update")
+    suggestion_type: str = Field(..., description="Type: link or property_update")
     container_type: str = Field(..., description="PARA type: Project, Area, Resource, Archive")
     container_name: str = Field(..., description="Name of the suggested container")
+    container_id: str = Field(..., description="Container ID in Neo4j")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score 0-1")
+    reasoning: str = Field(..., description="Explanation for this suggestion")
+    target_field: Optional[str] = Field(None, description="Field to update (for property_update type)")
+    suggested_value: Optional[str] = Field(None, description="New value (for property_update type)")
     alternatives: List[dict] = Field(default_factory=list, description="Alternative suggestions")
 
     model_config = {
