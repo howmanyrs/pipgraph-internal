@@ -20,7 +20,7 @@ from app.api.schemas.suggestions import (
     InboxResponse,
     InboxCountResponse,
 )
-from app.workflows.para_graph import get_workflow_status as get_langgraph_status
+from app.workflows.langgraph_service import get_workflow_status as get_langgraph_status
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +171,7 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
             answer["custom_container_type"] = suggestion.get("container_type", "Project")
 
         # Resume workflow with decision
-        from app.workflows.para_graph import resume_workflow, get_compiled_app
+        from app.workflows.langgraph_service import resume_workflow, get_compiled_app
         workflow_app = await get_compiled_app()
         final_state = await resume_workflow(
             workflow=workflow_app,

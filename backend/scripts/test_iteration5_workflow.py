@@ -526,7 +526,7 @@ async def test_imports():
             check_suggestion_status,
             should_continue_decisions,
         )
-        from app.workflows.para_graph import create_para_workflow as cpw
+        from app.workflows.langgraph_service import create_para_workflow as cpw
         from langgraph.graph import StateGraph, END
         from langgraph.checkpoint.memory import MemorySaver
 

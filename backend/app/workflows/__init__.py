@@ -27,7 +27,7 @@ from app.workflows.conditions import (
     should_continue_decisions,
     check_error_status,
 )
-from app.workflows.para_graph import (
+from app.workflows.langgraph_service import (
     create_para_workflow,
     start_workflow,
     resume_workflow,

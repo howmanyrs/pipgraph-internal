@@ -20,7 +20,7 @@ from app.api.schemas.workflow import (
     WorkflowResumeResponse,
     generate_workflow_id,
 )
-from app.workflows.para_graph import (
+from app.workflows.langgraph_service import (
     start_workflow as start_langgraph_workflow,
     resume_workflow as resume_langgraph_workflow,
     get_workflow_status as get_langgraph_status,

@@ -1,7 +1,7 @@
 """
-PARA Workflow Graph Assembly
+LangGraph Service — ядро workflow системы.
 
-Сборка StateGraph для обработки заметок с PARA идентификацией.
+Сборка StateGraph, checkpointer setup и execution helpers для PARA workflow.
 Связывает все nodes из para_workflow.py в единый граф с условными переходами.
 
 Архитектура:
@@ -291,7 +291,7 @@ def get_workflow_state(workflow, thread_id: str) -> Optional[dict]:
 # ============================================================================
 
 # Pre-built workflow with default checkpointer
-# Usage: from app.workflows.para_graph import default_workflow
+# Usage: from app.workflows.langgraph_service import default_workflow
 _default_workflow = None
 
 
