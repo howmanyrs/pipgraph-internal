@@ -6,7 +6,7 @@ Guidance for Claude Code when working with the PipGraph monorepo.
 
 PipGraph is an Obsidian plugin with a Python backend that processes notes using LLM and stores extracted entities in a graph database.
 
-**Architecture**: Frontend-backend separation with WebSocket async communication.
+**Architecture**: Frontend-backend separation with REST API communication.
 
 ## Monorepo Structure
 
@@ -40,18 +40,19 @@ uvicorn app.api.main:app --reload
 
 ## Technology Stack
 
-- **Backend**: Python 3.12+, FastAPI, Neo4j, Graphiti
+- **Backend**: Python 3.12+, FastAPI, Neo4j, Graphiti, LangGraph
 - **Frontend**: TypeScript, Svelte/React
 - **Database**: Neo4j graph database
 - **Package Manager**: `uv` (Python)
-- **Communication**: WebSockets (async), REST (sync)
+- **Communication**: REST API
 
 ## Backend Architecture
 
-**Layered design**: API → Services → CRUD → Database
+**Layered design**: API → Services/Workflows → CRUD → Database
 
-- **API Layer**: WebSocket/HTTP handling, Pydantic validation
-- **Service Layer**: Business logic, LLM orchestration, workflow management
+- **API Layer**: REST endpoints, Pydantic validation
+- **Workflow Layer**: LangGraph state machine with interrupt/resume
+- **Service Layer**: Business logic, LLM orchestration
 - **CRUD Layer**: Neo4j operations, Cypher queries
 
 See [backend/docs/ARCHITECTURE.md](backend/docs/ARCHITECTURE.md) for details.
@@ -144,7 +145,7 @@ See [backend/docs/TESTING.md](backend/docs/TESTING.md) for comprehensive guide.
 
 ## Key Principles
 
-- **Async by default**: WebSocket for long operations, REST for quick queries
+- **REST API**: Stateless endpoints with interrupt/resume workflow
 - **Type safety**: Pydantic models everywhere
 - **Separation of concerns**: Strict layer boundaries
 - **Test coverage**: Unit, integration, and e2e tests

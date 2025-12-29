@@ -1,7 +1,7 @@
 ### **Руководство по реализации Backend "PipGraph" (Версия 1.2)**
 
-**Дата:** 26.09.2025
-**Статус:** Для разработки
+**Дата:** 29.12.2025
+**Статус:** В активной разработке
 
 #### 1. Введение
 
@@ -18,17 +18,29 @@ backend/
 ├── app/
 │   ├── api/                  # Слой API (маршрутизация)
 │   │   ├── endpoints/        # Файлы с эндпоинтами
-│   │   │   └── notes.py      # <-- WebSocket эндпоинт для заметок
+│   │   │   ├── workflow.py   # <-- REST API для управления workflow
+│   │   │   └── suggestions.py # <-- REST API для suggestions и inbox
 │   │   └── main.py           # Главный файл FastAPI приложения
-│   ├── crud/                 # Слой доступа к данным (Create, Read, Update, Delete)
-│   │   └── graph_crud.py     # <-- Логика работы с Neo4j
+│   ├── crud/                 # Слой доступа к данным (Neo4j)
+│   │   ├── relationship_crud.py  # Связи и suggestions
+│   │   ├── entity_crud.py        # Сущности
+│   │   ├── episodic_crud.py      # Эпизоды
+│   │   └── para_crud.py          # PARA контейнеры
 │   ├── models/               # Pydantic модели (контракты данных)
-│   │   ├── graph.py          # Модели для узлов и связей графа
-│   │   └── note.py           # Модель для входящих данных заметки
-│   └── services/             # Слой бизнес-логики
-│       ├── pipgraph_manager.py     # <-- Обертка над Graphiti с 7 стадиями обработки
-│       ├── cloudru_patched_client.py  # <-- Клиент для Cloud.ru/Qwen
-│       └── note_processor.py       # <-- Основная логика обработки заметки
+│   │   ├── para_entities.py  # Project, Area, Resource, Archive
+│   │   ├── proposal.py       # PARACandidate, PARAProposal
+│   │   └── entity.py         # Entity models
+│   ├── services/             # Слой бизнес-логики
+│   │   ├── pipgraph_manager.py      # Обработка заметок с LLM
+│   │   ├── proposal_manager.py      # Применение proposals к Neo4j
+│   │   ├── cascade_service.py       # Авто-разрешение похожих suggestions
+│   │   ├── cloudru_patched_client.py  # Клиент для Cloud.ru/Qwen
+│   │   └── mocks/                   # Mock-сервисы для тестирования
+│   └── workflows/            # LangGraph workflow
+│       ├── para_workflow.py      # State machine (6 nodes)
+│       ├── langgraph_service.py  # Сборка и выполнение графа
+│       ├── state.py              # PARAWorkflowState
+│       └── conditions.py         # Условия переходов
 │
 ├── config/
 │   └── settings.py           # Конфигурация через pydantic-settings
@@ -190,140 +202,115 @@ class GraphData(BaseModel):
 
 #### 2. Слой CRUD (`app/crud/`)
 
-Этот слой инкапсулирует всю логику взаимодействия с базой данных. На данном этапе это будет простая функция-заглушка.
+Этот слой инкапсулирует всю логику взаимодействия с Neo4j.
 
-**`app/crud/graph_crud.py`:**
+**Основные модули:**
+- `relationship_crud.py` - Создание suggestions и связей `:SUGGESTS`, `:IS_PART_OF`
+- `entity_crud.py` - Batch-сохранение сущностей
+- `episodic_crud.py` - Управление эпизодами (Episodic nodes)
+- `para_crud.py` - CRUD для Project/Area/Resource/Archive контейнеров
+
 ```python
-from app.models.graph import GraphData
+# Пример: создание suggestion
+from app.crud.relationship_crud import create_suggestion
 
-def save_graph_data(graph_data: GraphData) -> bool:
-    """
-    Функция-заглушка для сохранения данных в графовую БД.
-    В реальной реализации здесь будет Cypher-запрос к Neo4j.
-    """
-    print("--- CRUD Layer ---")
-    print(f"Saving {len(graph_data.nodes)} nodes and {len(graph_data.relationships)} relationships.")
-    print("------------------")
-    # Имитируем успешное сохранение
-    return True
+await create_suggestion(
+    session=session,
+    episode_uuid=episode_uuid,
+    container_uuid=container_uuid,
+    suggestion_type="link",
+    confidence=0.85
+)
 ```
 
 #### 3. Сервисный слой (`app/services/`)
 
 Здесь находится основная бизнес-логика. Сервис использует CRUD-слой для работы с данными.
 
-**`app/services/note_processor.py`:**
+**Основные сервисы:**
+
+- **PipGraphManager** (`pipgraph_manager.py`) - Пошаговая обработка заметок с LLM
+- **ProposalManager** (`proposal_manager.py`) - Применение PARA proposals к Neo4j
+- **CascadeService** (`cascade_service.py`) - Авто-разрешение похожих suggestions
+- **Mock-сервисы** (`mocks/`) - Детерминированные моки для тестирования без LLM
+
 ```python
-from app.models.note import NotePayload
-from app.models.graph import GraphData
-from app.services.pipgraph_manager import PipGraphManager
-from datetime import datetime, timezone
-import logging
+# Пример использования ProposalManager
+from app.services.proposal_manager import ProposalManager
 
-logger = logging.getLogger(__name__)
-
-async def process_and_store_note(note: NotePayload) -> GraphData:
-    """
-    Основная бизнес-логика: обрабатывает заметку через PipGraphManager.
-
-    PipGraphManager предоставляет 7 стадий обработки с точками контроля:
-    1. Валидация входных данных
-    2. Извлечение фактов через LLM
-    3. Разрешение сущностей
-    4. Извлечение связей
-    5. Обнаружение дубликатов
-    6. Обновление графа в Neo4j
-    7. Форматирование результата
-    """
-    # Получаем экземпляр Graphiti (из зависимостей)
-    graphiti = await get_graphiti()
-
-    # Создаем менеджер для пошагового контроля
-    manager = PipGraphManager(graphiti)
-
-    # Обрабатываем заметку с полным контролем над процессом
-    result = await manager.process_note(
-        name=note.file_path,
-        content=note.content,
-        reference_time=datetime.now(timezone.utc)
-    )
-
-    # Логируем результаты извлечения
-    logger.info(f"Extracted {result['entity_count']} entities, "
-                f"{result['edge_count']} edges from '{note.file_path}'")
-
-    return result
+manager = ProposalManager(session)
+await manager.apply_proposal_to_graph(proposal, episode_uuid)
 ```
 
-**Новые возможности в реализации:**
+**LangGraph Workflow** (`app/workflows/`):
 
-- **PipGraphManager** (`app/services/pipgraph_manager.py`) - обертка над Graphiti с 7 стадиями обработки
-- **CloudRuPatchedClient** (`app/services/cloudru_patched_client.py`) - клиент для Cloud.ru/Qwen моделей
-- **Обнаружение дубликатов** - планируется SHA-256 хеширование контента (см. TODO.md)
+```python
+from app.workflows.langgraph_service import start_workflow, resume_workflow
+
+# Запуск нового workflow
+result = await start_workflow(file_path="note.md", content="...")
+
+# Возобновление с ответом пользователя
+result = await resume_workflow(workflow_id, answer={"action": "confirm"})
+```
 
 #### 4. Слой API (`app/api/`)
 
 Этот слой отвечает за прием внешних запросов и их передачу в сервисный слой.
 
-**`app/api/endpoints/notes.py`:**
+**REST API Endpoints:**
+
 ```python
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from pydantic import ValidationError
-from app.models.note import NotePayload
-from app.services import note_processor
+# app/api/endpoints/workflow.py
+from fastapi import APIRouter
+from app.workflows.langgraph_service import start_workflow, resume_workflow
 
 router = APIRouter()
 
-@router.websocket("/ws/notes/process")
-async def process_note_websocket(websocket: WebSocket):
-    """
-    Принимает WebSocket соединение для полного цикла обработки заметки.
-    """
-    await websocket.accept()
-    try:
-        data = await websocket.receive_json()
-        
-        try:
-            payload = NotePayload(**data)
-        except ValidationError as e:
-            await websocket.send_json({"status": "error", "message": str(e)})
-            await websocket.close()
-            return
+@router.post("/workflow/start")
+async def start_workflow_endpoint(request: WorkflowCreateRequest):
+    """Запуск нового PARA workflow."""
+    result = await start_workflow(request.file_path, request.content)
+    return WorkflowStatusResponse(**result)
 
-        # 1. Отправляем клиенту подтверждение о начале работы
-        await websocket.send_json({
-            "status": "processing",
-            "message": f"Note '{payload.file_path}' received, starting processing..."
-        })
+@router.get("/workflow/{workflow_id}/status")
+async def get_status(workflow_id: str):
+    """Получить статус workflow."""
+    ...
 
-        # 2. Вызываем бизнес-логику (для прототипа - синхронно)
-        # В будущем здесь может быть фоновая задача (Celery, BackgroundTasks)
-        graph_data = note_processor.process_and_store_note(payload)
+@router.post("/workflow/{workflow_id}/resume")
+async def resume(workflow_id: str, request: WorkflowResumeRequest):
+    """Возобновить workflow с ответом пользователя."""
+    ...
+```
 
-        # 3. Отправляем финальный результат
-        await websocket.send_json({
-            "status": "done",
-            "data": graph_data.dict() # Сериализуем Pydantic модель в dict
-        })
+```python
+# app/api/endpoints/suggestions.py
+@router.get("/workflow/{workflow_id}/suggestions")
+async def get_suggestions(workflow_id: str):
+    """Получить pending suggestions для workflow."""
+    ...
 
-    except WebSocketDisconnect:
-        print("Client disconnected")
-    except Exception as e:
-        await websocket.send_json({"status": "error", "message": f"An unexpected error occurred: {str(e)}"})
-    finally:
-        await websocket.close()
+@router.post("/suggestion/{suggestion_id}/decision")
+async def submit_decision(suggestion_id: str, request: DecisionRequest):
+    """Подтвердить/отклонить suggestion."""
+    ...
+
+@router.get("/inbox/suggestions")
+async def get_inbox():
+    """Все pending suggestions."""
+    ...
 ```
 
 **`app/api/main.py`:**
 ```python
 from fastapi import FastAPI
-from app.api.endpoints import notes
+from app.api.endpoints import workflow, suggestions
 
 app = FastAPI(title="PipGraph Backend")
 
-# Подключаем роутер с WebSocket эндпоинтом
-# Добавляем префикс для версионирования API
-app.include_router(notes.router, prefix="/api/v1")
+app.include_router(workflow.router, prefix="/api/v1")
+app.include_router(suggestions.router, prefix="/api/v1")
 
 @app.get("/")
 def read_root():
@@ -338,35 +325,45 @@ def read_root():
 uvicorn app.api.main:app --reload
 ```
 
-Сервер будет запущен и готов принимать WebSocket-соединения по адресу:
-`ws://127.0.0.1:8000/api/v1/ws/notes/process`
+Сервер будет запущен и доступен по адресу: `http://127.0.0.1:8000`
 
-### Шаг 5: Тестирование с помощью `websocat`
+### Шаг 5: Тестирование с помощью `curl`
 
-Для тестирования WebSocket-соединения используйте `websocat` или любой другой WebSocket-клиент.
+Для тестирования REST API используйте `curl`:
 
-1.  **Установите `websocat`**, если это необходимо (например, `brew install websocat`).
-2.  **Выполните тестовый запрос** в новом терминале:
+```bash
+# Запуск нового workflow
+curl -X POST http://127.0.0.1:8000/api/v1/workflow/start \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "test/note.md", "content": "Иван работает в ООО Рога и копыта."}'
 
-    ```bash
-    echo '{"file_path": "test/my_ws_note.md", "content": "Иван по вебсокету работает в ООО Рога и копыта."}' \
-    | websocat ws://127.0.0.1:8000/api/v1/ws/notes/process
-    ```
+# Получить статус workflow
+curl http://127.0.0.1:8000/api/v1/workflow/{workflow_id}/status
 
-**Ожидаемый результат в вашем терминале:**
+# Получить pending suggestions
+curl http://127.0.0.1:8000/api/v1/workflow/{workflow_id}/suggestions
 
-Вы получите два последовательных ответа от сервера, что демонстрирует асинхронный характер взаимодействия:
+# Подтвердить suggestion
+curl -X POST http://127.0.0.1:8000/api/v1/suggestion/{suggestion_id}/decision \
+  -H "Content-Type: application/json" \
+  -d '{"action": "confirm"}'
 
-1.  **Мгновенный ответ-подтверждение:**
-    ```json
-    {"status":"processing","message":"Note 'test/my_ws_note.md' received, starting processing..."}
-    ```
-2.  **Финальный ответ с результатом после "обработки":**
-    ```json
-    {"status":"done","data":{"nodes":[{"id":"person1","label":"Person","properties":{"name":"Иван"}},{"id":"company1","label":"Company","properties":{"name":"ООО 'Рога и копыта'"}}],"relationships":[{"source_id":"person1","target_id":"company1","type":"WORKS_AT","properties":{}}]}}
-    ```
+# Получить все pending suggestions (inbox)
+curl http://127.0.0.1:8000/api/v1/inbox/suggestions
+```
 
-Этот результат подтверждает, что бэкенд готов к интеграции с фронтендом согласно утвержденной архитектуре.
+**Ожидаемый результат:**
+
+```json
+{
+  "workflow_id": "abc123",
+  "status": "waiting_for_decision",
+  "pending_question": {
+    "type": "para_suggestion",
+    "suggestions": [...]
+  }
+}
+```
 
 ---
 
@@ -383,22 +380,20 @@ uvicorn app.api.main:app --reload
 
 ### Ключевые компоненты
 
-**PipGraphManager** - Обертка над Graphiti для пошагового контроля обработки заметок:
-- Скопирован код `add_episode` из graphiti_core для контролируемых модификаций
+**LangGraph PARA Workflow** - Основной pipeline обработки заметок:
+- State machine с 6 nodes: identify_context → apply_proposal → wait_for_decision → process_decision → extract_content → save_entities
+- Interrupt/resume поддержка для пользовательских решений
+- Cascade авто-разрешение похожих suggestions
+
+**PipGraphManager** - Обертка над Graphiti для извлечения сущностей:
 - 7 стадий обработки с точками вмешательства
-- Документированные места для кастомизации
-- Позволяет постепенную кастомизацию без изменения библиотеки
+- Интеграция с LangGraph workflow
+- Пошаговый контроль обработки
 
-**CloudRuPatchedClient** - Кастомный LLM клиент для Cloud.ru/Qwen:
-- Исправляет дублирование JSON схемы в ответах Qwen
-- Модифицированная инструкция промпта: "return data only, not the schema"
-- Однострочное изменение с полной совместимостью с OpenAIGenericClient
-
-**Обнаружение дубликатов заметок** (Высокий приоритет в TODO):
-- Планируется верификация через SHA-256 хеш контента
-- Сценарий 1: Пропуск обработки если контент не изменился (оптимизация затрат)
-- Сценарий 2: Обработка модифицированных заметок (требуется дизайн)
-- Включает реализацию `find_episode_by_name()`
+**CascadeService** - Авто-разрешение похожих suggestions:
+- Threshold-based: confidence > 0.85 авто-подтверждает
+- Neo4j как источник истины
+- Возвращает список авто-разрешённых items
 
 ---
 

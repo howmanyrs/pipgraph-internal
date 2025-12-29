@@ -19,16 +19,26 @@ Server runs at `http://localhost:8000`
 
 ```
 app/
-├── api/              # FastAPI endpoints, WebSocket handlers
+├── api/              # FastAPI REST endpoints
+│   └── endpoints/    # workflow.py, suggestions.py
 ├── services/         # Business logic, LLM orchestration
-│   ├── pipgraph_manager.py   # 7-stage note processing wrapper over Graphiti
-│   ├── cloudru_patched_client.py  # Cloud.ru/Qwen LLM client
-│   └── note_processor.py     # Note processing service
+│   ├── pipgraph_manager.py     # Note processing with Graphiti
+│   ├── proposal_manager.py     # Apply PARA proposals to Neo4j
+│   ├── cascade_service.py      # Auto-resolve similar suggestions
+│   └── mocks/                  # Mock services for testing
+├── workflows/        # LangGraph PARA workflow
+│   ├── para_workflow.py        # State machine (6 nodes)
+│   ├── langgraph_service.py    # Graph assembly & execution
+│   ├── state.py                # PARAWorkflowState
+│   └── conditions.py           # Transition conditions
 ├── crud/             # Database operations (Neo4j)
+│   ├── relationship_crud.py    # Suggestions, links
+│   ├── entity_crud.py          # Entities
+│   └── para_crud.py            # PARA containers
 └── models/           # Pydantic data models
 ```
 
-**Layered architecture**: API → Services → CRUD → Database
+**Layered architecture**: API → Services/Workflows → CRUD → Database
 
 ## Configuration
 
@@ -51,53 +61,44 @@ from config.settings import settings
 
 ## Key Patterns
 
-### WebSocket Handler
+### REST API Endpoints
 
 ```python
-@router.websocket("/ws/notes/process")
-async def process_note(websocket: WebSocket):
-    await websocket.accept()
-    data = await websocket.receive_json()
-    payload = NotePayload(**data)  # Validate
-
-    await websocket.send_json({"status": "processing"})
-    result = await note_processor.process_and_store_note(payload)
-    await websocket.send_json({"status": "done", "data": result.dict()})
-```
-
-### Service Layer - PipGraphManager
-
-The `PipGraphManager` wraps Graphiti and exposes 7 processing stages with intervention points:
-
-```python
-from app.services.pipgraph_manager import PipGraphManager
-
-async def process_and_store_note(note: NotePayload) -> GraphData:
-    """Process note using PipGraphManager for step-by-step control."""
-    manager = PipGraphManager(graphiti_instance)
-
-    # Process note with full control over each stage
-    result = await manager.process_note(
-        name=note.file_path,
-        content=note.content,
-        reference_time=datetime.now(timezone.utc)
+# app/api/endpoints/workflow.py
+@router.post("/workflow/start")
+async def start_workflow(request: WorkflowCreateRequest):
+    result = await langgraph_service.start_workflow(
+        request.file_path, request.content
     )
+    return WorkflowStatusResponse(**result)
 
-    # Result contains entities and edges extracted
-    logger.info(f"Extracted {result['entity_count']} entities, "
-                f"{result['edge_count']} edges")
-
-    return result
+@router.post("/workflow/{workflow_id}/resume")
+async def resume_workflow(workflow_id: str, request: WorkflowResumeRequest):
+    result = await langgraph_service.resume_workflow(workflow_id, request.answer)
+    return WorkflowResumeResponse(**result)
 ```
 
-**7 Processing Stages** (from `docs/attend/pipgraph_manager_discussion.md`):
-1. Input validation
-2. Fact extraction (LLM)
-3. Entity resolution
-4. Relationship extraction
-5. Duplicate detection
-6. Graph updates (Neo4j)
-7. Result formatting
+### LangGraph Workflow
+
+```python
+from app.workflows.langgraph_service import start_workflow, resume_workflow
+
+# Start new PARA classification workflow
+result = await start_workflow(file_path="note.md", content="...")
+# Returns: {workflow_id, status, pending_question}
+
+# Resume with user decision
+result = await resume_workflow(workflow_id, answer={"action": "confirm"})
+# Returns: {status, cascade_applied, next_question}
+```
+
+**6 Workflow Nodes**:
+1. `identify_context` - L1 PARA classification, L2 proposal generation
+2. `apply_proposal` - Create :SUGGESTS relationships in Neo4j
+3. `wait_for_decision` - INTERRUPT for user input
+4. `process_decision` - Handle user action, cascade resolution
+5. `extract_content` - L3 entity extraction (PipGraphManager)
+6. `save_entities` - Save to Neo4j
 
 ### CRUD Layer
 
@@ -128,15 +129,21 @@ pytest tests/integration/test_openrouter.py::test_openrouter_llm_connection -sv
 
 ## API Endpoints
 
-### WebSocket
-- `ws://localhost:8000/api/v1/ws/notes/process` - Note processing
+### Workflow Management
+- `POST /api/v1/workflow/start` - Start new PARA workflow
+- `GET /api/v1/workflow/{id}/status` - Get workflow status
+- `POST /api/v1/workflow/{id}/resume` - Resume with user answer
 
-### REST
+### Suggestions
+- `GET /api/v1/workflow/{id}/suggestions` - Get pending suggestions
+- `POST /api/v1/suggestion/{id}/decision` - Submit decision
+
+### Inbox
+- `GET /api/v1/inbox/suggestions` - All pending suggestions
+- `GET /api/v1/inbox/count` - Count of pending
+
+### Health
 - `GET /` - Health check
-
-### Planned
-- `POST /api/v1/search` - Natural language search
-- `GET /api/v1/suggestions/{note_id}` - Entity suggestions
 
 ## Common Tasks
 
@@ -149,63 +156,60 @@ pytest tests/integration/test_openrouter.py::test_openrouter_llm_connection -sv
 
 ### Add database operation
 
-1. Define method in `app/crud/graph_crud.py`
+1. Define method in appropriate CRUD file (`relationship_crud.py`, `entity_crud.py`, etc.)
 2. Write Cypher query
 3. Call from service layer
 4. Test with `@pytest.mark.integration`
 
-### Debug WebSocket
+### Debug REST API
 
 ```bash
-# Test with websocat
-echo '{"file_path": "test.md", "content": "Test"}' | \
-websocat ws://127.0.0.1:8000/api/v1/ws/notes/process
+# Test workflow start
+curl -X POST http://127.0.0.1:8000/api/v1/workflow/start \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "test.md", "content": "Test"}'
+
+# Get workflow status
+curl http://127.0.0.1:8000/api/v1/workflow/{workflow_id}/status
 ```
 
 ## Technology Stack
 
-- **Framework**: FastAPI (async, WebSocket support)
+- **Framework**: FastAPI (async REST API)
+- **Workflow**: LangGraph (state machine with interrupt/resume)
 - **Database**: Neo4j (graph database)
 - **LLM Integration**:
   - Graphiti (entity extraction framework)
   - OpenRouter (main, small, embedding models)
-  - CloudRuPatchedClient (Cloud.ru/Qwen compatibility)
 - **Validation**: Pydantic + pydantic-settings
 - **Testing**: pytest with markers (unit/integration/e2e)
 - **Package Manager**: uv
 
 ## Important Notes
 
-- **PipGraphManager Design**:
-  - Copied `add_episode` logic from graphiti_core for controlled modifications
-  - Enables gradual customization without modifying library code
-  - Documents modification points for future enhancements
-  - Based on architectural design from `docs/attend/pipgraph_manager_discussion.md`
+- **LangGraph PARA Workflow**:
+  - State machine with interrupt/resume support
+  - 6 nodes: identify_context → apply_proposal → wait_for_decision → process_decision → extract_content → save_entities
+  - Cascade auto-resolution for similar suggestions
+  - Mock services in `mocks/` for testing without LLM
 
-- **Duplicate Note Detection** (High Priority TODO):
-  - SHA-256 content hash verification planned
-  - Scenario 1: Skip processing if content unchanged (cost optimization)
-  - Scenario 2: Handle modified note re-processing (design needed)
-  - Requires `find_episode_by_name()` implementation
+- **Cascade Service**:
+  - Threshold-based: confidence > 0.85 auto-resolves
+  - Uses Neo4j as source of truth
+  - Returns list of auto-resolved items in response
 
-- **CloudRuPatchedClient**:
-  - Fixes JSON schema duplication in Cloud.ru/Qwen responses
-  - Single-line modification: "return data only, not the schema"
-  - Full compatibility with OpenAIGenericClient
-
-- **WebSocket flow**:
-  1. Client connects
-  2. Server sends immediate "processing" acknowledgment
-  3. Server processes via PipGraphManager (7 stages)
-  4. Server sends extracted entities to client
-  5. Optional: Multiple feedback rounds with client
-  6. Server sends "done" with frontmatter update data
-  7. Client updates note frontmatter
+- **REST API Flow**:
+  1. Client POSTs to `/workflow/start`
+  2. Server returns `workflow_id` and `pending_question`
+  3. Client POSTs decision to `/workflow/{id}/resume`
+  4. Server processes, may return more questions or complete
+  5. Client can query `/inbox/suggestions` for all pending items
 
 - **Layer responsibilities**:
-  - API: Validation, transport
-  - Services: Business logic (PipGraphManager orchestrates)
-  - CRUD: Database only
+  - API: Validation, transport (REST)
+  - Workflows: LangGraph state machine orchestration
+  - Services: Business logic (PipGraphManager, CascadeService)
+  - CRUD: Database only (Neo4j)
 
 ## Documentation
 
