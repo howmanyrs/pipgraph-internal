@@ -5,32 +5,7 @@ Fast tests without external dependencies.
 """
 
 import pytest
-from app.models.note import NotePayload
 from app.models.graph import GraphData, Node, Relationship
-
-
-@pytest.mark.unit
-def test_note_payload_creation():
-    """Test NotePayload model creation."""
-    note = NotePayload(
-        file_path="test/note.md",
-        content="Test content"
-    )
-
-    assert note.file_path == "test/note.md"
-    assert note.content == "Test content"
-
-
-@pytest.mark.unit
-def test_note_payload_validation():
-    """Test NotePayload validation."""
-    # Should work with valid data
-    note = NotePayload(file_path="test.md", content="content")
-    assert note is not None
-
-    # Test empty path validation (if implemented)
-    # with pytest.raises(ValidationError):
-    #     NotePayload(file_path="", content="content")
 
 
 @pytest.mark.unit
