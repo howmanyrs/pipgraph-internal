@@ -35,7 +35,7 @@ from app.crud.relationship_crud import RelationshipCRUD
 from app.crud.entity_crud import EntityCRUD
 from app.models.entity import ExtractedCandidate
 from app.services.mocks.mock_graphiti import extract_entities
-from app.services.pipgraph_manager import extract_entities_with_context
+from app.services.graphiti.pipgraph_manager import extract_entities_with_context
 from app.workflows.state import (
     serialize_entity,
     deserialize_entity,
@@ -516,7 +516,7 @@ async def test_imports():
             serialize_entity as se1,
             serialize_entities as se2,
         )
-        from app.services.pipgraph_manager import extract_entities_with_context
+        from app.services.graphiti.pipgraph_manager import extract_entities_with_context
         from app.workflows.para_workflow import extract_content_node, save_entities_node
 
         print("✅ VERIFIED: All imports work correctly")

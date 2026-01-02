@@ -35,7 +35,7 @@ from app.crud.episodic_crud import EpisodicCRUD
 from app.crud.relationship_crud import RelationshipCRUD
 from app.services.para import generate_para_proposal
 from app.services.proposal_manager import apply_proposal_to_graph
-from app.services.pipgraph_manager import process_user_decision
+from app.services.graphiti.pipgraph_manager import process_user_decision
 from app.models.proposal import UserDecisionPayload
 
 # Setup logging

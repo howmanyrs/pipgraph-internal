@@ -86,7 +86,7 @@ async def graphiti_instance():
     Use this fixture for tests that need actual LLM processing.
     Mark such tests with @pytest.mark.integration
     """
-    from app.services.llm_graphiti_client import get_graphiti
+    from app.services.graphiti.client import get_graphiti
     instance = await get_graphiti()
     return instance
 

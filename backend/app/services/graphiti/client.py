@@ -11,7 +11,7 @@ from graphiti_core.llm_client.config import LLMConfig
 from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
 from config.settings import settings
-from app.services.cloudru_patched_client import CloudRuPatchedClient
+from app.services.graphiti.patched_client import CloudRuPatchedClient
 
 # Disable telemetry
 os.environ['GRAPHITI_TELEMETRY_ENABLED'] = 'false'

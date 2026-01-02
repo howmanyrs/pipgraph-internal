@@ -32,7 +32,7 @@ from app.workflows.state import (
 )
 from app.services.para import classify_note_para, generate_para_proposal
 from app.services.proposal_manager import apply_proposal_to_graph
-from app.services.pipgraph_manager import process_user_decision, extract_entities_with_context
+from app.services.graphiti.pipgraph_manager import process_user_decision, extract_entities_with_context
 from app.services.cascade_service import CascadeService
 from app.crud.relationship_crud import RelationshipCRUD
 from app.crud.entity_crud import EntityCRUD

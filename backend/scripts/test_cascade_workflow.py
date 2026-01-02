@@ -32,7 +32,7 @@ from app.crud.episodic_crud import EpisodicCRUD
 from app.crud.relationship_crud import RelationshipCRUD
 from app.services.cascade_service import CascadeService
 from app.models.proposal import UserDecisionPayload
-from app.services.pipgraph_manager import process_user_decision
+from app.services.graphiti.pipgraph_manager import process_user_decision
 from datetime import datetime, timezone
 
 # Setup logging
