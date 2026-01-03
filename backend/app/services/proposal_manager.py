@@ -15,7 +15,7 @@ from uuid import uuid4
 from typing import List, Dict, Any
 
 from app.models.proposal import PARAProposal, PARACandidate
-from app.crud.relationship_crud import RelationshipCRUD
+from app.crud import relationship_crud as rel_crud_module
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +26,14 @@ AUTO_LINK_CONFIDENCE_THRESHOLD = 0.95
 class ProposalManager:
     """Управление применением PARA предложений к графу."""
 
-    def __init__(self, relationship_crud: RelationshipCRUD = None):
+    def __init__(self, relationship_crud: "rel_crud_module.RelationshipCRUD" = None):
         """
         Инициализация менеджера.
 
         Args:
             relationship_crud: CRUD для работы со связями. Если None, создает новый.
         """
-        self.relationship_crud = relationship_crud or RelationshipCRUD()
+        self.relationship_crud = relationship_crud or rel_crud_module.RelationshipCRUD()
 
     def apply_proposal_to_graph(
         self,
@@ -133,7 +133,7 @@ def apply_proposal_to_graph(
     episodic_path: str,
     proposal: PARAProposal,
     container_label: str = "Project",
-    relationship_crud: RelationshipCRUD = None
+    relationship_crud: "rel_crud_module.RelationshipCRUD" = None
 ) -> Dict[str, Any]:
     """
     Применяет PARAProposal к графу (функциональный интерфейс).

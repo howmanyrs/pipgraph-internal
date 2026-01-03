@@ -20,14 +20,9 @@ from app.api.schemas.workflow import (
     WorkflowResumeResponse,
     generate_workflow_id,
 )
-from app.workflows.langgraph_service import (
-    start_workflow as start_langgraph_workflow,
-    resume_workflow as resume_langgraph_workflow,
-    get_workflow_status as get_langgraph_status,
-    get_compiled_app,
-)
-from app.crud.episodic_crud import EpisodicCRUD
-from app.crud.para_crud import PARAContainerCRUD
+from app.workflows import langgraph_service
+from app.crud import episodic_crud
+from app.crud import para_crud
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +71,14 @@ async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateRespon
         workflow_id = generate_workflow_id()
 
         # Ensure required nodes exist in Neo4j before starting workflow
-        episodic_crud = EpisodicCRUD()
-        para_crud = PARAContainerCRUD()
+        ep_crud = episodic_crud.EpisodicCRUD()
+        container_crud = para_crud.PARAContainerCRUD()
 
         # 1. Create Episodic node if it doesn't exist
-        existing_episodic = episodic_crud.get_episodic(request.file_path)
+        existing_episodic = ep_crud.get_episodic(request.file_path)
         if not existing_episodic:
             logger.info(f"[start_workflow] Creating Episodic node: {request.file_path}")
-            episodic_crud.create_episodic(
+            ep_crud.create_episodic(
                 path=request.file_path,
                 content=request.content,
                 created_at=datetime.now(timezone.utc),
@@ -94,10 +89,10 @@ async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateRespon
 
         # 2. Ensure mock container exists (required by mock_proposal_generator)
         mock_project_id = "mock-project-alpha"
-        existing_project = para_crud.get_project(mock_project_id)
+        existing_project = container_crud.get_project(mock_project_id)
         if not existing_project:
             logger.info(f"[start_workflow] Creating mock Project: {mock_project_id}")
-            para_crud.create_project(
+            container_crud.create_project(
                 project_id=mock_project_id,
                 name="Mock Project Alpha",
                 status="active"
@@ -109,10 +104,10 @@ async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateRespon
         thread_id = f"note:{request.file_path}"
 
         # Get compiled workflow app
-        workflow_app = await get_compiled_app()
+        workflow_app = await langgraph_service.get_compiled_app()
 
         # Start workflow and get result state
-        result = await start_langgraph_workflow(
+        result = await langgraph_service.start_workflow(
             workflow=workflow_app,
             note_path=request.file_path,
             note_content=request.content,
@@ -154,7 +149,7 @@ async def get_workflow_status(workflow_id: str) -> WorkflowStatusResponse:
     """
     try:
         thread_id = _get_thread_id(workflow_id)
-        state = await get_langgraph_status(thread_id)
+        state = await langgraph_service.get_workflow_status(thread_id)
 
         if not state:
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
@@ -199,10 +194,10 @@ async def resume_workflow(workflow_id: str, request: WorkflowResumeRequest) -> W
         thread_id = _get_thread_id(workflow_id)
 
         # Get compiled workflow app
-        workflow_app = await get_compiled_app()
+        workflow_app = await langgraph_service.get_compiled_app()
 
         # Resume workflow with user's answer
-        final_state = await resume_langgraph_workflow(
+        final_state = await langgraph_service.resume_workflow(
             workflow=workflow_app,
             user_decision=request.answer,
             thread_id=thread_id,

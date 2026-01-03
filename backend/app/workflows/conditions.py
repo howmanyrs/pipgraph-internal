@@ -8,7 +8,7 @@ import logging
 from typing import Literal
 
 from app.workflows.state import PARAWorkflowState
-from app.crud.relationship_crud import RelationshipCRUD
+from app.crud import relationship_crud
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +38,10 @@ def check_suggestion_status(
 
     logger.info(f"[check_suggestion_status] Checking status for: {note_path}")
 
-    relationship_crud = RelationshipCRUD()
+    crud = relationship_crud.RelationshipCRUD()
 
     # Check for pending suggestions
-    suggestions = relationship_crud.get_suggestions(note_path)
+    suggestions = crud.get_suggestions(note_path)
 
     if suggestions:
         logger.info(
@@ -51,7 +51,7 @@ def check_suggestion_status(
         return "wait_for_decision_node"
 
     # Check for confirmed context
-    context = relationship_crud.get_episodic_para_context(note_path)
+    context = crud.get_episodic_para_context(note_path)
 
     if context:
         logger.info(

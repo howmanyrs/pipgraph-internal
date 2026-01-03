@@ -20,15 +20,13 @@ from app.api.schemas.suggestions import (
     InboxResponse,
     InboxCountResponse,
 )
-from app.workflows.langgraph_service import get_workflow_status as get_langgraph_status
+from app.workflows import langgraph_service
+from app.api.endpoints import workflow as workflow_endpoint
+from app.crud import relationship_crud
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["suggestions"])
-
-# Import workflow mapping from workflow endpoint
-# This creates a dependency - in production, use shared storage
-from app.api.endpoints.workflow import get_workflow_mapping, _get_thread_id
 
 
 @router.get("/workflow/{workflow_id}/suggestions", response_model=SuggestionsResponse)
@@ -46,23 +44,22 @@ async def get_workflow_suggestions(workflow_id: str) -> SuggestionsResponse:
         SuggestionsResponse with list of suggestions
     """
     try:
-        thread_id = _get_thread_id(workflow_id)
-        state = await get_langgraph_status(thread_id)
+        thread_id = workflow_endpoint._get_thread_id(workflow_id)
+        state = await langgraph_service.get_workflow_status(thread_id)
 
         if not state:
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
 
         suggestions = []
-
+        
         # Get note_path and pending_suggestions from workflow state
         note_path = state.get("note_path")
         pending_suggestions = state.get("pending_suggestions", [])
 
         if note_path and pending_suggestions:
             # Query Neo4j for full suggestion data
-            from app.crud.relationship_crud import RelationshipCRUD
-            relationship_crud = RelationshipCRUD()
-            suggestions_data = relationship_crud.get_suggestions(note_path)
+            crud = relationship_crud.RelationshipCRUD()
+            suggestions_data = crud.get_suggestions(note_path)
 
             # Convert to SuggestionItem format
             for sugg in suggestions_data:
@@ -116,9 +113,8 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
     """
     try:
         # Get suggestion from Neo4j to find associated note_path
-        from app.crud.relationship_crud import RelationshipCRUD
-        relationship_crud = RelationshipCRUD()
-        suggestion = relationship_crud.get_suggestion_by_id(suggestion_id)
+        crud = relationship_crud.RelationshipCRUD()
+        suggestion = crud.get_suggestion_by_id(suggestion_id)
 
         if not suggestion:
             raise HTTPException(status_code=404, detail=f"Suggestion {suggestion_id} not found")
@@ -128,7 +124,7 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
         # Find workflow by note_path
         workflow_id = None
         thread_id = None
-        mapping = get_workflow_mapping()
+        mapping = workflow_endpoint.get_workflow_mapping()
 
         for wf_id, data in mapping.items():
             if data["file_path"] == note_path:
@@ -171,9 +167,8 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
             answer["custom_container_type"] = suggestion.get("container_type", "Project")
 
         # Resume workflow with decision
-        from app.workflows.langgraph_service import resume_workflow, get_compiled_app
-        workflow_app = await get_compiled_app()
-        final_state = await resume_workflow(
+        workflow_app = await langgraph_service.get_compiled_app()
+        final_state = await langgraph_service.resume_workflow(
             workflow=workflow_app,
             user_decision=answer,
             thread_id=thread_id
@@ -216,12 +211,11 @@ async def get_inbox_suggestions() -> InboxResponse:
     """
     try:
         # Query all pending suggestions from Neo4j
-        from app.crud.relationship_crud import RelationshipCRUD
-        relationship_crud = RelationshipCRUD()
-        all_suggestions = relationship_crud.get_all_pending_suggestions()
+        crud = relationship_crud.RelationshipCRUD()
+        all_suggestions = crud.get_all_pending_suggestions()
 
         # Map to get workflow_id for each suggestion
-        mapping = get_workflow_mapping()
+        mapping = workflow_endpoint.get_workflow_mapping()
         suggestions = []
 
         for sugg in all_suggestions:
@@ -277,9 +271,8 @@ async def get_inbox_count() -> InboxCountResponse:
     """
     try:
         # Query count directly from Neo4j
-        from app.crud.relationship_crud import RelationshipCRUD
-        relationship_crud = RelationshipCRUD()
-        all_suggestions = relationship_crud.get_all_pending_suggestions()
+        crud = relationship_crud.RelationshipCRUD()
+        all_suggestions = crud.get_all_pending_suggestions()
         count = len(all_suggestions)
 
         logger.info(f"[get_inbox_count] Found {count} pending suggestions")

@@ -20,12 +20,17 @@ Server runs at `http://localhost:8000`
 ```
 app/
 ├── api/              # FastAPI REST endpoints
-│   └── endpoints/    # workflow.py, suggestions.py
+│   ├── endpoints/    # workflow.py, suggestions.py
+│   └── schemas/      # Pydantic request/response schemas
 ├── services/         # Business logic, LLM orchestration
-│   ├── pipgraph_manager.py     # Note processing with Graphiti
+│   ├── graphiti/               # Graphiti integration layer
+│   │   ├── pipgraph_manager.py # Note processing with Graphiti
+│   │   ├── setup_graphiti.py   # Client initialization
+│   │   └── patched_client.py   # Provider-specific patches
+│   ├── para/                   # PARA classification (mock/LLM switch)
+│   ├── mocks/                  # Mock services for testing
 │   ├── proposal_manager.py     # Apply PARA proposals to Neo4j
-│   ├── cascade_service.py      # Auto-resolve similar suggestions
-│   └── mocks/                  # Mock services for testing
+│   └── cascade_service.py      # Auto-resolve similar suggestions
 ├── workflows/        # LangGraph PARA workflow
 │   ├── para_workflow.py        # State machine (6 nodes)
 │   ├── langgraph_service.py    # Graph assembly & execution
@@ -34,7 +39,8 @@ app/
 ├── crud/             # Database operations (Neo4j)
 │   ├── relationship_crud.py    # Suggestions, links
 │   ├── entity_crud.py          # Entities
-│   └── para_crud.py            # PARA containers
+│   ├── para_crud.py            # PARA containers
+│   └── episodic_crud.py        # Episodic memory operations
 └── models/           # Pydantic data models
 ```
 
@@ -60,6 +66,31 @@ from config.settings import settings
 📖 Full guide: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 
 ## Key Patterns
+
+### Import Style
+
+Prefer module-prefixed imports for internal modules (services, workflows, crud).
+This makes it clear where each function comes from.
+
+```python
+# ✅ Good - module prefix shows origin
+from app.workflows import para_workflow
+from app.services import cascade_service
+
+para_workflow.identify_context_node()
+cascade_service.CascadeService()
+
+# ❌ Avoid - unclear where function comes from
+from app.workflows.para_workflow import identify_context_node
+from app.services.cascade_service import CascadeService
+
+identify_context_node()
+CascadeService()
+```
+
+**Exceptions** (keep direct imports):
+- Pydantic models from `app/models/` (used as type hints)
+- Standard library and third-party packages
 
 ### REST API Endpoints
 
@@ -192,6 +223,7 @@ curl http://127.0.0.1:8000/api/v1/workflow/{workflow_id}/status
   - 6 nodes: identify_context → apply_proposal → wait_for_decision → process_decision → extract_content → save_entities
   - Cascade auto-resolution for similar suggestions
   - Mock services in `mocks/` for testing without LLM
+  - Switch mock/real via imports in `app/services/para/__init__.py`
 
 - **Cascade Service**:
   - Threshold-based: confidence > 0.85 auto-resolves
@@ -213,7 +245,6 @@ curl http://127.0.0.1:8000/api/v1/workflow/{workflow_id}/status
 
 ## Documentation
 
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - Design decisions, patterns
 - [CONFIGURATION.md](docs/CONFIGURATION.md) - Environment setup
 - [TESTING.md](docs/TESTING.md) - Test strategy, fixtures
 - [TODO.md](TODO.md) - Planned features

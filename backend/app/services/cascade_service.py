@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 import logging
 
-from app.crud.relationship_crud import RelationshipCRUD
+from app.crud import relationship_crud as rel_crud_module
 from app.models.proposal import UserDecisionPayload
 from config.settings import settings
 
@@ -124,7 +124,7 @@ class CascadeService:
 
     def __init__(
         self,
-        relationship_crud: Optional[RelationshipCRUD] = None,
+        relationship_crud: Optional["rel_crud_module.RelationshipCRUD"] = None,
         cascade_threshold: float = 0.85
     ):
         """Initialize CascadeService.
@@ -133,7 +133,7 @@ class CascadeService:
             relationship_crud: CRUD instance for database operations
             cascade_threshold: Minimum confidence for auto-resolution (default 0.85)
         """
-        self.relationship_crud = relationship_crud or RelationshipCRUD()
+        self.relationship_crud = relationship_crud or rel_crud_module.RelationshipCRUD()
         self.cascade_threshold = cascade_threshold
 
     def find_cascade_candidates(
