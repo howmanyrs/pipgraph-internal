@@ -56,3 +56,4 @@ workflow_checkpoints.db-journal
 
 # Dev
 .docs
+.docs/
