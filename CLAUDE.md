@@ -55,7 +55,6 @@ uvicorn app.api.main:app --reload
 - **Service Layer**: Business logic, LLM orchestration
 - **CRUD Layer**: Neo4j operations, Cypher queries
 
-See [backend/docs/ARCHITECTURE.md](backend/docs/ARCHITECTURE.md) for details.
 
 ## Workflow System (PARA)
 
@@ -136,7 +135,7 @@ See [backend/docs/TESTING.md](backend/docs/TESTING.md) for comprehensive guide.
 - **[backend/CHANGELOG.md](backend/CHANGELOG.md)** - Version history
 
 ### Backend Deep Dive (docs/)
-- **[ARCHITECTURE.md](backend/docs/ARCHITECTURE.md)** - Design decisions, patterns
+
 - **[CONFIGURATION.md](backend/docs/CONFIGURATION.md)** - Environment setup
 - **[TESTING.md](backend/docs/TESTING.md)** - Test strategy, fixtures
 
@@ -171,7 +170,6 @@ See [backend/docs/TESTING.md](backend/docs/TESTING.md) for comprehensive guide.
 - ❌ **Skip**: exploratory research, code reading
 
 **docs/ files** - Update when:
-- ✅ New architectural pattern introduced → ARCHITECTURE.md
 - ✅ New environment variable added → CONFIGURATION.md
 - ✅ New test fixture or pattern → TESTING.md
 - ❌ **Skip**: minor code tweaks, small refactors

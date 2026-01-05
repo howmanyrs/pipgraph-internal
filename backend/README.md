@@ -373,8 +373,7 @@ curl http://127.0.0.1:8000/api/v1/inbox/suggestions
 
 Подробное описание архитектурных решений и дизайна системы доступно в:
 
-- **[docs/attend/pipgraph_manager_discussion.md](docs/attend/pipgraph_manager_discussion.md)** - Обсуждение дизайна PipGraphManager
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Архитектурные паттерны и решения
+
 - **[TODO.md](TODO.md)** - Запланированные задачи и технический долг
 - **[CHANGELOG.md](CHANGELOG.md)** - История изменений
 
