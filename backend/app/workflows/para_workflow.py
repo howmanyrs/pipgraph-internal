@@ -177,21 +177,21 @@ async def wait_for_decision_node(state: PARAWorkflowState) -> dict:
     Node 3: Wait for User Decision (INTERRUPT).
 
     Точка прерывания workflow для ожидания решения пользователя.
-    Возвращает текущие pending suggestions для UI.
-
-    The workflow will pause here until resume is called with user decision.
+    Не запрашивает данные из БД.
+    Фронтенд должен сам запросить GET /suggestions, получив статус waiting_user.
 
     Returns:
         dict с полями:
-        - current_suggestion_id: str - ID первого pending suggestion (для UI)
+        - current_suggestion_id: str - ID первого pending suggestion
         - user_decision: dict - решение пользователя (заполняется после resume)
         - status: str - "waiting_user"
     """
     note_path = state["note_path"]
     pending_suggestions = state.get("pending_suggestions", [])
 
-    logger.info(f"[wait_for_decision_node] Waiting for user decision on: {note_path}")
+    logger.info(f"[wait_for_decision_node] Checking pending suggestions for: {note_path}")
 
+    # Guard Clause: Если список предложений пуст, прерывание не нужно
     if not pending_suggestions:
         logger.info("[wait_for_decision_node] No pending suggestions, skipping interrupt")
         return {
@@ -200,31 +200,32 @@ async def wait_for_decision_node(state: PARAWorkflowState) -> dict:
             "status": "processing",
         }
 
-    # Get full suggestion details for UI
-    crud = relationship_crud.RelationshipCRUD()
-    suggestions_data = crud.get_suggestions(note_path)
-
-    # Prepare data for client
+    # Подготавливаем минимальные данные для прерывания (metadata only)
     interrupt_data = {
         "note_path": note_path,
-        "suggestions": suggestions_data,
-        "first_suggestion_id": pending_suggestions[0] if pending_suggestions else None,
+        "pending_count": len(pending_suggestions),
+        "first_suggestion_id": pending_suggestions[0]
     }
 
     logger.info(
-        f"[wait_for_decision_node] Interrupting with {len(suggestions_data)} suggestions"
+        f"[wait_for_decision_node] Interrupting workflow. "
+        f"Pending suggestions: {len(pending_suggestions)}"
     )
 
     # === INTERRUPT: workflow stops here ===
-    # Returns suggestions to client and waits for user decision
+    # Мы не передаем полные данные suggestions здесь. 
+    # Фронтенд должен получить статус "waiting_user" и сделать GET /suggestions.
     user_decision = interrupt(interrupt_data)
 
     logger.info(f"[wait_for_decision_node] Received decision: {user_decision}")
 
+    #  Логика переходов (add_edge) в этом месте линейная, она не смотрит на статус.
+    #  Следующая нода (process_decision) смотрит только на поле user_decision.
+    # поэтому мы ставим статуст "status": "processing" просто для красоты.
     return {
-        "current_suggestion_id": pending_suggestions[0] if pending_suggestions else None,
+        "current_suggestion_id": pending_suggestions[0],
         "user_decision": user_decision,
-        "status": "waiting_user",
+        "status": "processing",  # Следующая нода смотрит на user_decision, а не на статус
     }
 
 
