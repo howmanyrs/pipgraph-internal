@@ -1,6 +1,6 @@
 """REST client for PipGraph backend API."""
 
-from typing import Optional
+from typing import Optional, Dict, Any
 
 try:
     import httpx
@@ -21,16 +21,16 @@ class PipGraphClient:
         # Support both http:// and legacy ws:// URLs
         self.http_base = backend_url.rstrip("/").replace("ws://", "http://").replace("wss://", "https://")
 
-    async def start_workflow(self, file_path: str, content: str) -> dict:
+    async def start_workflow(self, file_path: str, content: str) -> Dict[str, Any]:
         """
-        Start a new workflow for note processing.
+        Start or restart a workflow for note processing.
 
         Args:
-            file_path: Path to the note file
+            file_path: Path to the note file (acts as unique ID)
             content: Content of the note
 
         Returns:
-            dict with workflow_id, status, file_path
+            dict with file_path, status
 
         Raises:
             httpx.HTTPStatusError: If request fails
@@ -43,64 +43,69 @@ class PipGraphClient:
             response.raise_for_status()
             return response.json()
 
-    async def get_workflow_status(self, workflow_id: str) -> dict:
+    async def get_workflow_status(self, file_path: str) -> Dict[str, Any]:
         """
-        Get current status of a workflow.
+        Get current status of a workflow by file path.
 
         Args:
-            workflow_id: Workflow identifier
+            file_path: Path to the note file
 
         Returns:
-            dict with workflow_id, status, pending_question, etc.
+            dict with file_path, status, pending_question, etc.
 
         Raises:
             httpx.HTTPStatusError: If request fails
         """
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
-                f"{self.http_base}/api/v1/workflow/{workflow_id}/status"
+                f"{self.http_base}/api/v1/workflow/status",
+                params={"file_path": file_path}
             )
             response.raise_for_status()
             return response.json()
 
-    async def resume_workflow(self, workflow_id: str, answer: dict) -> dict:
+    async def resume_workflow(self, file_path: str, answer: Dict[str, Any]) -> Dict[str, Any]:
         """
         Resume a workflow with user's answer.
 
         Args:
-            workflow_id: Workflow identifier
-            answer: User's answer to the pending question
+            file_path: Path to the note file (identifies the workflow)
+            answer: User's answer to the pending question (suggestion_id, action, etc.)
 
         Returns:
-            dict with updated status, next_question, etc.
+            dict with updated status, next_question, cascade_applied, etc.
 
         Raises:
             httpx.HTTPStatusError: If request fails
         """
-        async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min for LLM
+        async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min for LLM processing
             response = await client.post(
-                f"{self.http_base}/api/v1/workflow/{workflow_id}/resume",
-                json={"answer": answer}
+                f"{self.http_base}/api/v1/workflow/resume",
+                json={
+                    "file_path": file_path,
+                    "answer": answer
+                }
             )
             response.raise_for_status()
             return response.json()
 
-    async def get_suggestions(self, workflow_id: str) -> dict:
+    async def get_suggestions(self, file_path: str) -> Dict[str, Any]:
         """
-        Get suggestions for a workflow.
+        Get suggestions for a specific note.
 
         Args:
-            workflow_id: Workflow identifier
+            file_path: Path to the note file
 
         Returns:
-            dict with workflow_id and list of suggestions
+            dict with file_path and list of suggestions
 
         Raises:
             httpx.HTTPStatusError: If request fails
         """
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
-                f"{self.http_base}/api/v1/workflow/{workflow_id}/suggestions"
+                f"{self.http_base}/api/v1/suggestions",
+                params={"file_path": file_path}
             )
             response.raise_for_status()
             return response.json()
@@ -111,9 +116,10 @@ class PipGraphClient:
         action: str,
         modified_value: Optional[str] = None,
         custom_container_name: Optional[str] = None
-    ) -> dict:
+    ) -> Dict[str, Any]:
         """
-        Submit a decision on a suggestion.
+        Submit a decision on a suggestion directly.
+        (Usually called via resume_workflow in the CLI loop, but available for direct API usage).
 
         Args:
             suggestion_id: Suggestion identifier
@@ -122,7 +128,7 @@ class PipGraphClient:
             custom_container_name: Name for 'create_custom' action
 
         Returns:
-            dict with success, workflow_id, cascade_applied
+            dict with success, file_path, cascade_applied
 
         Raises:
             httpx.HTTPStatusError: If request fails
@@ -141,12 +147,12 @@ class PipGraphClient:
             response.raise_for_status()
             return response.json()
 
-    async def get_inbox(self) -> dict:
+    async def get_inbox(self) -> Dict[str, Any]:
         """
         Get all pending suggestions from inbox.
 
         Returns:
-            dict with suggestions list and total_count
+            dict with suggestions list (containing note_path) and total_count
 
         Raises:
             httpx.HTTPStatusError: If request fails
@@ -173,7 +179,7 @@ async def test_connection(backend_url: str = "http://localhost:8000") -> bool:
         # Convert ws:// to http:// if needed (for backwards compatibility)
         http_url = backend_url.replace("ws://", "http://").replace("wss://", "https://")
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{http_url}/")
+            response = await client.get(f"{http_url}/docs") # Check docs or health if available
             return response.status_code == 200
     except Exception:
         return False

@@ -10,6 +10,7 @@ import asyncio
 import argparse
 import sys
 from pathlib import Path
+from typing import Optional
 
 from pipgraph_cli.client import PipGraphClient, test_connection
 from pipgraph_cli.ui import get_ui
@@ -39,7 +40,7 @@ async def check_backend(backend_url: str) -> bool:
         return False
 
 
-async def workflow_mode(backend_url: str, file_path: str | None = None):
+async def workflow_mode(backend_url: str, file_path: Optional[str] = None):
     """
     Workflow mode with REST API for processing notes.
 
@@ -103,83 +104,101 @@ async def workflow_mode(backend_url: str, file_path: str | None = None):
             # Start workflow
             ui.print_info("\nStarting workflow...")
             workflow_response = await client.start_workflow(note_path, content)
-            workflow_id = workflow_response["workflow_id"]
-            ui.print_workflow_started(workflow_id, workflow_response["status"])
+            
+            # Use file_path from response or input (should be same)
+            current_path = workflow_response.get("file_path", note_path)
+            ui.print_workflow_started(current_path, workflow_response["status"])
 
             # Process workflow until completed
             while True:
-                # Get current status
-                status = await client.get_workflow_status(workflow_id)
-                current_status = status.get("status", "unknown")
+                # Get current status using file_path
+                status_response = await client.get_workflow_status(current_path)
+                current_status = status_response.get("status", "unknown")
 
                 if current_status == "completed":
-                    ui.print_workflow_complete(status.get("episode_uuid"))
+                    ui.print_workflow_complete(
+                        episode_uuid=status_response.get("episode_uuid"),
+                        file_path=current_path
+                    )
                     break
 
                 elif current_status == "error":
-                    ui.print_error(status.get("error", "Unknown error"))
+                    ui.print_error(status_response.get("error", "Unknown error"))
                     break
 
                 elif current_status == "waiting_user":
-                    # Get suggestions
-                    suggestions_response = await client.get_suggestions(workflow_id)
+                    # Get suggestions for this note
+                    suggestions_response = await client.get_suggestions(current_path)
                     suggestions = suggestions_response.get("suggestions", [])
 
                     if not suggestions:
-                        ui.print_info("No suggestions to review.")
+                        ui.print_info("Workflow waiting for user, but no suggestions found.")
+                        # This might happen if waiting for a general question, not a suggestion
+                        # For now, we break to avoid infinite loop, or user can implement generic input
                         break
 
-                    # Process each suggestion
-                    for i, suggestion in enumerate(suggestions):
-                        ui.print_suggestion(suggestion, i)
-                        ui.print_decision_options()
+                    # Process the first suggestion
+                    # Note: We process one at a time because submitting a decision resumes the workflow,
+                    # which might change the state or resolve other suggestions automatically via cascade.
+                    suggestion = suggestions[0]
+                    remaining_count = len(suggestions) - 1
+                    
+                    if remaining_count > 0:
+                        ui.print_info(f"Processing 1 of {len(suggestions)} pending suggestions...")
 
-                        # Get user action
-                        action = ui.prompt("Enter action").strip().lower()
+                    ui.print_suggestion(suggestion, 0)
+                    ui.print_decision_options()
 
-                        if action not in ["confirm", "dismiss", "modify", "create_custom"]:
-                            ui.print_error(f"Invalid action: {action}")
-                            action = "dismiss"  # Default to dismiss
+                    # Get user action
+                    action = ui.prompt("Enter action").strip().lower()
 
-                        # Get additional input if needed
-                        modified_value = None
-                        custom_name = None
+                    if action not in ["confirm", "dismiss", "modify", "create_custom"]:
+                        ui.print_error(f"Invalid action: {action}")
+                        continue # Retry input
 
-                        if action == "modify":
-                            modified_value = ui.prompt("Enter new value").strip()
-                        elif action == "create_custom":
-                            custom_name = ui.prompt("Enter new container name").strip()
+                    # Get additional input if needed
+                    modified_value = None
+                    custom_name = None
 
-                        # Submit decision
-                        ui.print_info(f"\nSubmitting decision: {action}...")
-                        decision_response = await client.submit_decision(
-                            suggestion["suggestion_id"],
-                            action,
-                            modified_value=modified_value,
-                            custom_container_name=custom_name
-                        )
+                    if action == "modify":
+                        modified_value = ui.prompt("Enter new value").strip()
+                    elif action == "create_custom":
+                        custom_name = ui.prompt("Enter new container name").strip()
 
-                        if decision_response.get("success"):
-                            ui.print_success(f"Decision '{action}' applied successfully!")
+                    # Submit decision
+                    ui.print_info(f"\nSubmitting decision: {action}...")
+                    decision_response = await client.submit_decision(
+                        suggestion["suggestion_id"],
+                        action,
+                        modified_value=modified_value,
+                        custom_container_name=custom_name
+                    )
 
-                            # Show cascade results
-                            cascade = decision_response.get("cascade_applied", [])
-                            ui.print_cascade_result(cascade)
-                        else:
-                            ui.print_error("Decision failed")
+                    if decision_response.get("success"):
+                        ui.print_success(f"Decision '{action}' applied successfully!")
+
+                        # Show cascade results
+                        cascade = decision_response.get("cascade_applied", [])
+                        ui.print_cascade_result(cascade)
+                        
+                        # Loop continues to check status again (which might be processing or next suggestion)
+                    else:
+                        ui.print_error("Decision failed")
+                        break
 
                 elif current_status == "processing":
-                    ui.print_info("Workflow is still processing...")
+                    ui.print_status("processing", "Workflow is running...")
                     await asyncio.sleep(1)
 
                 else:
                     ui.print_info(f"Unknown status: {current_status}")
-                    break
+                    await asyncio.sleep(1)
 
         except Exception as e:
             ui.print_error(f"Workflow error: {e}")
-            import traceback
-            traceback.print_exc()
+            # Optional: print stack trace for debug
+            # import traceback
+            # traceback.print_exc()
 
 
 async def async_main():
@@ -248,3 +267,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
