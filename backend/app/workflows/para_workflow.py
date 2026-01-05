@@ -324,13 +324,21 @@ async def process_decision_node(state: PARAWorkflowState) -> dict:
             f"remaining suggestions: {len(pending)}"
         )
 
-        return {
+        # If there are still pending suggestions, workflow will immediately return to
+        # wait_for_decision_node and interrupt, so status should be "waiting_user"
+        status = "waiting_user" if pending else "processing"
+
+        temp_result = {
             "pending_suggestions": pending,
             "confirmed_context": confirmed_context,
             "cascade_result": cascade_result,
             "user_decision": None,  # Clear for next iteration
-            "status": "processing",
+            "status": status,
         }
+
+        logger.debug(f"[process_decision_node] Result: {temp_result}")
+
+        return temp_result
 
     except Exception as e:
         logger.error(f"[process_decision_node] Error: {e}", exc_info=True)
