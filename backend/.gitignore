@@ -53,3 +53,6 @@ Thumbs.db
 workflow_checkpoints.db-shm
 workflow_checkpoints.db-wal
 workflow_checkpoints.db-journal
+
+# Dev
+.docs
