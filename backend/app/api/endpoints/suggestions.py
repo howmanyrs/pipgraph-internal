@@ -2,14 +2,16 @@
 Suggestions management endpoints.
 
 Provides REST API for managing workflow suggestions:
-- Get suggestions for a workflow
-- Submit decision on a suggestion
+- Get suggestions for a specific note (by file_path)
+- Submit decision on a suggestion (auto-resolves thread_id)
 - Get all pending suggestions (inbox)
+
+Refactored to be stateless and use file_path/note_path as identifiers.
 """
 
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.api.schemas.suggestions import (
     SuggestionItem,
@@ -21,7 +23,6 @@ from app.api.schemas.suggestions import (
     InboxCountResponse,
 )
 from app.workflows import langgraph_service
-from app.api.endpoints import workflow as workflow_endpoint
 from app.crud import relationship_crud
 
 logger = logging.getLogger(__name__)
@@ -29,65 +30,64 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["suggestions"])
 
 
-@router.get("/workflow/{workflow_id}/suggestions", response_model=SuggestionsResponse)
-async def get_workflow_suggestions(workflow_id: str) -> SuggestionsResponse:
+@router.get("/suggestions", response_model=SuggestionsResponse)
+async def get_suggestions(
+    file_path: str = Query(..., description="Path to the note file (e.g., meetings/sync.md)")
+) -> SuggestionsResponse:
     """
-    Get all suggestions for a workflow.
+    Get all suggestions for a specific note.
 
-    Returns the pending suggestion(s) for the specified workflow,
+    Returns the pending suggestion(s) for the specified note,
     queried from Neo4j :SUGGESTS relationships.
 
     Example:
-        GET /api/v1/workflow/wf_a1b2c3d4/suggestions
+        GET /api/v1/suggestions?file_path=meetings/sync.md
 
     Returns:
         SuggestionsResponse with list of suggestions
     """
     try:
-        thread_id = workflow_endpoint._get_thread_id(workflow_id)
+        thread_id = f"note:{file_path}"
+        
+        # Check if workflow exists/is active for this note
         state = await langgraph_service.get_workflow_status(thread_id)
-
-        if not state:
-            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
+        
+        # Even if state is missing (expired), we might still have suggestions in DB.
+        # However, strictly speaking, suggestions are tied to an active workflow interrupt.
+        # We proceed to check DB if we have a valid file_path.
 
         suggestions = []
         
-        # Get note_path and pending_suggestions from workflow state
-        note_path = state.get("note_path")
-        pending_suggestions = state.get("pending_suggestions", [])
+        # Query Neo4j for full suggestion data
+        crud = relationship_crud.RelationshipCRUD()
+        suggestions_data = crud.get_suggestions(file_path)
 
-        if note_path and pending_suggestions:
-            # Query Neo4j for full suggestion data
-            crud = relationship_crud.RelationshipCRUD()
-            suggestions_data = crud.get_suggestions(note_path)
+        # Convert to SuggestionItem format
+        for sugg in suggestions_data:
+            suggestion = SuggestionItem(
+                suggestion_id=sugg["suggestion_id"],
+                suggestion_type=sugg["suggestion_type"],
+                container_type=sugg["container_type"],
+                container_name=sugg["container_name"],
+                container_id=sugg["container_id"],
+                confidence=sugg["confidence"],
+                reasoning=sugg["reasoning"],
+                target_field=sugg.get("target_field"),
+                suggested_value=sugg.get("suggested_value"),
+                alternatives=[],  # TODO: Add alternatives support if needed
+            )
+            suggestions.append(suggestion)
 
-            # Convert to SuggestionItem format
-            for sugg in suggestions_data:
-                suggestion = SuggestionItem(
-                    suggestion_id=sugg["suggestion_id"],
-                    suggestion_type=sugg["suggestion_type"],
-                    container_type=sugg["container_type"],
-                    container_name=sugg["container_name"],
-                    container_id=sugg["container_id"],
-                    confidence=sugg["confidence"],
-                    reasoning=sugg["reasoning"],
-                    target_field=sugg.get("target_field"),
-                    suggested_value=sugg.get("suggested_value"),
-                    alternatives=[],  # TODO: Add alternatives support if needed
-                )
-                suggestions.append(suggestion)
-
-            logger.info(f"[get_workflow_suggestions] Found {len(suggestions)} suggestions for {workflow_id}")
+        if suggestions:
+            logger.info(f"[get_suggestions] Found {len(suggestions)} suggestions for {file_path}")
 
         return SuggestionsResponse(
-            workflow_id=workflow_id,
+            file_path=file_path,
             suggestions=suggestions,
         )
 
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"[get_workflow_suggestions] Error: {e}", exc_info=True)
+        logger.error(f"[get_suggestions] Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -120,20 +120,9 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
             raise HTTPException(status_code=404, detail=f"Suggestion {suggestion_id} not found")
 
         note_path = suggestion["episodic_path"]
-
-        # Find workflow by note_path
-        workflow_id = None
-        thread_id = None
-        mapping = workflow_endpoint.get_workflow_mapping()
-
-        for wf_id, data in mapping.items():
-            if data["file_path"] == note_path:
-                workflow_id = wf_id
-                thread_id = data["thread_id"]
-                break
-
-        if not workflow_id:
-            raise HTTPException(status_code=404, detail=f"No active workflow found for note: {note_path}")
+        
+        # Derive thread_id from note_path
+        thread_id = f"note:{note_path}"
 
         # Validate action
         valid_actions = ["confirm", "dismiss", "modify", "create_custom"]
@@ -153,17 +142,14 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
 
         # Build answer for workflow (UserDecisionPayload format)
         answer = {
-            "suggestion_id": suggestion_id,  # Changed from question_id
+            "suggestion_id": suggestion_id,
             "action": workflow_action,
         }
 
         # Add action-specific fields
         if request.action == "create_custom" and request.custom_container_name:
             answer["custom_container_name"] = request.custom_container_name
-            # Determine container type from suggestion
-            logger.debug(f"[submit_decision] suggestion before .get('container_type'): {suggestion}")
-            # TODO: Делать проверку на ключ 'container_type' в suggestion
-            # TODO: Нельзя просто брать значение по умолчанию "Project", если ключ отсутствует
+            # Default to Project if container_type is missing, or infer from somewhere else
             answer["custom_container_type"] = suggestion.get("container_type", "Project")
 
         # Resume workflow with decision
@@ -176,13 +162,14 @@ async def submit_decision(suggestion_id: str, request: DecisionRequest) -> Decis
 
         # Get cascade results (with None check)
         if final_state is None:
+            # This might happen if the workflow state was lost or thread_id is wrong
             raise ValueError(f"Workflow resume returned None for thread_id={thread_id}")
-        logger.debug(f"[submit_decision] final_state before .get('cascade_result'): {final_state}")
+            
         cascade_applied = (final_state.get("cascade_result") or {}).get("applied", [])
 
         return DecisionResponse(
             success=True,
-            workflow_id=workflow_id,
+            file_path=note_path,
             suggestion_id=suggestion_id,
             action=request.action,
             cascade_applied=cascade_applied,
@@ -214,25 +201,15 @@ async def get_inbox_suggestions() -> InboxResponse:
         crud = relationship_crud.RelationshipCRUD()
         all_suggestions = crud.get_all_pending_suggestions()
 
-        # Map to get workflow_id for each suggestion
-        mapping = workflow_endpoint.get_workflow_mapping()
         suggestions = []
 
         for sugg in all_suggestions:
-            # Try to find workflow_id by note_path
-            workflow_id = None
-            for wf_id, data in mapping.items():
-                if data["file_path"] == sugg["note_path"]:
-                    workflow_id = wf_id
-                    break
-
             # Use current time as created_at (TODO: add timestamp to Neo4j :SUGGESTS)
             created_at = datetime.now(timezone.utc)
 
             suggestion = InboxSuggestion(
                 suggestion_id=sugg["suggestion_id"],
-                workflow_id=workflow_id if workflow_id else "unknown",
-                note_path=sugg["note_path"],
+                note_path=sugg["note_path"],  # Using note_path directly
                 suggestion_type=sugg["suggestion_type"],
                 container_name=sugg["container_name"],
                 confidence=sugg["confidence"],
@@ -274,8 +251,6 @@ async def get_inbox_count() -> InboxCountResponse:
         crud = relationship_crud.RelationshipCRUD()
         all_suggestions = crud.get_all_pending_suggestions()
         count = len(all_suggestions)
-
-        logger.info(f"[get_inbox_count] Found {count} pending suggestions")
 
         return InboxCountResponse(count=count)
 

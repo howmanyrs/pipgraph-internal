@@ -2,15 +2,16 @@
 Workflow management endpoints.
 
 Provides REST API for managing LangGraph workflows:
-- Start new workflow
+- Start new workflow (stateless, based on file path)
 - Get workflow status
 - Resume workflow with user answer
+
+Refactored to remove workflow_id and use file_path as the primary identifier.
 """
 
 import logging
-from typing import Dict
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.api.schemas.workflow import (
     WorkflowCreateRequest,
@@ -18,7 +19,6 @@ from app.api.schemas.workflow import (
     WorkflowStatusResponse,
     WorkflowResumeRequest,
     WorkflowResumeResponse,
-    generate_workflow_id,
 )
 from app.workflows import langgraph_service
 from app.crud import episodic_crud
@@ -28,33 +28,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
 
-# In-memory mapping: workflow_id -> thread_id (note:path format)
-# TODO: Move to Neo4j or Redis for persistence
-_workflow_mapping: Dict[str, dict] = {}
-
-
-def _get_thread_id(workflow_id: str) -> str:
-    """Get LangGraph thread_id from workflow_id."""
-    if workflow_id not in _workflow_mapping:
-        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
-    return _workflow_mapping[workflow_id]["thread_id"]
-
-
-def _get_workflow_id_by_thread(thread_id: str) -> str | None:
-    """Get workflow_id from thread_id (reverse lookup)."""
-    for wf_id, data in _workflow_mapping.items():
-        if data["thread_id"] == thread_id:
-            return wf_id
-    return None
-
 
 @router.post("/start", response_model=WorkflowCreateResponse)
 async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateResponse:
     """
-    Start a new LangGraph workflow for note processing.
+    Start or restart a LangGraph workflow for note processing.
 
-    Creates a new workflow with a URL-safe workflow_id and begins processing
-    the note content. The workflow may pause to ask for user input.
+    Uses the file path to generate a consistent thread_id.
+    If a workflow already exists for this note, it will be restarted/updated.
 
     Example:
         POST /api/v1/workflow/start
@@ -64,11 +45,12 @@ async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateRespon
         }
 
     Returns:
-        WorkflowCreateResponse with workflow_id, status, and file_path
+        WorkflowCreateResponse with status and file_path
     """
     try:
-        # Generate new workflow_id
-        workflow_id = generate_workflow_id()
+        # Generate thread_id consistently from file path
+        thread_id = f"note:{request.file_path}"
+        logger.info(f"[start_workflow] Processing note: {request.file_path} -> {thread_id}")
 
         # Ensure required nodes exist in Neo4j before starting workflow
         ep_crud = episodic_crud.EpisodicCRUD()
@@ -97,11 +79,6 @@ async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateRespon
                 name="Mock Project Alpha",
                 status="active"
             )
-        else:
-            logger.info(f"[start_workflow] Mock Project already exists: {mock_project_id}")
-
-        # Generate thread_id
-        thread_id = f"note:{request.file_path}"
 
         # Get compiled workflow app
         workflow_app = await langgraph_service.get_compiled_app()
@@ -114,21 +91,12 @@ async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateRespon
             thread_id=thread_id,
         )
 
-        # Store mapping
-        _workflow_mapping[workflow_id] = {
-            "thread_id": thread_id,
-            "file_path": request.file_path,
-        }
-
         # Use result directly - it contains current state after ainvoke()
         status = result.get("status", "processing")
 
-        logger.info(f"[start_workflow] Created workflow {workflow_id} -> {thread_id}")
-
         return WorkflowCreateResponse(
-            workflow_id=workflow_id,
-            status=status,
             file_path=request.file_path,
+            status=status,
         )
 
     except Exception as e:
@@ -136,31 +104,34 @@ async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateRespon
         raise HTTPException(status_code=500, detail=f"Failed to start workflow: {str(e)}")
 
 
-@router.get("/{workflow_id}/status", response_model=WorkflowStatusResponse)
-async def get_workflow_status(workflow_id: str) -> WorkflowStatusResponse:
+@router.get("/status", response_model=WorkflowStatusResponse)
+async def get_workflow_status(
+    file_path: str = Query(..., description="Path to the note file (e.g., meetings/sync.md)")
+) -> WorkflowStatusResponse:
     """
-    Get current status of a workflow.
+    Get current status of a workflow by file path.
 
     Example:
-        GET /api/v1/workflow/wf_a1b2c3d4/status
+        GET /api/v1/workflow/status?file_path=meetings/sync.md
 
     Returns:
         WorkflowStatusResponse with status, pending_question, etc.
     """
     try:
-        thread_id = _get_thread_id(workflow_id)
+        thread_id = f"note:{file_path}"
         state = await langgraph_service.get_workflow_status(thread_id)
 
         if not state:
-            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
+            # Instead of 404, we might return a status indicating "not started" or 404.
+            # Here we return 404 to be consistent with previous behavior.
+            raise HTTPException(status_code=404, detail=f"No workflow state found for: {file_path}")
 
         # Determine status
         status = state.get("status", "unknown")
 
         return WorkflowStatusResponse(
-            workflow_id=workflow_id,
+            file_path=file_path,
             status=status,
-            file_path=state.get("file_path"),
             pending_question=state.get("pending_question"),
             episode_uuid=state.get("episode_uuid"),
             error=state.get("error"),
@@ -173,16 +144,17 @@ async def get_workflow_status(workflow_id: str) -> WorkflowStatusResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{workflow_id}/resume", response_model=WorkflowResumeResponse)
-async def resume_workflow(workflow_id: str, request: WorkflowResumeRequest) -> WorkflowResumeResponse:
+@router.post("/resume", response_model=WorkflowResumeResponse)
+async def resume_workflow(request: WorkflowResumeRequest) -> WorkflowResumeResponse:
     """
     Resume a workflow with user's answer.
 
     Example:
-        POST /api/v1/workflow/wf_a1b2c3d4/resume
+        POST /api/v1/workflow/resume
         {
+            "file_path": "meetings/sync.md",
             "answer": {
-                "question_id": "...",
+                "suggestion_id": "...",
                 "action": "confirm"
             }
         }
@@ -191,7 +163,8 @@ async def resume_workflow(workflow_id: str, request: WorkflowResumeRequest) -> W
         WorkflowResumeResponse with updated status
     """
     try:
-        thread_id = _get_thread_id(workflow_id)
+        thread_id = f"note:{request.file_path}"
+        logger.info(f"[resume_workflow] Resuming workflow for: {request.file_path}")
 
         # Get compiled workflow app
         workflow_app = await langgraph_service.get_compiled_app()
@@ -211,7 +184,7 @@ async def resume_workflow(workflow_id: str, request: WorkflowResumeRequest) -> W
         cascade_applied = final_state.get("cascade_result", {}).get("applied", [])
 
         return WorkflowResumeResponse(
-            workflow_id=workflow_id,
+            file_path=request.file_path,
             status=status,
             next_question=next_question,
             episode_uuid=final_state.get("episode_uuid"),
@@ -223,9 +196,3 @@ async def resume_workflow(workflow_id: str, request: WorkflowResumeRequest) -> W
     except Exception as e:
         logger.error(f"[resume_workflow] Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# Export mapping access for suggestions endpoint
-def get_workflow_mapping() -> Dict[str, dict]:
-    """Get the workflow mapping for use by other modules."""
-    return _workflow_mapping

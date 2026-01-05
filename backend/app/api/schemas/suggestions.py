@@ -1,5 +1,6 @@
 """
 Pydantic schemas for suggestions endpoints.
+Refactored to use file_path/note_path as identifiers instead of workflow_id.
 """
 
 from pydantic import BaseModel, Field
@@ -26,13 +27,13 @@ class SuggestionItem(BaseModel):
             "examples": [
                 {
                     "suggestion_id": "sug_abc123",
-                    "suggestion_type": "para_link",
+                    "suggestion_type": "link",
                     "container_type": "Project",
                     "container_name": "Project Alpha",
+                    "container_id": "proj-001",
                     "confidence": 0.92,
-                    "alternatives": [
-                        {"container_name": "Project Beta", "confidence": 0.75}
-                    ]
+                    "reasoning": "Content matches project goals",
+                    "alternatives": []
                 }
             ]
         }
@@ -42,18 +43,18 @@ class SuggestionItem(BaseModel):
 class SuggestionsResponse(BaseModel):
     """Response with workflow suggestions."""
 
-    workflow_id: str = Field(..., description="Workflow identifier")
+    file_path: str = Field(..., description="Path to the note file (unique ID)")
     suggestions: List[SuggestionItem] = Field(default_factory=list, description="List of suggestions")
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
-                    "workflow_id": "wf_a1b2c3d4",
+                    "file_path": "meetings/sync.md",
                     "suggestions": [
                         {
                             "suggestion_id": "sug_abc123",
-                            "suggestion_type": "para_link",
+                            "suggestion_type": "link",
                             "container_type": "Project",
                             "container_name": "Project Alpha",
                             "confidence": 0.92,
@@ -96,7 +97,7 @@ class DecisionResponse(BaseModel):
     """Response after submitting a decision."""
 
     success: bool = Field(..., description="Whether the decision was processed successfully")
-    workflow_id: str = Field(..., description="Associated workflow identifier")
+    file_path: str = Field(..., description="Associated note path")
     suggestion_id: str = Field(..., description="Processed suggestion identifier")
     action: str = Field(..., description="Action that was performed")
     cascade_applied: List[dict] = Field(default_factory=list, description="Auto-resolved suggestions via cascade")
@@ -106,7 +107,7 @@ class DecisionResponse(BaseModel):
             "examples": [
                 {
                     "success": True,
-                    "workflow_id": "wf_a1b2c3d4",
+                    "file_path": "meetings/sync.md",
                     "suggestion_id": "sug_abc123",
                     "action": "confirm",
                     "cascade_applied": [
@@ -126,9 +127,8 @@ class InboxSuggestion(BaseModel):
     """Suggestion item in inbox view."""
 
     suggestion_id: str = Field(..., description="Unique suggestion identifier")
-    workflow_id: str = Field(..., description="Associated workflow identifier")
     note_path: str = Field(..., description="Path to the source note")
-    suggestion_type: str = Field(..., description="Type: para_link or property_update")
+    suggestion_type: str = Field(..., description="Type: link or property_update")
     container_name: str = Field(..., description="Suggested container name")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
     created_at: datetime = Field(..., description="When the suggestion was created")
@@ -138,9 +138,8 @@ class InboxSuggestion(BaseModel):
             "examples": [
                 {
                     "suggestion_id": "sug_abc123",
-                    "workflow_id": "wf_a1b2c3d4",
                     "note_path": "meetings/sync.md",
-                    "suggestion_type": "para_link",
+                    "suggestion_type": "link",
                     "container_name": "Project Alpha",
                     "confidence": 0.92,
                     "created_at": "2024-01-15T10:30:00Z"
@@ -163,9 +162,8 @@ class InboxResponse(BaseModel):
                     "suggestions": [
                         {
                             "suggestion_id": "sug_abc123",
-                            "workflow_id": "wf_a1b2c3d4",
                             "note_path": "meetings/sync.md",
-                            "suggestion_type": "para_link",
+                            "suggestion_type": "link",
                             "container_name": "Project Alpha",
                             "confidence": 0.92,
                             "created_at": "2024-01-15T10:30:00Z"
