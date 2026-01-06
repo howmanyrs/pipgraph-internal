@@ -203,26 +203,26 @@ class PipGraphManager:
             start = time()
             now = utc_now()
 
-            # TODO: Если будут использоваться другие типы сущностей, а не только para, тогда надо
-            # учесть их объединение. Сейчас либо PARA либо ничего.
-            
+            # Dont use custom PARA types on this stage
+
             # Apply PARA defaults if use_para_entities is True and custom types not provided
-            if use_para_entities:
-                if entity_types is None:
-                    entity_types = PARA_ENTITY_TYPES
-                    logger.info("Using default PARA entity types (Project, Area, Resource, Archive)")
+            # if use_para_entities:
+            #     if entity_types is None:
+            #         entity_types = PARA_ENTITY_TYPES
+            #         logger.info("Using default PARA entity types (Project, Area, Resource, Archive)")
 
-                if edge_types is None:
-                    edge_types = PARA_EDGE_TYPES
-                    logger.info("Using default PARA edge types (ContributesTo, SpawnedFrom, UsesResource)")
+            #     if edge_types is None:
+            #         edge_types = PARA_EDGE_TYPES
+            #         logger.info("Using default PARA edge types (ContributesTo, SpawnedFrom, UsesResource)")
 
-                if edge_type_map is None:
-                    edge_type_map = PARA_EDGE_TYPE_MAP
-                    logger.info("Using default PARA edge type map")
+            #     if edge_type_map is None:
+            #         edge_type_map = PARA_EDGE_TYPE_MAP
+            #         logger.info("Using default PARA edge type map")
 
-            validate_entity_types(entity_types)
+            # validate_entity_types(entity_types)
 
-            validate_excluded_entity_types(excluded_entity_types, entity_types)
+            # validate_excluded_entity_types(excluded_entity_types, entity_types)
+
             validate_group_id(group_id)
             # if group_id is None, use the default group id by the provider
             group_id = group_id or get_default_group_id(self.driver.provider)
@@ -261,10 +261,16 @@ class PipGraphManager:
                 else {('Entity', 'Entity'): []}
             )
 
+            # не используем кастомные типы на этом этапе
+            entity_types = None
+            excluded_entity_types = None 
+
             # ЭТАП 1: ИЗВЛЕЧЕНИЕ СЫРЫХ СУЩНОСТЕЙ
             # Extract entities as nodes
             extracted_nodes = await extract_nodes(
-                self.clients, episode, previous_episodes, entity_types, excluded_entity_types
+                self.clients, episode, previous_episodes,
+                entity_types= None,  # не используем кастомные типы на этом этапе
+                excluded_entity_types = None 
             )
 
             # TODO: ТОЧКА ИНТЕРВЕНЦИИ 1 (optional)
