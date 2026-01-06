@@ -1,405 +1,55 @@
-# CLAUDE.md - Backend
-
-Quick reference guide for Claude Code when working with the PipGraph backend.
-
-> **Detailed documentation**: See [docs/](docs/) directory for comprehensive guides.
-
-## Quick Start
-
-```bash
-cd backend/
-uv venv && source .venv/bin/activate
-uv pip install -r requirements.txt
-uvicorn app.api.main:app --reload
-```
-
-Server runs at `http://localhost:8000`
-
-## Project Structure
-
-```
-app/
-├── api/              # FastAPI REST endpoints
-│   ├── endpoints/    # workflow.py, suggestions.py
-│   └── schemas/      # Pydantic request/response schemas
-├── services/         # Business logic, LLM orchestration
-│   ├── graphiti/               # Graphiti integration layer
-│   │   ├── pipgraph_manager.py # Note processing with Graphiti
-│   │   ├── setup_graphiti.py   # Client initialization
-│   │   └── patched_client.py   # Provider-specific patches
-│   ├── para/                   # PARA classification (mock/LLM switch)
-│   ├── mocks/                  # Mock services for testing
-│   ├── proposal_manager.py     # Apply PARA proposals to Neo4j
-│   └── cascade_service.py      # Auto-resolve similar suggestions
-├── workflows/        # LangGraph PARA workflow
-│   ├── para_workflow.py        # State machine (6 nodes)
-│   ├── langgraph_service.py    # Graph assembly & execution
-│   ├── state.py                # PARAWorkflowState
-│   └── conditions.py           # Transition conditions
-├── crud/             # Database operations (Neo4j)
-│   ├── relationship_crud.py    # Suggestions, links
-│   ├── entity_crud.py          # Entities
-│   ├── para_crud.py            # PARA containers
-│   └── episodic_crud.py        # Episodic memory operations
-└── models/           # Pydantic data models
-```
-
-**Layered architecture**: API → Services/Workflows → CRUD → Database
-
-## Configuration
-
-Uses `pydantic-settings` with `.env` file:
-
-```bash
-# Required variables
-OPENROUTER_API_KEY=sk-or-v1-...
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_password
-```
-
-Import in code:
-```python
-from config.settings import settings
-```
-
-📖 Full guide: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
-
-## Key Patterns
-
-### Import Style
-
-Prefer module-prefixed imports for internal modules (services, workflows, crud).
-This makes it clear where each function comes from.
-
-```python
-# ✅ Good - module prefix shows origin
-from app.workflows import para_workflow
-from app.services import cascade_service
-
-para_workflow.identify_context_node()
-cascade_service.CascadeService()
-
-# ❌ Avoid - unclear where function comes from
-from app.workflows.para_workflow import identify_context_node
-from app.services.cascade_service import CascadeService
-
-identify_context_node()
-CascadeService()
-```
-
-**Exceptions** (keep direct imports):
-- Pydantic models from `app/models/` (used as type hints)
-- Standard library and third-party packages
-
-### REST API Endpoints
-
-```python
-# app/api/endpoints/workflow.py
-@router.post("/workflow/start")
-async def start_workflow(request: WorkflowCreateRequest):
-    result = await langgraph_service.start_workflow(
-        request.file_path, request.content
-    )
-    return WorkflowStatusResponse(**result)
-
-@router.post("/workflow/{workflow_id}/resume")
-async def resume_workflow(workflow_id: str, request: WorkflowResumeRequest):
-    result = await langgraph_service.resume_workflow(workflow_id, request.answer)
-    return WorkflowResumeResponse(**result)
-```
-
-### LangGraph Workflow
-
-```python
-from app.workflows.langgraph_service import start_workflow, resume_workflow
-
-# Start new PARA classification workflow
-result = await start_workflow(file_path="note.md", content="...")
-# Returns: {workflow_id, status, pending_question}
-
-# Resume with user decision
-result = await resume_workflow(workflow_id, answer={"action": "confirm"})
-# Returns: {status, cascade_applied, next_question}
-```
-
-**6 Workflow Nodes**:
-1. `identify_context` - L1 PARA classification, L2 proposal generation
-2. `apply_proposal` - Create :SUGGESTS relationships in Neo4j
-3. `wait_for_decision` - INTERRUPT for user input
-4. `process_decision` - Handle user action, cascade resolution
-5. `extract_content` - L3 entity extraction (PipGraphManager)
-6. `save_entities` - Save to Neo4j
-
-### CRUD Layer
-
-```python
-async def save_graph_data(graph_data: GraphData) -> bool:
-    async with driver.session() as session:
-        for node in graph_data.nodes:
-            await session.run("MERGE (n:Node {id: $id}) ...", ...)
-    return True
-```
-
-## Testing
-
-```bash
-# Install test dependencies
-uv pip install -r requirements-dev.txt
-
-# Run tests by type
-pytest -m unit           # Fast, no external dependencies
-pytest -m integration    # Requires Neo4j, OpenRouter
-pytest -m "not slow"     # Exclude expensive LLM calls
-
-# Specific test with output
-pytest tests/integration/test_openrouter.py::test_openrouter_llm_connection -sv
-```
-
-📖 Full guide: [docs/TESTING.md](docs/TESTING.md)
-
-## API Endpoints
-
-### Workflow Management
-- `POST /api/v1/workflow/start` - Start new PARA workflow
-- `GET /api/v1/workflow/{id}/status` - Get workflow status
-- `POST /api/v1/workflow/{id}/resume` - Resume with user answer
-
-### Suggestions
-- `GET /api/v1/workflow/{id}/suggestions` - Get pending suggestions
-- `POST /api/v1/suggestion/{id}/decision` - Submit decision
-
-### Inbox
-- `GET /api/v1/inbox/suggestions` - All pending suggestions
-- `GET /api/v1/inbox/count` - Count of pending
-
-### Health
-- `GET /` - Health check
-
-## Common Tasks
-
-### Add new endpoint
-
-1. Create route in `app/api/endpoints/`
-2. Define Pydantic models in `app/models/`
-3. Implement logic in `app/services/`
-4. Add tests in `tests/integration/`
-
-### Add database operation
-
-1. Define method in appropriate CRUD file (`relationship_crud.py`, `entity_crud.py`, etc.)
-2. Write Cypher query
-3. Call from service layer
-4. Test with `@pytest.mark.integration`
-
-### Debug REST API
-
-```bash
-# Test workflow start
-curl -X POST http://127.0.0.1:8000/api/v1/workflow/start \
-  -H "Content-Type: application/json" \
-  -d '{"file_path": "test.md", "content": "Test"}'
-
-# Get workflow status
-curl http://127.0.0.1:8000/api/v1/workflow/{workflow_id}/status
-```
-
-## Technology Stack
-
-- **Framework**: FastAPI (async REST API)
-- **Workflow**: LangGraph (state machine with interrupt/resume)
-- **Database**: Neo4j (graph database)
-- **LLM Integration**:
-  - Graphiti (entity extraction framework)
-  - OpenRouter (main, small, embedding models)
-- **Validation**: Pydantic + pydantic-settings
-- **Testing**: pytest with markers (unit/integration/e2e)
-- **Package Manager**: uv
-
-## Important Notes
-
-- **LangGraph PARA Workflow**:
-  - State machine with interrupt/resume support
-  - 6 nodes: identify_context → apply_proposal → wait_for_decision → process_decision → extract_content → save_entities
-  - Cascade auto-resolution for similar suggestions
-  - Mock services in `mocks/` for testing without LLM
-  - Switch mock/real via imports in `app/services/para/__init__.py`
-
-- **Cascade Service**:
-  - Threshold-based: confidence > 0.85 auto-resolves
-  - Uses Neo4j as source of truth
-  - Returns list of auto-resolved items in response
-
-- **REST API Flow**:
-  1. Client POSTs to `/workflow/start`
-  2. Server returns `workflow_id` and `pending_question`
-  3. Client POSTs decision to `/workflow/{id}/resume`
-  4. Server processes, may return more questions or complete
-  5. Client can query `/inbox/suggestions` for all pending items
-
-- **Layer responsibilities**:
-  - API: Validation, transport (REST)
-  - Workflows: LangGraph state machine orchestration
-  - Services: Business logic (PipGraphManager, CascadeService)
-  - CRUD: Database only (Neo4j)
-
-## Documentation
-
-- [CONFIGURATION.md](docs/CONFIGURATION.md) - Environment setup
-- [TESTING.md](docs/TESTING.md) - Test strategy, fixtures
-- [TODO.md](TODO.md) - Planned features
-- [CHANGELOG.md](CHANGELOG.md) - Version history
-
-## Root Documentation
-
-- [Root CLAUDE.md](../CLAUDE.md) - Monorepo overview
-- [Root README.md](../README.md) - Full architecture (Russian)
-
-## Documentation Maintenance (for Claude Code)
-
-### Automatic Documentation Updates
-
-Claude should update documentation at these specific moments:
-
-#### Update CHANGELOG.md when:
-
-- ✅ New endpoint added to `app/api/endpoints/`
-- ✅ New service created in `app/services/`
-- ✅ New CRUD operation in `app/crud/`
-- ✅ Integration added (LLM, database driver, external API)
-- ✅ Bug fix that affects user behavior
-- ✅ Dependency version updated (major/minor)
-- ❌ **Skip**: Refactoring, renaming, typos, comment changes
-
-**Format**: Add to `[Unreleased]` section under:
-- `### Added` - New features
-- `### Changed` - Changes in existing functionality
-- `### Fixed` - Bug fixes
-
-#### Update TODO.md when:
-
-- ✅ Task from TODO completed → move to Completed ✓ section
-- ✅ New technical debt identified during implementation
-- ✅ Feature request discovered during work
-- ✅ Research task needs to be tracked
-- ❌ **Skip**: Trivial tasks, temporary experiments
-
-**Ask user**: "Mark '[task name]' as completed in TODO?"
-
-#### Update docs/ARCHITECTURE.md when:
-
-- ✅ New layer added to architecture
-- ✅ New design pattern introduced
-- ✅ Technology choice changed (database, LLM provider)
-- ✅ Significant architectural decision made
-- ❌ **Skip**: Minor code organization changes
-
-#### Update docs/CONFIGURATION.md when:
-
-- ✅ New environment variable added to `config/settings.py`
-- ✅ Configuration method changed
-- ✅ New service requires credentials
-- ✅ New deployment configuration needed
-
-#### Update docs/TESTING.md when:
-
-- ✅ New test fixture added to `conftest.py`
-- ✅ New pytest marker introduced
-- ✅ New testing pattern established
-- ✅ Test infrastructure changed
-
-### Update Protocol
-
-**1. Detect significant change**
-
-Examples of changes that trigger updates:
-
-```python
-# ✅ New file created: app/api/endpoints/search.py
-# → Update CHANGELOG: "Added natural language search endpoint"
-
-# ✅ New environment variable in config/settings.py:
-# SEARCH_INDEX_NAME: str
-# → Update CONFIGURATION.md
-
-# ❌ Renamed variable in existing function
-# → Skip documentation update
-```
-
-**2. Ask user for confirmation**
-
-Before updating, ask explicitly:
-
-```
-"I've added a new search endpoint at POST /api/v1/search.
-Should I update CHANGELOG.md with this feature? (y/n)"
-```
-
-**3. Batch updates at natural breakpoints**
-
-Don't update after every file change. Instead, batch at:
-- End of feature implementation
-- Before git commit/PR
-- User explicitly requests: "update docs"
-- Session completion
-
-Example prompt:
-```
-"During this session I've:
-- Added search endpoint (POST /api/v1/search)
-- Created SearchService in app/services/
-- Added integration tests in tests/integration/test_search.py
-
-Update documentation? This would affect:
-- CHANGELOG.md (Added section)
-- TODO.md (mark 'Natural language search' as completed)
-(y/n)"
-```
-
-**4. Never update silently**
-
-Always inform user:
-```
-"✓ Updated CHANGELOG.md: Added natural language search endpoint
-✓ Updated TODO.md: Marked search task as completed"
-```
-
-### Examples
-
-**Good trigger** ✅:
-```
-User: "Add a health check endpoint"
-Agent: [creates app/api/endpoints/health.py with GET /health]
-Agent: "Added health check endpoint. Update CHANGELOG? (y/n)"
-User: "y"
-Agent: [Updates CHANGELOG.md under ### Added]
-```
-
-**Bad trigger** ❌:
-```
-Agent: [Refactors process_note function to use helper methods]
-Agent: [Does NOT update CHANGELOG - no user-visible changes]
-```
-
-**TODO update** ✅:
-```
-User: "The search feature is done"
-Agent: [Reviews TODO.md, finds "Natural language search endpoint"]
-Agent: "Move 'Natural language search endpoint' from High Priority to Completed? (y/n)"
-User: "y"
-Agent: "✓ Updated TODO.md: Task marked as completed"
-```
-
-### Quick Reference
-
-**User commands**:
-- `"update changelog"` - Review and update CHANGELOG.md
-- `"update todo"` - Sync TODO.md with completed work
-- `"update docs"` - Review all docs for accuracy
-- `"mark task as done"` - Move TODO item to Completed
-
-**When in doubt**:
-- If change affects API contract → update CHANGELOG
-- If change adds new pattern → consider docs/ update
-- If trivial refactor → skip documentation
-- **Always ask user before updating**
+# PipGraph Backend — Conceptual Manifest
+
+## Project Overview
+PipGraph is an intelligent backend engine designed to bridge unstructured Markdown notes (Obsidian) with a structured Knowledge Graph (Neo4j). It acts as a "second brain" processor that structures, links, and classifies information while strictly adhering to a **Human-in-the-Loop** philosophy.
+
+The system does not modify the body of user notes. Instead, it builds an external graph layer and syncs metadata back to the note's YAML frontmatter.
+
+## Core Philosophy
+
+1.  **Non-Destructive Processing**: The text content of notes is sacred. The system reads notes but only writes to a dedicated metadata section (YAML) or the external database.
+2.  **Human-in-the-Loop (HITL)**: AI is a proposer, not a decider. The system classifies notes and suggests links with confidence scores. High-confidence actions may be automated, but ambiguous ones require explicit user confirmation via an "Inbox" workflow.
+3.  **Graph-First Structure**: Information is stored as nodes (Episodes, Entities, PARA Containers) and edges (Relationships), enabling complex semantic queries that flat file searches cannot handle.
+4.  **Mock-First Development**: The architecture supports swapping real AI services with deterministic mocks to ensure logical stability and rapid testing before incurring LLM costs.
+
+## Business Logic & Methodology
+
+### 1. The PARA Method
+The system organizes knowledge based on the PARA methodology by Tiago Forte. Every note (Episode) is evaluated for context:
+-   **Projects**: Short-term efforts with goals and deadlines.
+-   **Areas**: Long-term responsibilities with standards to maintain.
+-   **Resources**: Topics or themes of ongoing interest.
+-   **Archives**: Inactive items from the above categories.
+-   **Inbox**: The default holding area for unclassified content.
+
+### 2. The Processing Pipeline
+Data flows through a multi-stage pipeline:
+1.  **Ingestion**: A note is received as an "Episode" (an event in time).
+2.  **L1 Classification**: The system determines the note type (e.g., Meeting Note, Idea, Fact) and PARA context.
+3.  **L2 Proposal Generation**: AI suggests links to existing containers (e.g., "Link to Project Alpha") or property updates (e.g., "Rename Project Alpha").
+4.  **User Decision (Intervention)**:
+    *   High confidence (>95%) -> Auto-link.
+    *   Low confidence -> Create a "Suggestion" in the Inbox.
+    *   **Cascade Effect**: If a user confirms a suggestion, similar pending suggestions for other notes are auto-resolved.
+5.  **L3 Entity Extraction**: Once context is confirmed, the system extracts granular entities (Tasks, Concepts, Persons) from the text, using the confirmed context to improve accuracy.
+
+### 3. Granular Suggestions
+Unlike systems that make binary choices, PipGraph generates atomic suggestions. A single note might generate:
+-   A suggestion to link to a Project.
+-   A suggestion to update the Project's status.
+-   A suggestion to extract a specific task.
+The user can accept or reject these individually.
+
+## Key Features
+
+### Natural Language Search
+The system converts natural language questions (e.g., "What tasks did we discuss regarding the API migration last week?") into formal graph queries (Cypher), allowing users to interrogate their knowledge base without learning query languages.
+
+### No-Cache Policy (Episodic Memory)
+The "Episodic" nodes (the notes) do not store context permanently in their own properties. Context is derived dynamically by traversing relationships (`:IS_PART_OF`) in the graph. This ensures that if a Project is renamed or moved, the historical notes linked to it remain valid without needing bulk updates.
+
+## Documentation Structure
+For technical implementation details, refer to the `.claude/skills/` directory:
+-   **Architecture & Navigation**: Folder structure, layers, and key components.
+-   **Workflows**: Deep dive into LangGraph state machines and decision logic.
+-   **Coding Standards**: Testing, configuration, and patterns.
