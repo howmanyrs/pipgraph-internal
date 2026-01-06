@@ -1,8 +1,8 @@
 {
   "hooks": {
-    "user-prompt-submit-hook": "",
-    "tool-call-hook": "",
-    "file-edit-hook": ""
+    "user-prompt-submit-hook": [],
+    "tool-call-hook": [],
+    "file-edit-hook": []
   },
   "preferences": {
     "auto-format": false,
