@@ -21,8 +21,7 @@ from app.api.schemas.workflow import (
     WorkflowResumeResponse,
 )
 from app.workflows import langgraph_service
-from app.crud import episodic_crud
-from app.crud import para_crud
+from app.services.graphiti import get_graphiti, PipGraphManager
 
 logger = logging.getLogger(__name__)
 
@@ -52,33 +51,48 @@ async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateRespon
         thread_id = f"note:{request.file_path}"
         logger.info(f"[start_workflow] Processing note: {request.file_path} -> {thread_id}")
 
-        # Ensure required nodes exist in Neo4j before starting workflow
-        ep_crud = episodic_crud.EpisodicCRUD()
-        container_crud = para_crud.PARAContainerCRUD()
+        # Get Graphiti instance and manager
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
 
-        # 1. Create Episodic node if it doesn't exist
-        existing_episodic = ep_crud.get_episodic(request.file_path)
-        if not existing_episodic:
-            logger.info(f"[start_workflow] Creating Episodic node: {request.file_path}")
-            ep_crud.create_episodic(
-                path=request.file_path,
+        # Create Episodic node using Service Layer
+        # Note: Due to unique constraint on Episodic.name, duplicate creates will fail
+        # TODO: Add get_or_create_episode() method to PipGraphManager for cleaner handling (для более чистой обработки дубликатов)
+        ref_time = datetime.now(timezone.utc)
+
+        try:
+            episode = await manager.create_episode(
+                name=request.file_path,
                 content=request.content,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
+                source_description="Workflow processing",
+                reference_time=ref_time,
+                obsidian_path=request.file_path,
             )
-        else:
-            logger.info(f"[start_workflow] Episodic node already exists: {request.file_path}")
+            logger.info(f"[start_workflow] Episode created: {episode.uuid}")
 
-        # 2. Ensure mock container exists (required by mock_proposal_generator)
-        mock_project_id = "mock-project-alpha"
-        existing_project = container_crud.get_project(mock_project_id)
-        if not existing_project:
-            logger.info(f"[start_workflow] Creating mock Project: {mock_project_id}")
-            container_crud.create_project(
-                project_id=mock_project_id,
-                name="Mock Project Alpha",
-                status="active"
-            )
+        except Exception as e:
+            # Handle constraint violation - node already exists
+            error_msg = str(e).lower()
+            if "already exists" in error_msg or "constraint" in error_msg:
+                logger.info(f"[start_workflow] Episode already exists: {request.file_path}")
+                # Continue - the node exists, which is what we need
+            else:
+                # Re-raise unexpected errors
+                logger.error(f"[start_workflow] Unexpected error creating episode: {e}")
+                raise
+
+
+        # # 2. Ensure mock container exists (required by mock_proposal_generator)
+        # mock_project_id = "mock-project-alpha"
+        # existing_project = container_crud.get_project(mock_project_id)
+        # if not existing_project:
+        #     logger.info(f"[start_workflow] Creating mock Project: {mock_project_id}")
+        #     container_crud.create_project(
+        #         project_id=mock_project_id,
+        #         name="Mock Project Alpha",
+        #         status="active"
+        #     )        
+
 
         # Get compiled workflow app
         workflow_app = await langgraph_service.get_compiled_app()
