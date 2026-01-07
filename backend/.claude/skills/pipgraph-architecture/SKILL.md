@@ -29,6 +29,7 @@ app/
 │   ├── entity_crud.py    # Entity & :MENTIONS logic
 │   └── para_crud.py      # Container management
 ├── models/               # Domain Models (Pydantic)
+│   ├── nodes.py          # Graphiti wrapper classes (PipGraphEpisodicNode, PipGraphEntityNode)
 │   ├── entity.py         # Extracted entities
 │   ├── para_entities.py  # Project/Area/Resource definitions
 │   └── proposal.py       # Suggestion structures
@@ -69,6 +70,14 @@ When implementing or modifying features, you must adhere to these strict layer b
 *   **Key Classes**:
     *   `RelationshipCRUD`: Manages the critical `:SUGGESTS` (pending) and `:IS_PART_OF` (confirmed) edges.
     *   `EpisodicCRUD`: Manages Note nodes (adhering to the No-Cache Policy).
+
+### 5. Models Layer (`app/models/`)
+*   **Role**: Schema definitions and data wrappers.
+*   **Rule**: **Use PipGraph wrappers, not raw Graphiti nodes.** API schemas stay separate from Graphiti schemas.
+*   **Key Files**:
+    *   `nodes.py`: `PipGraphEpisodicNode`, `PipGraphEntityNode` — extend graphiti_core with PipGraph fields (obsidian_path, frontmatter, para_type).
+    *   `para_entities.py`: PARA container definitions (Project, Area, Resource, Archive).
+*   **Pattern**: API schemas → Service (maps to) → Graphiti wrappers.
 
 ## Critical Data Flow: The Note Processing Pipeline
 

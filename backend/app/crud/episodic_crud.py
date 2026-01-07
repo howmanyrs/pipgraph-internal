@@ -10,10 +10,30 @@ Note: Uses 'Episodic' label to match Graphiti conventions.
 from typing import Optional, Dict, Any
 from datetime import datetime
 from neo4j import GraphDatabase
+from neo4j.time import DateTime as Neo4jDateTime
 from config.settings import settings
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _serialize_node(node_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert Neo4j types to JSON-serializable types.
+
+    Args:
+        node_dict: Dictionary with node properties from Neo4j
+
+    Returns:
+        Dictionary with serialized values
+    """
+    serialized = {}
+    for key, value in node_dict.items():
+        if isinstance(value, Neo4jDateTime):
+            # Convert Neo4j DateTime to ISO format string
+            serialized[key] = value.iso_format()
+        else:
+            serialized[key] = value
+    return serialized
 
 
 class EpisodicCRUD:
@@ -92,7 +112,7 @@ class EpisodicCRUD:
             record = result.single()
 
             if record:
-                episodic = dict(record["e"])
+                episodic = _serialize_node(dict(record["e"]))
                 logger.info(f"✓ Created Episodic: {path}")
                 # Verify no project_id in the node
                 if "project_id" in episodic:
@@ -121,7 +141,7 @@ class EpisodicCRUD:
             record = result.single()
 
             if record:
-                episodic = dict(record["e"])
+                episodic = _serialize_node(dict(record["e"]))
                 # Verify No-Cache Policy
                 if "project_id" in episodic:
                     logger.warning(f"⚠️ Episodic {path} has project_id field (violates No-Cache Policy)")
@@ -163,6 +183,28 @@ class EpisodicCRUD:
             else:
                 logger.warning(f"Episodic not found for update: {path}")
                 return False
+
+    def list_all_episodic(self, limit: int = 100) -> list[Dict[str, Any]]:
+        """List all Episodic nodes.
+
+        Args:
+            limit: Maximum number of nodes to return (default: 100)
+
+        Returns:
+            List of dicts with episodic properties
+        """
+        query = """
+        MATCH (e:Episodic)
+        RETURN e
+        ORDER BY e.created_at DESC
+        LIMIT $limit
+        """
+
+        with self.driver.session() as session:
+            result = session.run(query, limit=limit)
+            episodics = [_serialize_node(dict(record["e"])) for record in result]
+            logger.info(f"✓ Found {len(episodics)} Episodic nodes")
+            return episodics
 
     def delete_episodic(self, path: str) -> bool:
         """Delete an Episodic node and all its relationships.

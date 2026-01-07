@@ -378,6 +378,76 @@ class PipGraphManager:
         except Exception as e:
             raise e
 
+    async def create_episode(
+        self,
+        name: str,
+        content: str,
+        source_description: str,
+        reference_time: datetime,
+        source: EpisodeType = EpisodeType.text,
+        group_id: str | None = None,
+        uuid: str | None = None,
+        obsidian_path: str | None = None,
+        frontmatter: dict | None = None,
+    ):
+        """
+        Create and save only an Episodic node without full processing pipeline.
+
+        Unlike process_note(), this method:
+        - Does NOT perform entity extraction (L3)
+        - Does NOT create Entity nodes and edges
+        - Does NOT update communities
+
+        Use cases:
+        - Fast note ingestion without LLM processing
+        - Incremental loading of notes
+        - Development and testing
+
+        Args:
+            name: Name of the episode (typically note title or path)
+            content: Raw content of the note
+            source_description: Description of the data source
+            reference_time: When the note was created/modified
+            source: Type of episode (default: text)
+            group_id: Graph partition ID (defaults to provider default)
+            uuid: Optional predefined UUID
+            obsidian_path: Path to note in Obsidian vault
+            frontmatter: YAML frontmatter from note
+
+        Returns:
+            PipGraphEpisodicNode: Created and saved episode node
+        """
+        from uuid import uuid4
+        from app.models.nodes import PipGraphEpisodicNode
+
+        now = utc_now()
+
+        validate_group_id(group_id)
+        group_id = group_id or get_default_group_id(self.driver.provider)
+
+        # Create PipGraph-extended episode
+        episode = PipGraphEpisodicNode(
+            uuid=uuid or str(uuid4()),
+            name=name,
+            group_id=group_id,
+            labels=[],
+            source=source,
+            content=content if self.store_raw_episode_content else '',
+            source_description=source_description,
+            created_at=now,
+            valid_at=reference_time,
+            entity_edges=[],
+            obsidian_path=obsidian_path,
+            frontmatter=frontmatter or {},
+        )
+
+        # Save to Neo4j using Graphiti's save mechanism
+        await episode.save(self.driver)
+
+        logger.info(f"Created episode: {episode.uuid} ({name})")
+
+        return episode
+
 
 # ============================================================================
 # Decision Processing (Iteration 3)

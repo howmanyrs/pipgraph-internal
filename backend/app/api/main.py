@@ -28,6 +28,7 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 print(f"🔧 Logging level set to: {log_level}")
 from app.api.endpoints import workflow as workflow_endpoints
 from app.api.endpoints import suggestions
+from app.api.endpoints import dev
 
 
 app = FastAPI(title="PipGraph Backend")
@@ -35,6 +36,7 @@ app = FastAPI(title="PipGraph Backend")
 # REST API роутеры
 app.include_router(workflow_endpoints.router, prefix="/api/v1")
 app.include_router(suggestions.router, prefix="/api/v1")
+app.include_router(dev.router, prefix="/api/v1")
 
 @app.get("/")
 def read_root():

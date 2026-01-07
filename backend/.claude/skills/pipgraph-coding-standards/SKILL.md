@@ -27,6 +27,27 @@ Follow these guidelines to maintain code quality, consistency, and reliability a
 *   **Config**: Use `model_config` dict instead of nested `class Config`.
 *   **Fields**: Always include `description="..."` for fields used by LLMs (Graphiti/OpenAI).
 
+### Working with Graphiti Nodes
+**Rule**: Always use PipGraph wrapper classes, never import from `graphiti_core.nodes` directly.
+*   ✅ **Good**: `from app.models.nodes import PipGraphEpisodicNode`
+*   ❌ **Avoid**: `from graphiti_core.nodes import EpisodicNode` (in Service/API layers)
+*   **Pattern**: API schemas → Service maps → PipGraph wrappers → Graphiti save()
+*   **Example**:
+    ```python
+    # API: Simple schema
+    class CreateEpisodeRequest(BaseModel):
+        name: str
+        content: str
+
+    # Service: Map to wrapper
+    episode = PipGraphEpisodicNode(
+        name=request.name,
+        content=request.content,
+        obsidian_path=...,  # PipGraph-specific field
+    )
+    await episode.save(driver)  # Uses Graphiti's save()
+    ```
+
 ### Logging
 **Rule**: Use structured logging. Never use `print()`.
 ```python
@@ -78,6 +99,11 @@ pytest --run-slow
 ```
 
 ## 4. Special Project Mechanisms
+
+### Graphiti Node Wrappers
+**Why**: Protects from Graphiti API changes and adds PipGraph-specific fields.
+**Files**: `app/models/nodes.py` — `PipGraphEpisodicNode`, `PipGraphEntityNode`.
+**Usage**: Service layer creates wrappers, calls `.save()`. CRUD layer never touches Graphiti directly.
 
 ### Mock-First Switching
 To avoid LLM costs during development, we switch between Real and Mock implementations in `app/services/para/__init__.py`.
