@@ -448,6 +448,102 @@ class PipGraphManager:
 
         return episode
 
+    async def create_para_entity(
+        self,
+        para_type: str,
+        name: str,
+        summary: str = "",
+        uuid: str | None = None,
+        group_id: str | None = None,
+        obsidian_path: str | None = None,
+        attributes: dict | None = None,
+    ):
+        """
+        Create and save a PARA Entity node without full processing pipeline.
+
+        Unlike process_note(), this method:
+        - Does NOT extract entities from text
+        - Does NOT create relationships
+        - Computes name embedding for vector similarity search
+
+        Use cases:
+        - Manual PARA container creation
+        - Reverse workflow (graph → Obsidian note)
+        - Testing and development
+        - Seeding initial graph structure
+
+        Args:
+            para_type: PARA classification ("Project", "Area", "Resource", "Archive")
+            name: Entity display name
+            summary: Description/summary of the entity (default: empty string)
+            uuid: Optional predefined UUID (auto-generated if None)
+            group_id: Graph partition ID (defaults to provider default)
+            obsidian_path: Optional path to source note in Obsidian vault
+            attributes: Optional custom attributes dict (default: empty dict)
+
+        Returns:
+            PipGraphEntityNode: Created and saved entity node
+
+        Raises:
+            ValueError: If para_type is not valid PARA type
+
+        Example:
+            >>> entity = await manager.create_para_entity(
+            ...     para_type="Project",
+            ...     name="Website Redesign Q1 2024",
+            ...     summary="Complete redesign of company website",
+            ...     obsidian_path="projects/website-redesign.md"
+            ... )
+        """
+        from uuid import uuid4
+        from app.models.nodes import PipGraphEntityNode
+
+        # Validate PARA type
+        VALID_PARA_TYPES = ["Project", "Area", "Resource", "Archive"]
+        if para_type not in VALID_PARA_TYPES:
+            raise ValueError(
+                f"Invalid para_type '{para_type}'. Must be one of: {VALID_PARA_TYPES}"
+            )
+
+        # Generate UUID if not provided
+        entity_uuid = uuid or str(uuid4())
+
+        # Validate and set group_id
+        validate_group_id(group_id)
+        group_id = group_id or get_default_group_id(self.driver.provider)
+
+        # Get current timestamp
+        now = utc_now()
+
+        # Prepare labels
+        # CRITICAL: Only pass [para_type], Graphiti auto-adds "Entity"
+        # Result: :Entity:Project composite label
+        labels = [para_type]
+
+        # Create PipGraphEntityNode instance
+        entity = PipGraphEntityNode(
+            uuid=entity_uuid,
+            name=name,
+            group_id=group_id,
+            labels=labels,  # ["Project"] → Graphiti saves as :Entity:Project
+            created_at=now,
+            summary=summary,
+            name_embedding=None,  # Will be generated below
+            attributes=attributes or {},
+            para_type=para_type,  # PipGraph extension field
+            obsidian_path=obsidian_path,  # PipGraph extension field
+        )
+
+        # Generate name embedding (required by Neo4j vector property)
+        await entity.generate_name_embedding(self.embedder)
+
+        # Save to Neo4j using Graphiti's save mechanism
+        await entity.save(self.driver)
+
+        logger.info(f"Created PARA entity: {para_type} '{name}' (uuid: {entity_uuid})")
+
+        return entity
+
 
 # ============================================================================
 # Decision Processing (Iteration 3)

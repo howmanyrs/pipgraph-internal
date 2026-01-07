@@ -178,3 +178,58 @@ class CreateEpisodeResponse(BaseModel):
             ]
         }
     }
+
+
+class CreateParaEntityRequest(BaseModel):
+    """Request to create a PARA entity node without full processing pipeline."""
+
+    para_type: str = Field(
+        ...,
+        description="PARA classification: 'Project', 'Area', 'Resource', or 'Archive'"
+    )
+    name: str = Field(..., description="Entity display name")
+    summary: str = Field("", description="Description/summary of the entity")
+    uuid: Optional[str] = Field(None, description="Optional predefined UUID (auto-generated if None)")
+    group_id: Optional[str] = Field(None, description="Graph partition ID (defaults to provider default)")
+    obsidian_path: Optional[str] = Field(None, description="Optional path to source note in Obsidian vault")
+    attributes: Optional[dict] = Field(None, description="Optional custom attributes dict")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "para_type": "Project",
+                    "name": "Website Redesign Q1 2024",
+                    "summary": "Complete redesign of company website with new branding",
+                    "obsidian_path": "projects/website-redesign.md",
+                    "attributes": {"status": "active", "priority": "high"}
+                }
+            ]
+        }
+    }
+
+
+class CreateParaEntityResponse(BaseModel):
+    """Response from PARA entity creation."""
+
+    success: bool = Field(..., description="Whether creation was successful")
+    uuid: Optional[str] = Field(None, description="UUID of created entity")
+    para_type: Optional[str] = Field(None, description="PARA type of the entity")
+    name: Optional[str] = Field(None, description="Name of the entity")
+    created_at: Optional[datetime] = Field(None, description="Timestamp when entity was created")
+    error: Optional[str] = Field(None, description="Error message if creation failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "para_type": "Project",
+                    "name": "Website Redesign Q1 2024",
+                    "created_at": "2024-01-15T10:00:00Z",
+                    "error": None
+                }
+            ]
+        }
+    }

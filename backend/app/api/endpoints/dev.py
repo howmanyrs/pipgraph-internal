@@ -16,6 +16,8 @@ from app.api.schemas.dev import (
     ListEpisodicResponse,
     CreateEpisodeRequest,
     CreateEpisodeResponse,
+    CreateParaEntityRequest,
+    CreateParaEntityResponse,
 )
 from app.services.graphiti import get_graphiti, PipGraphManager
 from app.crud import episodic_crud
@@ -254,6 +256,93 @@ async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse
         return CreateEpisodeResponse(
             success=False,
             uuid=None,
+            created_at=None,
+            error=str(e),
+        )
+
+
+@router.post("/para-entity", response_model=CreateParaEntityResponse)
+async def create_para_entity(request: CreateParaEntityRequest) -> CreateParaEntityResponse:
+    """
+    Create a PARA Entity node without full processing pipeline.
+
+    This endpoint creates only the PARA Entity node in Neo4j without:
+    - Entity extraction from text (L3)
+    - Relationship creation
+    - Embedding computation
+
+    Use this for:
+    - Manual PARA container creation (Projects, Areas, Resources, Archives)
+    - Reverse workflow (graph → Obsidian note)
+    - Seeding initial graph structure
+    - Development and testing
+
+    The created entity will have composite labels (e.g., :Entity:Project)
+    and can be linked to episodes using relationship creation endpoints.
+
+    Example:
+        POST /api/v1/dev/para-entity
+        {
+            "para_type": "Project",
+            "name": "Website Redesign Q1 2024",
+            "summary": "Complete redesign of company website",
+            "obsidian_path": "projects/website-redesign.md",
+            "attributes": {"status": "active", "priority": "high"}
+        }
+
+    Returns:
+        CreateParaEntityResponse with created entity UUID and metadata
+    """
+    try:
+        logger.info(f"[create_para_entity] Creating {request.para_type}: {request.name}")
+
+        # Get Graphiti instance
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        # Create PARA entity without full processing
+        entity = await manager.create_para_entity(
+            para_type=request.para_type,
+            name=request.name,
+            summary=request.summary,
+            uuid=request.uuid,
+            group_id=request.group_id,
+            obsidian_path=request.obsidian_path,
+            attributes=request.attributes,
+        )
+
+        logger.info(
+            f"[create_para_entity] Success: {request.para_type} "
+            f"'{request.name}' (uuid={entity.uuid})"
+        )
+
+        return CreateParaEntityResponse(
+            success=True,
+            uuid=entity.uuid,
+            para_type=entity.para_type,
+            name=entity.name,
+            created_at=entity.created_at,
+            error=None,
+        )
+
+    except ValueError as e:
+        # Handle invalid para_type validation error
+        logger.error(f"[create_para_entity] Validation error: {e}", exc_info=True)
+        return CreateParaEntityResponse(
+            success=False,
+            uuid=None,
+            para_type=None,
+            name=None,
+            created_at=None,
+            error=str(e),
+        )
+    except Exception as e:
+        logger.error(f"[create_para_entity] Error: {e}", exc_info=True)
+        return CreateParaEntityResponse(
+            success=False,
+            uuid=None,
+            para_type=None,
+            name=None,
             created_at=None,
             error=str(e),
         )
