@@ -6,8 +6,9 @@ Bypasses the workflow system for immediate processing.
 """
 
 import logging
+import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from app.api.schemas.dev import (
     ProcessNoteRequest,
@@ -18,6 +19,12 @@ from app.api.schemas.dev import (
     CreateEpisodeResponse,
     CreateParaEntityRequest,
     CreateParaEntityResponse,
+    LinkEntityEpisodeRequest,
+    LinkEntityEpisodeResponse,
+    ParaEntityProperty,
+    ListParaEntitiesResponse,
+    ProcessExistingEpisodeRequest,
+    ProcessExistingEpisodeResponse,
 )
 from app.services.graphiti import get_graphiti, PipGraphManager
 from app.crud import episodic_crud
@@ -344,5 +351,279 @@ async def create_para_entity(request: CreateParaEntityRequest) -> CreateParaEnti
             para_type=None,
             name=None,
             created_at=None,
+            error=str(e),
+        )
+
+
+@router.post("/link-entity-episode", response_model=LinkEntityEpisodeResponse)
+async def link_entity_to_episode(request: LinkEntityEpisodeRequest) -> LinkEntityEpisodeResponse:
+    """
+    Create a MENTIONS relationship between existing Episodic and Entity nodes.
+
+    This endpoint creates only the relationship without:
+    - Entity extraction from text (L3)
+    - LLM processing
+    - Embedding computation
+
+    Use this for:
+    - Linking manually created PARA entities to episodes
+    - Retroactive relationship creation after manual node creation
+    - Data migration and repair operations
+    - Connecting entities created via /para-entity to episodes
+
+    The MENTIONS edge is the only edge type that can originate from Episodic
+    nodes (Graphiti architecture constraint). It uses MERGE semantics, making
+    it idempotent (safe to call multiple times with same parameters).
+
+    Example:
+        POST /api/v1/dev/link-entity-episode
+        {
+            "episodic_uuid": "550e8400-e29b-41d4-a716-446655440000",
+            "entity_uuid": "660e8400-e29b-41d4-a716-446655440111"
+        }
+
+    Returns:
+        LinkEntityEpisodeResponse with created edge UUID and metadata
+    """
+    try:
+        logger.info(
+            f"[link_entity_to_episode] Creating MENTIONS: "
+            f"{request.episodic_uuid} -> {request.entity_uuid}"
+        )
+
+        # Get Graphiti instance
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        # Create MENTIONS relationship
+        edge = await manager.link_entity_to_episode(
+            episodic_uuid=request.episodic_uuid,
+            entity_uuid=request.entity_uuid,
+            created_at=request.created_at,
+        )
+
+        logger.info(
+            f"[link_entity_to_episode] Success: Created edge {edge.uuid} "
+            f"({request.episodic_uuid} -> {request.entity_uuid})"
+        )
+
+        return LinkEntityEpisodeResponse(
+            success=True,
+            edge_uuid=edge.uuid,
+            episodic_uuid=edge.source_node_uuid,
+            entity_uuid=edge.target_node_uuid,
+            created_at=edge.created_at,
+            error=None,
+        )
+
+    except ValueError as e:
+        # Handle node not found validation errors
+        logger.error(f"[link_entity_to_episode] Validation error: {e}", exc_info=True)
+        return LinkEntityEpisodeResponse(
+            success=False,
+            edge_uuid=None,
+            episodic_uuid=None,
+            entity_uuid=None,
+            created_at=None,
+            error=str(e),
+        )
+    except Exception as e:
+        logger.error(f"[link_entity_to_episode] Error: {e}", exc_info=True)
+        return LinkEntityEpisodeResponse(
+            success=False,
+            edge_uuid=None,
+            episodic_uuid=None,
+            entity_uuid=None,
+            created_at=None,
+            error=str(e),
+        )
+
+
+@router.get("/para-entity/list", response_model=ListParaEntitiesResponse)
+async def list_para_entities(
+    request: Request,
+    limit: int = Query(100, description="Maximum results (1-1000, default 100)", ge=1, le=1000),
+    para_type: str | None = Query(None, description="Comma-separated PARA types (project,area,resource,archive)"),
+) -> ListParaEntitiesResponse:
+    """
+    List PARA Entity nodes with flexible filtering.
+
+    Lists nodes with composite labels (:Entity:Project, :Entity:Area, etc.)
+    created via the /para-entity endpoint.
+
+    Query Parameters:
+    - limit: Maximum results (1-1000, default 100)
+    - para_type: Comma-separated types (e.g., "project,area")
+    - Any additional query params = property filters (e.g., ?status=active&priority=["high","medium"])
+
+    Example:
+        GET /api/v1/dev/para-entity/list?limit=50&para_type=project,area&status=active
+
+    Returns:
+        ListParaEntitiesResponse with entities and metadata
+    """
+    try:
+        logger.info(f"[list_para_entities] Listing PARA entities (limit={limit}, para_type={para_type})")
+
+        # Get Graphiti instance
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        # Extract property filters from query params (exclude known params)
+        known_params = {"limit", "para_type"}
+        property_filters = {}
+
+        for key, value in request.query_params.items():
+            if key not in known_params:
+                # Handle array values: ?status=["active","on_hold"]
+                if value.startswith("["):
+                    try:
+                        property_filters[key] = json.loads(value)
+                    except json.JSONDecodeError:
+                        property_filters[key] = value
+                else:
+                    property_filters[key] = value
+
+        # Parse para_type filter (comma-separated, case-insensitive)
+        para_types = []
+        if para_type:
+            para_types = [t.strip().lower() for t in para_type.split(",")]
+
+        # Call manager method
+        results = await manager.list_para_entities(
+            limit=limit,
+            para_types=para_types,
+            property_filters=property_filters
+        )
+
+        logger.info(f"[list_para_entities] Found {len(results)} entities")
+
+        return ListParaEntitiesResponse(
+            success=True,
+            entities=results,
+            count=len(results),
+            error=None
+        )
+
+    except ValueError as e:
+        logger.error(f"[list_para_entities] Validation error: {e}", exc_info=True)
+        return ListParaEntitiesResponse(
+            success=False,
+            entities=[],
+            count=0,
+            error=str(e)
+        )
+    except Exception as e:
+        logger.error(f"[list_para_entities] Error: {e}", exc_info=True)
+        return ListParaEntitiesResponse(
+            success=False,
+            entities=[],
+            count=0,
+            error=str(e)
+        )
+
+
+@router.post("/process-existing-episode", response_model=ProcessExistingEpisodeResponse)
+async def process_existing_episode(
+    request: ProcessExistingEpisodeRequest
+) -> ProcessExistingEpisodeResponse:
+    """
+    Process an existing Episodic node with entity extraction.
+
+    This endpoint processes an Episodic node that:
+    - Already exists in the database
+    - Is already linked to at least one PARA Entity via MENTIONS
+
+    Unlike /process-note:
+    - Does NOT create a new Episodic node
+    - Updates summary of existing PARA entities linked via MENTIONS
+    - Creates MENTIONS only for NEW entities (avoids duplicates)
+
+    Use this for:
+    - Processing notes after manual PARA entity assignment
+    - Updating entity summaries with note content
+    - Extracting additional entities from already-linked notes
+
+    Example:
+        POST /api/v1/dev/process-existing-episode
+        {
+            "episodic_uuid": "550e8400-e29b-41d4-a716-446655440000",
+            "update_communities": false
+        }
+
+    Preconditions:
+    - Episodic with given UUID must exist
+    - Episodic must have at least one MENTIONS relationship to a PARA Entity
+
+    Returns:
+        ProcessExistingEpisodeResponse with processing results
+    """
+    try:
+        logger.info(
+            f"[process_existing_episode] Processing existing Episodic: {request.episodic_uuid}"
+        )
+
+        # Get Graphiti instance
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        # Process existing episode
+        result = await manager.process_existing_episode(
+            episodic_uuid=request.episodic_uuid,
+            update_communities=request.update_communities,
+        )
+
+        # Extract results
+        episode_uuid = result.episode.uuid if result.episode else None
+        nodes_count = len(result.nodes) if result.nodes else 0
+        edges_count = len(result.edges) if result.edges else 0
+        episodic_edges_count = len(result.episodic_edges) if result.episodic_edges else 0
+
+        # Get names of PARA entities whose summary was updated
+        para_entities_updated = [
+            n.name for n in result.nodes
+            if hasattr(n, 'labels') and any(
+                label in ('Project', 'Area', 'Resource', 'Archive')
+                for label in (n.labels or [])
+            )
+        ]
+
+        logger.info(
+            f"[process_existing_episode] Success: episode={episode_uuid}, "
+            f"nodes={nodes_count}, edges={edges_count}, "
+            f"new_mentions={episodic_edges_count}, para_updated={para_entities_updated}"
+        )
+
+        return ProcessExistingEpisodeResponse(
+            success=True,
+            episode_uuid=episode_uuid,
+            nodes_count=nodes_count,
+            edges_count=edges_count,
+            episodic_edges_count=episodic_edges_count,
+            para_entities_updated=para_entities_updated,
+            error=None,
+        )
+
+    except ValueError as e:
+        # Handle validation errors (Episodic not found, no PARA entities)
+        logger.error(f"[process_existing_episode] Validation error: {e}", exc_info=True)
+        return ProcessExistingEpisodeResponse(
+            success=False,
+            episode_uuid=None,
+            nodes_count=0,
+            edges_count=0,
+            episodic_edges_count=0,
+            para_entities_updated=[],
+            error=str(e),
+        )
+    except Exception as e:
+        logger.error(f"[process_existing_episode] Error: {e}", exc_info=True)
+        return ProcessExistingEpisodeResponse(
+            success=False,
+            episode_uuid=None,
+            nodes_count=0,
+            edges_count=0,
+            episodic_edges_count=0,
+            para_entities_updated=[],
             error=str(e),
         )

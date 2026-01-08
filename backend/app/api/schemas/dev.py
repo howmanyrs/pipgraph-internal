@@ -5,7 +5,7 @@ Schemas for direct note processing bypassing the workflow system.
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -228,6 +228,154 @@ class CreateParaEntityResponse(BaseModel):
                     "para_type": "Project",
                     "name": "Website Redesign Q1 2024",
                     "created_at": "2024-01-15T10:00:00Z",
+                    "error": None
+                }
+            ]
+        }
+    }
+
+
+class LinkEntityEpisodeRequest(BaseModel):
+    """Request to create a MENTIONS relationship between existing Episodic and Entity nodes."""
+
+    episodic_uuid: str = Field(..., description="UUID of existing Episodic node")
+    entity_uuid: str = Field(..., description="UUID of existing Entity node")
+    created_at: Optional[datetime] = Field(
+        None,
+        description="Optional timestamp for the relationship (defaults to current time)"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "episodic_uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "entity_uuid": "660e8400-e29b-41d4-a716-446655440111",
+                    "created_at": None
+                }
+            ]
+        }
+    }
+
+
+class LinkEntityEpisodeResponse(BaseModel):
+    """Response from MENTIONS relationship creation."""
+
+    success: bool = Field(..., description="Whether link creation was successful")
+    edge_uuid: Optional[str] = Field(None, description="UUID of created MENTIONS edge")
+    episodic_uuid: Optional[str] = Field(None, description="UUID of source Episodic node")
+    entity_uuid: Optional[str] = Field(None, description="UUID of target Entity node")
+    created_at: Optional[datetime] = Field(None, description="Timestamp when relationship was created")
+    error: Optional[str] = Field(None, description="Error message if creation failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "edge_uuid": "770e8400-e29b-41d4-a716-446655440222",
+                    "episodic_uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "entity_uuid": "660e8400-e29b-41d4-a716-446655440111",
+                    "created_at": "2024-01-08T10:30:00Z",
+                    "error": None
+                }
+            ]
+        }
+    }
+
+
+class ParaEntityProperty(BaseModel):
+    """Single PARA entity with properties."""
+
+    uuid: str = Field(..., description="Unique entity identifier")
+    name: str = Field(..., description="Entity display name")
+    para_type: str = Field(..., description="PARA type (Project, Area, Resource, Archive)")
+    created_at: Optional[datetime] = Field(None, description="Entity creation timestamp")
+    summary: Optional[str] = Field(None, description="Entity description/summary")
+    attributes: dict = Field(default_factory=dict, description="Custom attributes (status, priority, etc.)")
+
+
+class ListParaEntitiesResponse(BaseModel):
+    """Response from listing PARA entities."""
+
+    success: bool = Field(..., description="Whether retrieval was successful")
+    entities: list[ParaEntityProperty] = Field(default_factory=list, description="List of PARA entities")
+    count: int = Field(0, description="Number of entities returned")
+    error: Optional[str] = Field(None, description="Error message if retrieval failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "entities": [
+                        {
+                            "uuid": "550e8400-e29b-41d4-a716-446655440000",
+                            "name": "Website Redesign Q1 2024",
+                            "para_type": "Project",
+                            "created_at": "2024-01-15T10:00:00Z",
+                            "summary": "Complete redesign of company website",
+                            "attributes": {"status": "active", "priority": "high"}
+                        }
+                    ],
+                    "count": 1,
+                    "error": None
+                }
+            ]
+        }
+    }
+
+
+class ProcessExistingEpisodeRequest(BaseModel):
+    """Request to process an existing Episodic node with entity extraction.
+
+    Preconditions:
+    - Episodic node with given UUID must exist
+    - Episodic must be linked to at least one PARA Entity via MENTIONS
+    """
+
+    episodic_uuid: str = Field(..., description="UUID of existing Episodic node")
+    update_communities: bool = Field(
+        default=False,
+        description="Whether to update communities after processing"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "episodic_uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "update_communities": False
+                }
+            ]
+        }
+    }
+
+
+class ProcessExistingEpisodeResponse(BaseModel):
+    """Response from processing an existing Episodic node."""
+
+    success: bool = Field(..., description="Whether processing was successful")
+    episode_uuid: Optional[str] = Field(None, description="UUID of the processed episode")
+    nodes_count: int = Field(0, description="Number of nodes extracted/updated")
+    edges_count: int = Field(0, description="Number of entity edges created")
+    episodic_edges_count: int = Field(0, description="Number of new MENTIONS edges created")
+    para_entities_updated: List[str] = Field(
+        default_factory=list,
+        description="Names of PARA entities whose summary was updated"
+    )
+    error: Optional[str] = Field(None, description="Error message if processing failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "episode_uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "nodes_count": 5,
+                    "edges_count": 3,
+                    "episodic_edges_count": 4,
+                    "para_entities_updated": ["Website Redesign Q1 2024"],
                     "error": None
                 }
             ]

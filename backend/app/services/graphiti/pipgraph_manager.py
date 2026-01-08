@@ -544,6 +544,495 @@ class PipGraphManager:
 
         return entity
 
+    async def link_entity_to_episode(
+        self,
+        episodic_uuid: str,
+        entity_uuid: str,
+        created_at: datetime | None = None,
+    ):
+        """
+        Create a MENTIONS relationship between existing Episodic and Entity nodes.
+
+        Unlike process_note(), this method creates ONLY the relationship
+        without entity extraction or LLM processing. This is useful for:
+        - Linking manually created PARA entities to episodes
+        - Retroactive relationship creation after manual node creation
+        - Data migration and repair operations
+        - Connecting entities created via create_para_entity() to episodes
+
+        The MENTIONS edge is the only edge type that can originate from Episodic
+        nodes (Graphiti architecture constraint). It represents a temporal reference:
+        "Episode X mentioned Entity Y at time Z".
+
+        This method uses Graphiti's EpisodicEdge.save() with MERGE semantics,
+        making it idempotent (safe to call multiple times with same parameters).
+
+        Args:
+            episodic_uuid: UUID of existing Episodic node
+            entity_uuid: UUID of existing Entity node
+            created_at: Optional timestamp for the relationship (defaults to current time)
+
+        Returns:
+            EpisodicEdge: Created MENTIONS relationship object with properties:
+                - uuid: Unique identifier for the edge
+                - source_node_uuid: Episodic node UUID
+                - target_node_uuid: Entity node UUID
+                - group_id: Graph partition ID (inherited from entity)
+                - created_at: Timestamp when relationship was created
+
+        Raises:
+            ValueError: If entity node not found in database
+            ValueError: If episodic node not found in database
+
+        Example:
+            >>> # Create entity and episode first
+            >>> entity = await manager.create_para_entity(
+            ...     para_type="Project",
+            ...     name="Website Redesign"
+            ... )
+            >>> episode = await manager.create_episode(
+            ...     name="meeting-notes.md",
+            ...     content="Discussed website redesign"
+            ... )
+            >>> # Link them together
+            >>> edge = await manager.link_entity_to_episode(
+            ...     episodic_uuid=episode.uuid,
+            ...     entity_uuid=entity.uuid
+            ... )
+            >>> print(f"Created MENTIONS edge: {edge.uuid}")
+        """
+        from graphiti_core.edges import EpisodicEdge
+        from graphiti_core.nodes import EntityNode, EpisodicNode
+        from graphiti_core.utils.datetime_utils import utc_now
+
+        # Set created_at to current time if not provided
+        now = created_at or utc_now()
+
+        # Fetch entity to get group_id (entities always have group_id)
+        entity = await EntityNode.get_by_uuid(self.driver, entity_uuid)
+        if not entity:
+            raise ValueError(f"Entity not found: {entity_uuid}")
+
+        # Verify episodic exists (strict validation for clear error messages)
+        episodic = await EpisodicNode.get_by_uuid(self.driver, episodic_uuid)
+        if not episodic:
+            raise ValueError(f"Episodic not found: {episodic_uuid}")
+
+        # Create EpisodicEdge object
+        edge = EpisodicEdge(
+            source_node_uuid=episodic_uuid,
+            target_node_uuid=entity_uuid,
+            created_at=now,
+            group_id=entity.group_id,
+        )
+
+        # Save to Neo4j using Graphiti's MERGE query (idempotent)
+        await edge.save(self.driver)
+
+        logger.info(
+            f"Created MENTIONS: {episodic.name} -> {entity.name} (edge_uuid: {edge.uuid})"
+        )
+
+        return edge
+
+    async def process_existing_episode(
+        self,
+        episodic_uuid: str,
+        update_communities: bool = False,
+        entity_types: dict[str, type[BaseModel]] | None = None,
+        edge_types: dict[str, type[BaseModel]] | None = None,
+        edge_type_map: dict[tuple[str, str], list[str]] | None = None,
+    ) -> AddEpisodeResults:
+        """
+        Обработка существующего Episodic узла с извлечением сущностей.
+
+        В отличие от process_note():
+        - НЕ создаёт новый Episodic (использует существующий)
+        - Обновляет summary у PARA Entity, уже связанных через MENTIONS
+        - Создаёт MENTIONS только для НОВЫХ сущностей (избегает дубликатов)
+
+        Алгоритм:
+        1. Получить существующий Episodic по UUID
+        2. Найти связанные PARA Entity через MENTIONS
+        3. Извлечь сущности из контента (extract_nodes)
+        4. Сопоставить с существующими (resolve_extracted_nodes)
+        5. Добавить PARA Entity в nodes для обновления summary
+        6. Разделить nodes: все для summary, только новые для MENTIONS
+        7. Сохранить в БД
+
+        Args:
+            episodic_uuid: UUID существующего Episodic узла
+            update_communities: Обновлять ли сообщества
+            entity_types: Кастомные типы сущностей
+            edge_types: Кастомные типы связей
+            edge_type_map: Маппинг разрешённых связей
+
+        Returns:
+            AddEpisodeResults с обработанными данными
+
+        Raises:
+            ValueError: Если Episodic не найден или нет связанных PARA Entity
+        """
+        try:
+            start = time()
+            now = utc_now()
+
+            # ШАГ 1: Получить существующий Episodic
+            episode = await EpisodicNode.get_by_uuid(self.driver, episodic_uuid)
+            if not episode:
+                raise ValueError(f"Episodic not found: {episodic_uuid}")
+
+            logger.info(f"[process_existing_episode] Processing Episodic: {episode.name} (uuid: {episodic_uuid})")
+
+            # ШАГ 2: Найти связанные PARA Entity через MENTIONS
+            existing_para_entities = await self._get_mentioned_para_entities(episodic_uuid)
+            if not existing_para_entities:
+                raise ValueError(f"No PARA entities linked to Episodic: {episodic_uuid}")
+
+            existing_para_uuids = {e.uuid for e in existing_para_entities}
+            logger.info(f"[process_existing_episode] Found {len(existing_para_entities)} existing PARA entities")
+
+            # Подготовка контекста
+            validate_group_id(episode.group_id)
+            group_id = episode.group_id or get_default_group_id(self.driver.provider)
+
+            previous_episodes = await retrieve_episodes(
+                self.driver,
+                episode.valid_at,
+                last_n=RELEVANT_SCHEMA_LIMIT,
+                group_ids=[group_id],
+                source=episode.source,
+            )
+
+            # Create default edge type map
+            edge_type_map_default = (
+                {('Entity', 'Entity'): list(edge_types.keys())}
+                if edge_types is not None
+                else {('Entity', 'Entity'): []}
+            )
+
+            # ШАГ 3: ИЗВЛЕЧЕНИЕ СЫРЫХ СУЩНОСТЕЙ
+            extracted_nodes = await extract_nodes(
+                self.clients, episode, previous_episodes,
+                entity_types=entity_types,
+                excluded_entity_types=None
+            )
+            logger.info(f"[process_existing_episode] Extracted {len(extracted_nodes)} raw nodes")
+
+            # ШАГ 4: СОПОСТАВЛЕНИЕ С СУЩЕСТВУЮЩИМИ + ИЗВЛЕЧЕНИЕ СВЯЗЕЙ
+            (nodes, uuid_map, _), extracted_edges = await semaphore_gather(
+                resolve_extracted_nodes(
+                    self.clients,
+                    extracted_nodes,
+                    episode,
+                    previous_episodes,
+                    entity_types,
+                ),
+                extract_edges(
+                    self.clients,
+                    episode,
+                    extracted_nodes,
+                    previous_episodes,
+                    edge_type_map or edge_type_map_default,
+                    group_id,
+                    edge_types,
+                ),
+                max_coroutines=self.max_coroutines,
+            )
+            logger.info(f"[process_existing_episode] Resolved to {len(nodes)} nodes, {len(extracted_edges)} edges")
+
+            # ШАГ 5: MERGE PARA ENTITIES (КЛЮЧЕВОЙ!)
+            # Добавить PARA Entity в nodes для обновления их summary
+            existing_node_uuids = {n.uuid for n in nodes}
+            for para_entity in existing_para_entities:
+                if para_entity.uuid not in existing_node_uuids:
+                    nodes.append(para_entity)
+                    logger.info(f"[process_existing_episode] Added existing PARA entity to nodes: {para_entity.name}")
+
+            # ШАГ 6: РАЗДЕЛИТЬ НА ДВЕ ГРУППЫ
+            # nodes_for_summary = все узлы (для extract_attributes_from_nodes)
+            # nodes_for_mentions = только новые (для build_episodic_edges)
+            nodes_for_summary = nodes
+            nodes_for_mentions = [n for n in nodes if n.uuid not in existing_para_uuids]
+            logger.info(
+                f"[process_existing_episode] Split: {len(nodes_for_summary)} for summary, "
+                f"{len(nodes_for_mentions)} for new MENTIONS"
+            )
+
+            # ШАГ 7: РАЗРЕШЕНИЕ УКАЗАТЕЛЕЙ НА РЁБРА
+            edges = resolve_edge_pointers(extracted_edges, uuid_map)
+
+            # ШАГ 8: ВАЛИДАЦИЯ СВЯЗЕЙ + ОБНОВЛЕНИЕ АТРИБУТОВ/SUMMARY
+            (resolved_edges, invalidated_edges), hydrated_nodes = await semaphore_gather(
+                resolve_extracted_edges(
+                    self.clients,
+                    edges,
+                    episode,
+                    nodes_for_summary,
+                    edge_types or {},
+                    edge_type_map or edge_type_map_default,
+                ),
+                extract_attributes_from_nodes(
+                    self.clients, nodes_for_summary, episode, previous_episodes, entity_types
+                ),
+                max_coroutines=self.max_coroutines,
+            )
+
+            entity_edges = resolved_edges + invalidated_edges
+
+            # ШАГ 9: СОЗДАНИЕ MENTIONS СВЯЗЕЙ (ТОЛЬКО ДЛЯ НОВЫХ УЗЛОВ!)
+            episodic_edges = build_episodic_edges(nodes_for_mentions, episode.uuid, now)
+            logger.info(f"[process_existing_episode] Built {len(episodic_edges)} new MENTIONS edges")
+
+            episode.entity_edges = [edge.uuid for edge in entity_edges]
+
+            if not self.store_raw_episode_content:
+                episode.content = ''
+
+            # ШАГ 10: СОХРАНЕНИЕ В БД
+            await add_nodes_and_edges_bulk(
+                self.driver, [episode], episodic_edges, hydrated_nodes, entity_edges, self.embedder
+            )
+
+            communities = []
+            community_edges = []
+
+            # ШАГ 11: ОБНОВЛЕНИЕ СООБЩЕСТВ (опционально)
+            if update_communities:
+                communities, community_edges = await semaphore_gather(
+                    *[
+                        update_community(self.driver, self.clients.llm_client, self.embedder, node)
+                        for node in nodes_for_summary
+                    ],
+                    max_coroutines=self.max_coroutines,
+                )
+
+            end = time()
+            logger.info(f'[process_existing_episode] Completed in {(end - start) * 1000:.2f} ms')
+
+            return AddEpisodeResults(
+                episode=episode,
+                episodic_edges=episodic_edges,
+                nodes=hydrated_nodes,
+                edges=entity_edges,
+                communities=communities,
+                community_edges=community_edges,
+            )
+
+        except Exception as e:
+            logger.error(f"[process_existing_episode] Error: {e}", exc_info=True)
+            raise
+
+    async def list_para_entities(
+        self,
+        limit: int = 100,
+        para_types: List[str] | None = None,
+        property_filters: Dict[str, Any] | None = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        List PARA Entity nodes with flexible filtering.
+
+        Queries Neo4j for nodes with composite labels (:Entity:Project, etc.)
+        created via create_para_entity endpoint.
+
+        Args:
+            limit: Maximum results (default 100, max 1000)
+            para_types: Lowercase PARA types to filter (e.g., ["project", "area"])
+                       Empty list = all types (OR logic)
+            property_filters: Dict of property filters (e.g., {"status": "active"})
+                             Supports single values or arrays
+
+        Returns:
+            List of dicts with entity properties
+
+        Raises:
+            ValueError: If invalid para_type or limit
+        """
+        # Validate inputs
+        if not 1 <= limit <= 1000:
+            raise ValueError(f"limit must be between 1 and 1000, got {limit}")
+
+        # Validate and normalize para_types
+        valid_types = {"project", "area", "resource", "archive"}
+        if para_types:
+            para_types = [t.lower() for t in para_types]
+            invalid = [t for t in para_types if t not in valid_types]
+            if invalid:
+                raise ValueError(f"Invalid para_types: {invalid}. Must be one of: {valid_types}")
+        else:
+            para_types = list(valid_types)
+
+        # Build WHERE clauses
+        where_clauses = []
+        params = {"limit": limit}
+
+        # Map lowercase to proper case for Neo4j labels
+        type_mapping = {
+            "project": "Project",
+            "area": "Area",
+            "resource": "Resource",
+            "archive": "Archive"
+        }
+
+        # PARA type filter: (n:Entity:Project OR n:Entity:Area OR ...)
+        label_conditions = [f"n:{type_mapping[t]}" for t in para_types]
+        where_clauses.append(f"({' OR '.join(label_conditions)})")
+
+        # Property filters
+        if property_filters:
+            for prop_name, prop_value in property_filters.items():
+                # Validate property name to prevent Cypher injection
+                if not self._is_valid_property_name(prop_name):
+                    logger.warning(f"Skipping invalid property name: {prop_name}")
+                    continue
+
+                # Build filter condition
+                if isinstance(prop_value, list):
+                    # Array filter: n.property IN ["value1", "value2"]
+                    param_key = f"prop_{prop_name}"
+                    where_clauses.append(f"n.{prop_name} IN ${param_key}")
+                    params[param_key] = prop_value
+                else:
+                    # Single value filter: n.property = "value"
+                    param_key = f"prop_{prop_name}"
+                    where_clauses.append(f"n.{prop_name} = ${param_key}")
+                    params[param_key] = prop_value
+
+        # Build final query
+        where_str = " AND ".join(where_clauses) if where_clauses else "n:Entity"
+
+        query = f"""
+        MATCH (n:Entity)
+        WHERE {where_str}
+        RETURN
+            n.uuid as uuid,
+            n.name as name,
+            [label IN labels(n) WHERE label <> 'Entity'][0] as para_type,
+            n.created_at as created_at,
+            n.summary as summary,
+            properties(n) as all_properties
+        ORDER BY n.name ASC
+        LIMIT $limit
+        """
+
+        logger.info(f"[list_para_entities] Query: {query}")
+        logger.info(f"[list_para_entities] Params: {params}")
+
+        try:
+            async with self.driver.session() as session:
+                result = await session.run(query, **params)
+                entities = []
+
+                async for record in result:
+                    # Extract attributes (all properties except system ones)
+                    all_props = dict(record["all_properties"])
+                    system_fields = {"uuid", "name", "created_at", "summary", "name_embedding", "group_id", "labels"}
+                    attributes = {k: v for k, v in all_props.items() if k not in system_fields}
+
+                    entity = {
+                        "uuid": record["uuid"],
+                        "name": record["name"],
+                        "para_type": record["para_type"],
+                        "created_at": self._serialize_datetime(record["created_at"]),
+                        "summary": record["summary"],
+                        "attributes": attributes
+                    }
+                    entities.append(entity)
+
+                logger.info(f"[list_para_entities] Retrieved {len(entities)} entities")
+                return entities
+
+        except Exception as e:
+            logger.error(f"[list_para_entities] Database error: {e}", exc_info=True)
+            raise
+
+    @staticmethod
+    def _is_valid_property_name(name: str) -> bool:
+        """
+        Validate property name to prevent Cypher injection.
+
+        Allows: alphanumeric + underscore (standard Neo4j property naming)
+        Blocks: special characters, spaces, dots
+
+        Args:
+            name: Property name to validate
+
+        Returns:
+            True if valid, False otherwise
+        """
+        import re
+        # Property names: [a-zA-Z_][a-zA-Z0-9_]*
+        pattern = r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+        return bool(re.match(pattern, name))
+
+    async def _get_mentioned_para_entities(
+        self,
+        episodic_uuid: str,
+    ) -> List[EntityNode]:
+        """
+        Получить все PARA Entity связанные с Episodic через MENTIONS.
+
+        Args:
+            episodic_uuid: UUID существующего Episodic узла
+
+        Returns:
+            List[EntityNode]: Список PARA Entity (Project, Area, Resource, Archive)
+        """
+        from graphiti_core.helpers import parse_db_date
+
+        query = """
+        MATCH (ep:Episodic {uuid: $uuid})-[:MENTIONS]->(e:Entity)
+        WHERE e:Project OR e:Area OR e:Resource OR e:Archive
+        RETURN e
+        """
+
+        entities = []
+        async with self.driver.session() as session:
+            result = await session.run(query, uuid=episodic_uuid)
+            async for record in result:
+                node_data = dict(record["e"])
+                # Parse datetime fields from Neo4j format
+                if "created_at" in node_data and node_data["created_at"] is not None:
+                    node_data["created_at"] = parse_db_date(node_data["created_at"])
+                # Remove name_embedding from dict if present (will be loaded separately if needed)
+                node_data.pop("name_embedding", None)
+                entity = EntityNode(**node_data)
+                entities.append(entity)
+
+        logger.info(f"Found {len(entities)} PARA entities linked to Episodic {episodic_uuid}")
+        return entities
+
+    @staticmethod
+    def _serialize_datetime(value: Any) -> Optional[str]:
+        """
+        Serialize Neo4j DateTime to ISO format string.
+
+        Args:
+            value: Neo4j DateTime object or None
+
+        Returns:
+            ISO format string or None
+        """
+        from neo4j.time import DateTime as Neo4jDateTime
+
+        if value is None:
+            return None
+
+        if isinstance(value, Neo4jDateTime):
+            return value.iso_format()
+
+        if isinstance(value, str):
+            return value
+
+        # Try to serialize as datetime
+        try:
+            if hasattr(value, 'isoformat'):
+                return value.isoformat()
+        except:
+            pass
+
+        return str(value)
+
 
 # ============================================================================
 # Decision Processing (Iteration 3)
