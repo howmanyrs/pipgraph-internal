@@ -696,6 +696,8 @@ class PipGraphManager:
             validate_group_id(episode.group_id)
             group_id = episode.group_id or get_default_group_id(self.driver.provider)
 
+            # TODO: Важно добавить фильтрацию entity_types/excluded_entity_types по existing_para_entities, 
+            # нам нужны релевантные заметки, а не просто недавние
             previous_episodes = await retrieve_episodes(
                 self.driver,
                 episode.valid_at,
