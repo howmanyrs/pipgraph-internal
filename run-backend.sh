@@ -52,7 +52,7 @@ VENV_DIR="$BACKEND_DIR/.venv"
 
 # Default settings
 HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8000}"
+PORT="${PORT:-8001}"
 RELOAD="${RELOAD:-true}"
 
 # Check if backend directory exists
