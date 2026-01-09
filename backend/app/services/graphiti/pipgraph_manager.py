@@ -52,6 +52,14 @@ from graphiti_core.nodes import (
     EpisodeType,
     EpisodicNode,
 )
+from graphiti_core.search.search import search
+from graphiti_core.search.search_config import (
+    NodeReranker,
+    NodeSearchConfig,
+    NodeSearchMethod,
+    SearchConfig,
+)
+from graphiti_core.search.search_filters import SearchFilters
 from graphiti_core.search.search_utils import RELEVANT_SCHEMA_LIMIT
 from graphiti_core.utils.bulk_utils import (
     add_nodes_and_edges_bulk,
@@ -1035,547 +1043,509 @@ class PipGraphManager:
 
         return str(value)
 
+    # ============================================================================
+    # Episodic CRUD Methods
+    # ============================================================================
 
-# ============================================================================
-# Decision Processing (Iteration 3)
-# ============================================================================
+    async def get_episodic_by_name(self, name: str) -> Optional[EpisodicNode]:
+        """
+        Retrieve an Episodic node by its name (file path).
 
-async def process_user_decision(
-    episodic_path: str,
-    user_decision,
-    driver=None
-) -> Dict[str, Any]:
-    """
-    Process user decision on a specific suggestion.
+        Args:
+            name: File path (Episodic.name property)
 
-    Handles 4 action types:
-    - confirm: Transform :SUGGESTS to :IS_PART_OF (link) or update property (property_update)
-    - dismiss: Delete specific :SUGGESTS, link to Inbox if no link remains
-    - link_to_alternative: Delete all suggestions, create :IS_PART_OF to selected container
-    - create_custom: Create new container, delete all suggestions, create :IS_PART_OF
+        Returns:
+            EpisodicNode object or None if not found
 
-    Args:
-        episodic_path: Path to the Episodic node (file path)
-        user_decision: UserDecisionPayload with action and parameters
-        driver: Optional Neo4j driver (creates one if None)
+        Example:
+            >>> episodic = await manager.get_episodic_by_name("notes/meeting.md")
+            >>> print(episodic.uuid, episodic.created_at)
+        """
+        query = """
+        MATCH (e:Episodic {name: $name})
+        RETURN e
+        """
 
-    Returns:
-        Dict with processing result:
-        - action: The action that was performed
-        - success: Boolean indicating success
-        - details: Additional information about the result
-    """
-    from app.crud.relationship_crud import RelationshipCRUD
-    from app.crud.para_crud import PARAContainerCRUD
-    from uuid import uuid4
+        async with self.driver.session() as session:
+            result = await session.run(query, name=name)
+            record = await result.single()
 
-    relationship_crud = RelationshipCRUD(driver)
-    para_crud = PARAContainerCRUD(driver)
+            if record:
+                from graphiti_core.helpers import parse_db_date
 
-    action = user_decision.action
-    suggestion_id = user_decision.suggestion_id
+                node_data = dict(record["e"])
 
-    logger.info(f"[process_user_decision] Processing action={action} for suggestion={suggestion_id[:8]}...")
+                # Parse datetime fields
+                if "created_at" in node_data and node_data["created_at"]:
+                    node_data["created_at"] = parse_db_date(node_data["created_at"])
+                if "valid_at" in node_data and node_data["valid_at"]:
+                    node_data["valid_at"] = parse_db_date(node_data["valid_at"])
 
-    result = {
-        "action": action,
-        "success": False,
-        "details": {}
-    }
+                episodic = EpisodicNode(**node_data)
+                logger.info(f"[get_episodic_by_name] Found: {name} (uuid: {episodic.uuid})")
+                return episodic
+            else:
+                logger.warning(f"[get_episodic_by_name] Not found: {name}")
+                return None
 
-    try:
-        if action == "confirm":
-            result = await _handle_confirm(
-                episodic_path,
-                suggestion_id,
-                relationship_crud,
-                para_crud
-            )
+    async def list_episodics(self, limit: int = 100) -> List[EpisodicNode]:
+        """
+        List all Episodic nodes, ordered by creation date (newest first).
 
-        elif action == "dismiss":
-            result = await _handle_dismiss(
-                episodic_path,
-                suggestion_id,
-                relationship_crud,
-                para_crud
-            )
+        Args:
+            limit: Maximum number of nodes to return (default: 100, max: 1000)
 
-        elif action == "link_to_alternative":
-            result = await _handle_link_to_alternative(
-                episodic_path,
-                suggestion_id,
-                user_decision.selected_container_id,
-                relationship_crud
-            )
+        Returns:
+            List of EpisodicNode objects
 
-        elif action == "create_custom":
-            result = await _handle_create_custom(
-                episodic_path,
-                user_decision.custom_container_type,
-                user_decision.custom_container_name,
-                relationship_crud,
-                para_crud
-            )
+        Raises:
+            ValueError: If limit is out of range
 
+        Example:
+            >>> episodics = await manager.list_episodics(limit=50)
+            >>> for ep in episodics:
+            ...     print(ep.name, ep.created_at)
+        """
+        if not 1 <= limit <= 1000:
+            raise ValueError(f"limit must be between 1 and 1000, got {limit}")
+
+        query = """
+        MATCH (e:Episodic)
+        RETURN e
+        ORDER BY e.created_at DESC
+        LIMIT $limit
+        """
+
+        episodics = []
+        async with self.driver.session() as session:
+            result = await session.run(query, limit=limit)
+
+            async for record in result:
+                from graphiti_core.helpers import parse_db_date
+
+                node_data = dict(record["e"])
+
+                # Parse datetime fields
+                if "created_at" in node_data and node_data["created_at"]:
+                    node_data["created_at"] = parse_db_date(node_data["created_at"])
+                if "valid_at" in node_data and node_data["valid_at"]:
+                    node_data["valid_at"] = parse_db_date(node_data["valid_at"])
+
+                episodic = EpisodicNode(**node_data)
+                episodics.append(episodic)
+
+        logger.info(f"[list_episodics] Retrieved {len(episodics)} episodic nodes")
+        return episodics
+
+    async def update_episodic_timestamp(
+        self,
+        episodic_uuid: str,
+        valid_at: datetime | None = None
+    ) -> bool:
+        """
+        Update the valid_at timestamp of an Episodic node.
+
+        Args:
+            episodic_uuid: UUID of the Episodic node
+            valid_at: New timestamp (defaults to current time)
+
+        Returns:
+            True if updated successfully, False if episodic not found
+
+        Example:
+            >>> success = await manager.update_episodic_timestamp(
+            ...     episodic_uuid="550e8400-e29b-41d4-a716-446655440000",
+            ...     valid_at=datetime.now(timezone.utc)
+            ... )
+        """
+        from graphiti_core.utils.datetime_utils import utc_now
+
+        timestamp = valid_at or utc_now()
+        timestamp_str = timestamp.isoformat()
+
+        query = """
+        MATCH (e:Episodic {uuid: $uuid})
+        SET e.valid_at = $valid_at
+        RETURN e
+        """
+
+        async with self.driver.session() as session:
+            result = await session.run(query, uuid=episodic_uuid, valid_at=timestamp_str)
+            record = await result.single()
+
+            if record:
+                logger.info(f"[update_episodic_timestamp] Updated uuid={episodic_uuid}")
+                return True
+            else:
+                logger.warning(f"[update_episodic_timestamp] Not found: uuid={episodic_uuid}")
+                return False
+
+    async def delete_episodic(self, episodic_uuid: str) -> bool:
+        """
+        Delete an Episodic node and all its relationships.
+
+        Args:
+            episodic_uuid: UUID of the Episodic node to delete
+
+        Returns:
+            True if deleted successfully, False if not found
+
+        Warning:
+            This operation is irreversible. All relationships (MENTIONS edges)
+            will also be deleted.
+
+        Example:
+            >>> success = await manager.delete_episodic(
+            ...     episodic_uuid="550e8400-e29b-41d4-a716-446655440000"
+            ... )
+        """
+        query = """
+        MATCH (e:Episodic {uuid: $uuid})
+        DETACH DELETE e
+        RETURN count(e) as deleted_count
+        """
+
+        async with self.driver.session() as session:
+            result = await session.run(query, uuid=episodic_uuid)
+            record = await result.single()
+
+            if record and record["deleted_count"] > 0:
+                logger.info(f"[delete_episodic] Deleted uuid={episodic_uuid}")
+                return True
+            else:
+                logger.warning(f"[delete_episodic] Not found: uuid={episodic_uuid}")
+                return False
+
+    # ============================================================================
+    # Entity CRUD Methods
+    # ============================================================================
+
+    async def get_para_entity_by_uuid(self, uuid: str) -> Optional[EntityNode]:
+        """
+        Retrieve a PARA Entity node by UUID.
+
+        Args:
+            uuid: UUID of the entity
+
+        Returns:
+            EntityNode object or None if not found
+
+        Example:
+            >>> entity = await manager.get_para_entity_by_uuid(
+            ...     "660e8400-e29b-41d4-a716-446655440111"
+            ... )
+            >>> print(entity.name, entity.para_type)
+        """
+        try:
+            entity = await EntityNode.get_by_uuid(self.driver, uuid)
+
+            if entity:
+                logger.info(f"[get_para_entity_by_uuid] Found: {entity.name} (uuid: {uuid})")
+            else:
+                logger.warning(f"[get_para_entity_by_uuid] Not found: uuid={uuid}")
+
+            return entity
+        except Exception as e:
+            logger.error(f"[get_para_entity_by_uuid] Error: {e}", exc_info=True)
+            return None
+
+    async def get_para_entity_by_name(
+        self,
+        name: str,
+        para_type: str | None = None
+    ) -> Optional[EntityNode]:
+        """
+        Retrieve a PARA Entity node by name, optionally filtered by type.
+
+        Args:
+            name: Entity name
+            para_type: Optional PARA type filter ("Project", "Area", "Resource", "Archive")
+
+        Returns:
+            EntityNode object or None if not found
+
+        Example:
+            >>> entity = await manager.get_para_entity_by_name(
+            ...     name="Website Redesign",
+            ...     para_type="Project"
+            ... )
+        """
+        # Build query with optional type filter
+        if para_type:
+            # Validate para_type
+            valid_types = ["Project", "Area", "Resource", "Archive"]
+            if para_type not in valid_types:
+                raise ValueError(f"Invalid para_type '{para_type}'. Must be one of: {valid_types}")
+
+            query = f"""
+            MATCH (e:Entity:{para_type} {{name: $name}})
+            RETURN e
+            """
         else:
-            logger.error(f"Unknown action: {action}")
-            result = {
-                "action": action,
-                "success": False,
-                "details": {"error": f"Unknown action: {action}"}
-            }
+            query = """
+            MATCH (e:Entity {name: $name})
+            WHERE e:Project OR e:Area OR e:Resource OR e:Archive
+            RETURN e
+            """
 
-        return result
+        try:
+            async with self.driver.session() as session:
+                result = await session.run(query, name=name)
+                record = await result.single()
 
-    except Exception as e:
-        logger.error(f"[process_user_decision] Error: {e}", exc_info=True)
-        return {
-            "action": action,
-            "success": False,
-            "details": {"error": str(e)}
-        }
+                if record:
+                    from graphiti_core.helpers import parse_db_date
 
+                    node_data = dict(record["e"])
 
-async def _handle_confirm(
-    episodic_path: str,
-    suggestion_id: str,
-    relationship_crud,
-    para_crud
-) -> Dict[str, Any]:
-    """
-    Handle confirm action.
+                    # Parse datetime
+                    if "created_at" in node_data and node_data["created_at"]:
+                        node_data["created_at"] = parse_db_date(node_data["created_at"])
 
-    For link: Transform :SUGGESTS to :IS_PART_OF
-    For property_update: Update container property, delete :SUGGESTS
-    """
-    # Get the suggestion details
-    suggestion = relationship_crud.get_suggestion_by_id(suggestion_id)
+                    # Remove name_embedding (will be loaded separately if needed)
+                    node_data.pop("name_embedding", None)
 
-    if not suggestion:
-        return {
-            "action": "confirm",
-            "success": False,
-            "details": {"error": f"Suggestion not found: {suggestion_id}"}
-        }
+                    entity = EntityNode(**node_data)
+                    logger.info(f"[get_para_entity_by_name] Found: {name} (uuid: {entity.uuid})")
+                    return entity
+                else:
+                    logger.warning(f"[get_para_entity_by_name] Not found: name={name}, type={para_type}")
+                    return None
+        except Exception as e:
+            logger.error(f"[get_para_entity_by_name] Error: {e}", exc_info=True)
+            return None
 
-    suggestion_type = suggestion["suggestion_type"]
-    container_id = suggestion["container_id"]
-    container_type = suggestion["container_type"]
+    async def ensure_inbox_exists(self) -> EntityNode:
+        """
+        Ensure the default "Inbox" area exists, creating it if necessary.
 
-    if suggestion_type == "link":
-        # Delete :SUGGESTS and create :IS_PART_OF
-        relationship_crud.remove_suggestion(suggestion_id)
-        link = relationship_crud.create_link(
-            episodic_path,
-            container_id,
-            container_label=container_type
+        Creates an :Entity:Area node with name "Inbox" using the new Graphiti schema.
+        Unlike the old CRUD version, this creates a proper Entity node with embeddings.
+
+        Returns:
+            EntityNode: The Inbox area entity
+
+        Example:
+            >>> inbox = await manager.ensure_inbox_exists()
+            >>> print(inbox.name)  # "Inbox"
+            >>> print(inbox.para_type)  # "Area"
+        """
+        # First, try to find existing Inbox
+        inbox = await self.get_para_entity_by_name(name="Inbox", para_type="Area")
+
+        if inbox:
+            logger.info(f"[ensure_inbox_exists] Inbox already exists (uuid: {inbox.uuid})")
+            return inbox
+
+        # Create new Inbox if not found
+        # TODO: Создание такой ноды нам не нужно, будем искать ноды для инбокса - если у них нет связей или SUGGESTS,
+        # то они в инбоксе и не нужно создавать отдельную ноду инбокса
+        logger.info("[ensure_inbox_exists] Creating new Inbox area")
+        inbox = await self.create_para_entity(
+            para_type="Area",
+            name="Inbox",
+            summary="Default area for unclassified notes and suggestions",
         )
 
-        logger.info(f"✓ Confirmed link: {episodic_path} -> {suggestion['container_name']}")
+        logger.info(f"[ensure_inbox_exists] Created Inbox (uuid: {inbox.uuid})")
+        return inbox
 
-        return {
-            "action": "confirm",
-            "success": True,
-            "details": {
-                "type": "link",
-                "container_id": container_id,
-                "container_name": suggestion["container_name"],
-                "container_label": container_type,
-                "link_created": bool(link)
-            }
-        }
+    async def make_suggestions(
+        self,
+        episodic_name: str,
+        limit: int = 30,
+        min_score: float = 0.0,
+    ) -> tuple[str, list[dict]]:
+        """
+        Find relevant PARA entities for an episodic note using hybrid search.
 
-    elif suggestion_type == "property_update":
-        # Update the container property
-        target_field = suggestion["target_field"]
-        suggested_value = suggestion["suggested_value"]
+        Uses Graphiti's hybrid search (BM25 + Cosine similarity + RRF reranking)
+        to find existing PARA entities (Project, Area, Resource) that are
+        semantically related to the episodic note's content.
 
-        # Execute property update
-        updated = _update_container_property(
-            relationship_crud.driver,
-            container_id,
-            container_type,
-            target_field,
-            suggested_value
-        )
+        This method:
+        1. Retrieves the Episodic node by name
+        2. Extracts content from the note
+        3. Performs hybrid search using the content as query
+        4. Filters results to include only PARA entities
+        5. Returns ranked suggestions with relevance scores
 
-        # Delete the suggestion
-        relationship_crud.remove_suggestion(suggestion_id)
+        Args:
+            episodic_name: Name (path) of the Episodic node
+            limit: Maximum number of suggestions to return (default: 10)
+            min_score: Minimum relevance score threshold (default: 0.0)
 
-        logger.info(f"✓ Confirmed property update: {container_type}.{target_field} = {suggested_value}")
+        Returns:
+            Tuple of (episodic_uuid, suggestions_list)
+            - episodic_uuid: UUID of the found Episodic node
+            - suggestions_list: List of dicts with entity properties and scores
 
-        return {
-            "action": "confirm",
-            "success": True,
-            "details": {
-                "type": "property_update",
-                "container_id": container_id,
-                "target_field": target_field,
-                "new_value": suggested_value,
-                "updated": updated
-            }
-        }
+        Raises:
+            ValueError: If Episodic node not found
 
-    else:
-        return {
-            "action": "confirm",
-            "success": False,
-            "details": {"error": f"Unknown suggestion_type: {suggestion_type}"}
-        }
+        Example:
+            >>> episodic_uuid, suggestions = await manager.make_suggestions(
+            ...     episodic_name="notes/meeting-2024-01-15.md",
+            ...     limit=5,
+            ...     min_score=0.5
+            ... )
+            >>> for suggestion in suggestions:
+            ...     print(f"{suggestion['name']}: {suggestion['score']}")
+        """
+        try:
+            logger.info(f"[make_suggestions] Finding suggestions for: {episodic_name}")
 
+            # STEP 1: Get Episodic node by name
+            episodic = await self.get_episodic_by_name(episodic_name)
+            if not episodic:
+                raise ValueError(f"Episodic not found: {episodic_name}")
 
-async def _handle_dismiss(
-    episodic_path: str,
-    suggestion_id: str,
-    relationship_crud,
-    para_crud
-) -> Dict[str, Any]:
-    """
-    Handle dismiss action.
-
-    Delete specific :SUGGESTS.
-    If no link suggestions remain, create :IS_PART_OF to Inbox.
-    """
-    # Get suggestion info before deleting
-    suggestion = relationship_crud.get_suggestion_by_id(suggestion_id)
-
-    if not suggestion:
-        return {
-            "action": "dismiss",
-            "success": False,
-            "details": {"error": f"Suggestion not found: {suggestion_id}"}
-        }
-
-    # Delete the dismissed suggestion
-    deleted = relationship_crud.remove_suggestion(suggestion_id)
-
-    if not deleted:
-        return {
-            "action": "dismiss",
-            "success": False,
-            "details": {"error": "Failed to delete suggestion"}
-        }
-
-    # Check if there are remaining link suggestions
-    remaining_suggestions = relationship_crud.get_suggestions(episodic_path)
-    remaining_links = [s for s in remaining_suggestions if s["suggestion_type"] == "link"]
-
-    linked_to_inbox = False
-
-    # If no link suggestions remain and no existing :IS_PART_OF, link to Inbox
-    if not remaining_links:
-        existing_context = relationship_crud.get_episodic_para_context(episodic_path)
-
-        if not existing_context:
-            # Ensure Inbox exists and link to it
-            inbox = para_crud.ensure_inbox_exists()
-            if inbox:
-                relationship_crud.create_link(
-                    episodic_path,
-                    inbox["id"],
-                    container_label="Area"
+            # STEP 2: Extract content for search query
+            # Note: Episodic nodes may have empty content if store_raw_episode_content=False
+            content = episodic.content or ""
+            if not content:
+                logger.warning(
+                    f"[make_suggestions] Episodic {episodic_name} has empty content, "
+                    "using name as query"
                 )
-                linked_to_inbox = True
-                logger.info(f"✓ No links remaining, linked to Inbox: {episodic_path}")
+                query = episodic.name
+            else:
+                # Truncate content to avoid too long queries (Graphiti handles this, but good practice)
+                # Use first 2000 characters for search query
+                query = content[:2000]
 
-    logger.info(f"✓ Dismissed suggestion: {suggestion_id[:8]}...")
+            logger.info(f"[make_suggestions] Using query ({query})")
+            logger.info(f"[make_suggestions] Using query (length={len(query)})")
 
-    return {
-        "action": "dismiss",
-        "success": True,
-        "details": {
-            "dismissed_suggestion_id": suggestion_id,
-            "remaining_suggestions": len(remaining_suggestions),
-            "linked_to_inbox": linked_to_inbox
-        }
-    }
+            # STEP 3: Perform hybrid search using Graphiti's search
+            # Configuration: BM25 (fulltext) + Cosine similarity (vector) + RRF reranking
+            # Override default limit (10) with user-provided limit
+            custom_config = SearchConfig(
+                node_config=NodeSearchConfig(
+                    search_methods=[NodeSearchMethod.bm25, NodeSearchMethod.cosine_similarity],
+                    # reranker=NodeReranker.rrf, # Неверно выводит см. backend/.docs/about_graphiti/issues/rrf_reranker_positional_scores.md
+                    reranker=NodeReranker.mmr,  
+                ),
+                limit=limit,  # Use limit from method parameter
+            )
 
+            # TODO: Можно и сразу отсекать ноды в которых нет PARA лейблов?
+            search_results = await search(
+                clients=self.clients,
+                query=query,
+                group_ids=[episodic.group_id],
+                config=custom_config,
+                search_filter=SearchFilters(),
+            )
 
-async def _handle_link_to_alternative(
-    episodic_path: str,
-    suggestion_id: str,
-    selected_container_id: str,
-    relationship_crud
-) -> Dict[str, Any]:
-    """
-    Handle link_to_alternative action.
+            logger.info(
+                f"[make_suggestions] Search returned {len(search_results.nodes)} nodes, "
+                f"scores: {search_results.node_reranker_scores[:10]}"
+            )
 
-    Delete all suggestions and create :IS_PART_OF to selected container.
-    """
-    if not selected_container_id:
-        return {
-            "action": "link_to_alternative",
-            "success": False,
-            "details": {"error": "selected_container_id is required"}
-        }
+            # Log first few results for debugging
+            for i, node in enumerate(search_results.nodes[:5]):
+                score = search_results.node_reranker_scores[i] if i < len(search_results.node_reranker_scores) else 0.0
+                logger.info(
+                    f"[make_suggestions] Result {i+1}: name={node.name}, "
+                    f"labels={node.labels}, score={score:.4f}"
+                )
 
-    # Get container info to determine label
-    # First try to find it in any PARA type
-    container_info = _get_container_info(relationship_crud.driver, selected_container_id)
+            # STEP 4: Filter results to include only PARA entities
+            # Check for composite labels: :Entity:Project, :Entity:Area, :Entity:Resource
+            para_types = {"Project", "Area", "Resource", "Archive"}
 
-    if not container_info:
-        return {
-            "action": "link_to_alternative",
-            "success": False,
-            "details": {"error": f"Container not found: {selected_container_id}"}
-        }
+            # First pass: collect ALL PARA entities with their scores
+            all_para_candidates = []
 
-    # Delete all suggestions for this episodic
-    deleted_count = relationship_crud.remove_all_suggestions(episodic_path)
+            for i, node in enumerate(search_results.nodes):
+                # Check if node has PARA labels
+                node_labels = set(node.labels or [])
+                para_labels = node_labels.intersection(para_types)
 
-    # Create link to selected container
-    link = relationship_crud.create_link(
-        episodic_path,
-        selected_container_id,
-        container_label=container_info["label"]
-    )
+                if not para_labels:
+                    # Not a PARA entity, skip
+                    continue
 
-    logger.info(f"✓ Linked to alternative: {episodic_path} -> {container_info['name']}")
+                # Get score from reranker (if available)
+                score = 0.0
+                if i < len(search_results.node_reranker_scores):
+                    score = search_results.node_reranker_scores[i]
 
-    return {
-        "action": "link_to_alternative",
-        "success": True,
-        "details": {
-            "container_id": selected_container_id,
-            "container_name": container_info["name"],
-            "container_type": container_info["label"],
-            "deleted_suggestions": deleted_count,
-            "link_created": bool(link)
-        }
-    }
+                # Extract PARA type (first matching label)
+                para_type = list(para_labels)[0]
 
+                # Extract system fields for exclusion
+                system_fields = {
+                    "uuid", "name", "created_at", "summary",
+                    "name_embedding", "group_id", "labels"
+                }
+                attributes = {
+                    k: v for k, v in (node.attributes or {}).items()
+                    if k not in system_fields
+                }
 
-async def _handle_create_custom(
-    episodic_path: str,
-    custom_container_type: str,
-    custom_container_name: str,
-    relationship_crud,
-    para_crud
-) -> Dict[str, Any]:
-    """
-    Handle create_custom action.
+                candidate = {
+                    "uuid": node.uuid,
+                    "name": node.name,
+                    "para_type": para_type,
+                    "summary": node.summary or "",
+                    "score": score,
+                    "attributes": attributes,
+                }
 
-    Create new container, delete all suggestions, create :IS_PART_OF.
-    """
-    from uuid import uuid4
+                all_para_candidates.append(candidate)
 
-    if not custom_container_type or not custom_container_name:
-        return {
-            "action": "create_custom",
-            "success": False,
-            "details": {"error": "custom_container_type and custom_container_name are required"}
-        }
+            # ADAPTIVE FILTERING LOGIC:
+            # Strategy: Always return top-N results (e.g., top-3), even if scores are low.
+            # For remaining results, apply strict min_score threshold.
+            # This ensures we never return nothing when there are at least some matches.
 
-    # Generate ID for new container
-    new_id = f"{custom_container_type.lower()}-{str(uuid4())[:8]}"
+            MIN_GUARANTEED_RESULTS = 3  # Always return at least top-3 if available
 
-    # Create the new container
-    if custom_container_type == "Project":
-        container = para_crud.create_project(new_id, custom_container_name)
-    elif custom_container_type == "Area":
-        container = para_crud.create_area(new_id, custom_container_name)
-    elif custom_container_type == "Resource":
-        container = para_crud.create_resource(new_id, custom_container_name)
-    else:
-        return {
-            "action": "create_custom",
-            "success": False,
-            "details": {"error": f"Invalid container type: {custom_container_type}"}
-        }
+            if not all_para_candidates:
+                # No PARA entities found at all
+                suggestions = []
+                logger.info("[make_suggestions] No PARA entities found in search results.")
+            elif len(all_para_candidates) <= MIN_GUARANTEED_RESULTS:
+                # Few results: return all of them
+                suggestions = all_para_candidates
+                logger.info(
+                    f"[make_suggestions] Found {len(all_para_candidates)} PARA entities. "
+                    f"Returning all (below guaranteed minimum of {MIN_GUARANTEED_RESULTS})."
+                )
+            else:
+                # Many results: guarantee top-N, then filter rest by min_score
+                guaranteed = all_para_candidates[:MIN_GUARANTEED_RESULTS]
+                remaining = all_para_candidates[MIN_GUARANTEED_RESULTS:]
 
-    if not container:
-        return {
-            "action": "create_custom",
-            "success": False,
-            "details": {"error": "Failed to create container"}
-        }
+                # Filter remaining by min_score
+                filtered_remaining = [
+                    candidate for candidate in remaining
+                    if candidate["score"] >= min_score
+                ]
 
-    # Delete all suggestions
-    deleted_count = relationship_crud.remove_all_suggestions(episodic_path)
+                suggestions = guaranteed + filtered_remaining
 
-    # Create link to new container
-    link = relationship_crud.create_link(
-        episodic_path,
-        new_id,
-        container_label=custom_container_type
-    )
+                logger.info(
+                    f"[make_suggestions] Found {len(all_para_candidates)} PARA entities. "
+                    f"Guaranteed top-{MIN_GUARANTEED_RESULTS} + {len(filtered_remaining)} "
+                    f"additional with score >= {min_score}."
+                )
 
-    logger.info(f"✓ Created custom {custom_container_type}: {custom_container_name}")
+            # Limit to max number of results
+            suggestions = suggestions[:limit]
 
-    return {
-        "action": "create_custom",
-        "success": True,
-        "details": {
-            "container_id": new_id,
-            "container_name": custom_container_name,
-            "container_type": custom_container_type,
-            "deleted_suggestions": deleted_count,
-            "link_created": bool(link)
-        }
-    }
+            logger.info(
+                f"[make_suggestions] Final result: {len(suggestions)} PARA entities "
+                f"(adaptive filtering applied)"
+            )
 
+            # Sort by score descending (should already be sorted, but ensure)
+            suggestions.sort(key=lambda x: x["score"], reverse=True)
 
-# ============================================================================
-# Helper Functions for Decision Processing
-# ============================================================================
+            return episodic.uuid, suggestions
 
-def _update_container_property(
-    driver,
-    container_id: str,
-    container_type: str,
-    target_field: str,
-    new_value: str
-) -> bool:
-    """
-    Update a property on a PARA container.
-
-    Args:
-        driver: Neo4j driver
-        container_id: Container identifier
-        container_type: Container label (Project, Area, Resource)
-        target_field: Field name to update
-        new_value: New value for the field
-
-    Returns:
-        True if updated, False otherwise
-    """
-    # Validate field name to prevent injection
-    allowed_fields = {"name", "status", "goal", "description"}
-    if target_field not in allowed_fields:
-        logger.error(f"Invalid target_field: {target_field}")
-        return False
-
-    query = f"""
-    MATCH (c:{container_type} {{id: $container_id}})
-    SET c.{target_field} = $new_value
-    RETURN c
-    """
-
-    with driver.session() as session:
-        result = session.run(
-            query,
-            container_id=container_id,
-            new_value=new_value
-        )
-        record = result.single()
-
-        if record:
-            logger.info(f"✓ Updated {container_type}.{target_field} = {new_value}")
-            return True
-        else:
-            logger.error(f"✗ Failed to update property: {container_id}.{target_field}")
-            return False
-
-
-def _get_container_info(driver, container_id: str) -> Optional[Dict[str, str]]:
-    """
-    Get container info by ID from any PARA type.
-
-    Args:
-        driver: Neo4j driver
-        container_id: Container identifier
-
-    Returns:
-        Dict with 'id', 'name', 'label' or None if not found
-    """
-    query = """
-    MATCH (c {id: $container_id})
-    WHERE c:Project OR c:Area OR c:Resource
-    RETURN c.id as id, c.name as name, labels(c)[0] as label
-    """
-
-    with driver.session() as session:
-        result = session.run(query, container_id=container_id)
-        record = result.single()
-
-        if record:
-            return {
-                "id": record["id"],
-                "name": record["name"],
-                "label": record["label"]
-            }
-        return None
-
-
-def _check_remaining_link_suggestions(relationship_crud, episodic_path: str) -> List[Dict]:
-    """
-    Check for remaining link-type suggestions.
-
-    Args:
-        relationship_crud: RelationshipCRUD instance
-        episodic_path: Path to the Episodic node
-
-    Returns:
-        List of remaining link suggestions
-    """
-    suggestions = relationship_crud.get_suggestions(episodic_path)
-    return [s for s in suggestions if s["suggestion_type"] == "link"]
-
-
-# ============================================================================
-# L3 Entity Extraction (Iteration 4)
-# ============================================================================
-
-async def extract_entities_with_context(
-    episodic_path: str,
-    episodic_content: str,
-    driver=None
-) -> List:
-    """
-    Extract entities from note content with PARA context awareness.
-
-    This function:
-    1. Retrieves the confirmed PARA context (via :IS_PART_OF)
-    2. Calls the entity extraction (mock or real Graphiti)
-    3. Returns the extracted entities
-
-    The context is used to inform entity extraction - for example,
-    entities extracted from a Project note will use the project name
-    in their prompts.
-
-    Args:
-        episodic_path: Path to the Episodic node (file path)
-        episodic_content: Text content of the note
-        driver: Optional Neo4j driver (creates one if None)
-
-    Returns:
-        List of ExtractedCandidate objects
-
-    Raises:
-        ValueError: If no confirmed PARA context exists
-    """
-    from app.crud.relationship_crud import RelationshipCRUD
-    from app.services.mocks.mock_graphiti import extract_entities
-    from app.models.entity import ExtractedCandidate
-
-    relationship_crud = RelationshipCRUD(driver)
-
-    # Step 1: Get confirmed context
-    context = relationship_crud.get_episodic_para_context(episodic_path)
-
-    if not context:
-        error_msg = f"No confirmed PARA context for: {episodic_path}. Cannot extract entities without context."
-        logger.error(f"✗ {error_msg}")
-        raise ValueError(error_msg)
-
-    logger.info(
-        f"[extract_entities_with_context] Using context: "
-        f"{context['container_type']} '{context['container_name']}'"
-    )
-
-    # Step 2: Prepare context dict for extraction
-    extraction_context = {
-        "id": context["container_id"],
-        "name": context["container_name"],
-        "label": context["container_type"]
-    }
-
-    # Step 3: Call entity extraction (mock or real)
-    entities = extract_entities(episodic_content, extraction_context)
-
-    logger.info(
-        f"✓ Extracted {len(entities)} entities for: {episodic_path} "
-        f"(context: {context['container_name']})"
-    )
-
-    return entities
+        except Exception as e:
+            logger.error(f"[make_suggestions] Error: {e}", exc_info=True)
+            raise

@@ -25,9 +25,9 @@ from langgraph.types import interrupt
 
 from app.workflows.state import PARAWorkflowState
 from app.workflows import state as workflow_state
+from app.workflows import decision_processing
 from app.services import para as para_service
 from app.services import proposal_manager
-from app.services.graphiti import pipgraph_manager
 from app.services import cascade_service
 from app.crud import relationship_crud
 from app.crud import entity_crud
@@ -234,7 +234,7 @@ async def process_decision_node(state: PARAWorkflowState) -> dict:
     Node 4: Process User Decision.
 
     Обрабатывает решение пользователя по конкретному suggestion.
-    Использует process_user_decision() из pipgraph_manager.
+    Использует process_user_decision() из decision_processing.
 
     Handles actions:
     - confirm: Transform :SUGGESTS to :IS_PART_OF or update property
@@ -265,7 +265,7 @@ async def process_decision_node(state: PARAWorkflowState) -> dict:
         user_decision = workflow_state.deserialize_user_decision(user_decision_data)
 
         # Process the decision
-        result = await pipgraph_manager.process_user_decision(
+        result = await decision_processing.process_user_decision(
             episodic_path=note_path,
             user_decision=user_decision
         )
@@ -359,7 +359,7 @@ async def extract_content_node(state: PARAWorkflowState) -> dict:
     Node 5: L3 Context-Aware Entity Extraction.
 
     Извлекает сущности с учетом PARA контекста.
-    Uses extract_entities_with_context() from pipgraph_manager.
+    Uses extract_entities_with_context() from decision_processing.
 
     Returns:
         dict с полями:
@@ -373,7 +373,7 @@ async def extract_content_node(state: PARAWorkflowState) -> dict:
 
     try:
         # Extract entities using context from confirmed :IS_PART_OF
-        entities = await pipgraph_manager.extract_entities_with_context(
+        entities = await decision_processing.extract_entities_with_context(
             episodic_path=note_path,
             episodic_content=note_content
         )

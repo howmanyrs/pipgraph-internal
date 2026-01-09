@@ -48,6 +48,67 @@ The system converts natural language questions (e.g., "What tasks did we discuss
 ### No-Cache Policy (Episodic Memory)
 The "Episodic" nodes (the notes) do not store context permanently in their own properties. Context is derived dynamically by traversing relationships (`:IS_PART_OF`) in the graph. This ensures that if a Project is renamed or moved, the historical notes linked to it remain valid without needing bulk updates.
 
+## Data Layer Architecture
+
+### CRUD Operations via PipGraphManager
+
+**All database operations** are performed through `PipGraphManager` (located in `app/services/graphiti/pipgraph_manager.py`). This is the **single source of truth** for Neo4j CRUD operations.
+
+**Key Principles:**
+- **Async-first**: All methods are asynchronous
+- **Graphiti integration**: Returns Graphiti node objects (EpisodicNode, EntityNode)
+- **UUID-based**: Uses UUIDs as primary identifiers
+- **Type-safe**: Leverages Pydantic models from Graphiti
+
+### PipGraphManager Methods
+
+**Episodic Operations:**
+```python
+# Retrieve
+episodic = await manager.get_episodic_by_name("path/to/note.md")
+episodics = await manager.list_episodics(limit=100)
+
+# Modify
+success = await manager.update_episodic_timestamp(uuid, valid_at)
+success = await manager.delete_episodic(uuid)
+
+# Create (full processing pipeline)
+result = await manager.process_note(name, content, ...)
+# Or lightweight creation
+episode = await manager.create_episode(name, content, ...)
+```
+
+**Entity Operations:**
+```python
+# Retrieve
+entity = await manager.get_para_entity_by_uuid(uuid)
+entity = await manager.get_para_entity_by_name("Project Alpha", para_type="Project")
+entities = await manager.list_para_entities(limit=100, para_types=["project", "area"])
+
+# Create
+entity = await manager.create_para_entity(para_type="Project", name="Website Redesign", summary="...")
+inbox = await manager.ensure_inbox_exists()
+
+# Link
+edge = await manager.link_entity_to_episode(episodic_uuid, entity_uuid)
+```
+
+**Legacy CRUD Classes (REMOVED):**
+- ~~`EpisodicCRUD`~~ - Removed, use `PipGraphManager`
+- ~~`PARAContainerCRUD`~~ - Removed, use `PipGraphManager`
+- `RelationshipCRUD` - Still exists for `:SUGGESTS` and `:IS_PART_OF` relationships
+- `EntityCRUD` - Still exists for low-level entity queries
+
+### Schema Consistency
+
+All nodes created by `PipGraphManager` use **Graphiti schema**:
+- **Episodic**: `:Episodic {uuid, name, content, created_at, valid_at, ...}`
+- **PARA Entities**: `:Entity:Project`, `:Entity:Area`, `:Entity:Resource`, `:Entity:Archive`
+  - Properties: `uuid`, `name`, `summary`, `name_embedding`, `attributes`, `created_at`
+- **Relationships**: `:MENTIONS` (Episodic → Entity), `:RELATES_TO` (Entity → Entity)
+
+**Never create nodes manually** - always use PipGraphManager to ensure schema consistency.
+
 ## Documentation Structure
 For technical implementation details, refer to the `.claude/skills/` directory:
 -   **Architecture & Navigation**: Folder structure, layers, and key components.

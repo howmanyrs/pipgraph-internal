@@ -381,3 +381,95 @@ class ProcessExistingEpisodeResponse(BaseModel):
             ]
         }
     }
+
+
+class MakeSuggestionsRequest(BaseModel):
+    """Request to find relevant PARA entities for an episodic note."""
+
+    episodic_name: str = Field(..., description="Name (path) of the Episodic node")
+    limit: int = Field(
+        10,
+        description="Maximum number of suggestions to return",
+        ge=1,
+        le=50
+    )
+    min_score: float = Field(
+        0.0,
+        description="Minimum relevance score (0.0-1.0)",
+        ge=0.0,
+        le=1.0
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "episodic_name": "notes/meeting-2024-01-15.md",
+                    "limit": 10,
+                    "min_score": 0.0
+                }
+            ]
+        }
+    }
+
+
+class ParaSuggestion(BaseModel):
+    """A single PARA entity suggestion with relevance score."""
+
+    uuid: str = Field(..., description="Entity UUID")
+    name: str = Field(..., description="Entity name")
+    para_type: str = Field(..., description="PARA type (Project, Area, Resource, Archive)")
+    summary: str = Field(..., description="Entity summary")
+    score: float = Field(..., description="Relevance score from search")
+    attributes: dict = Field(default_factory=dict, description="Custom attributes")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Website Redesign Q1 2024",
+                    "para_type": "Project",
+                    "summary": "Complete redesign of company website",
+                    "score": 0.85,
+                    "attributes": {"status": "active"}
+                }
+            ]
+        }
+    }
+
+
+class MakeSuggestionsResponse(BaseModel):
+    """Response containing relevant PARA entity suggestions."""
+
+    success: bool = Field(..., description="Whether search was successful")
+    episodic_uuid: Optional[str] = Field(None, description="UUID of the Episodic node")
+    suggestions: List[ParaSuggestion] = Field(
+        default_factory=list,
+        description="List of relevant PARA entities sorted by score"
+    )
+    count: int = Field(0, description="Number of suggestions returned")
+    error: Optional[str] = Field(None, description="Error message if search failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "episodic_uuid": "660e8400-e29b-41d4-a716-446655440111",
+                    "suggestions": [
+                        {
+                            "uuid": "550e8400-e29b-41d4-a716-446655440000",
+                            "name": "Website Redesign Q1 2024",
+                            "para_type": "Project",
+                            "summary": "Complete redesign of company website",
+                            "score": 0.85,
+                            "attributes": {"status": "active"}
+                        }
+                    ],
+                    "count": 1,
+                    "error": None
+                }
+            ]
+        }
+    }

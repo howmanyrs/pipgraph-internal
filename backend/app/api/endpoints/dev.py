@@ -25,9 +25,11 @@ from app.api.schemas.dev import (
     ListParaEntitiesResponse,
     ProcessExistingEpisodeRequest,
     ProcessExistingEpisodeResponse,
+    MakeSuggestionsRequest,
+    MakeSuggestionsResponse,
+    ParaSuggestion,
 )
 from app.services.graphiti import get_graphiti, PipGraphManager
-from app.crud import episodic_crud
 
 logger = logging.getLogger(__name__)
 
@@ -123,17 +125,31 @@ async def get_episodic_by_path(
         logger.info(f"[get_episodic_by_path] Retrieving episodic: '{note_path}' (length: {len(note_path)})")
         logger.info(f"[get_episodic_by_path] note_path repr: {repr(note_path)}")
 
-        # Initialize CRUD
-        crud = episodic_crud.EpisodicCRUD()
+        # Get Graphiti instance and manager
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
 
-        # Get episodic from database
-        episodic = crud.get_episodic(note_path)
+        # Get episodic from database using new manager method
+        episodic = await manager.get_episodic_by_name(note_path)
 
         if episodic:
-            logger.info(f"[get_episodic_by_path] Found episodic: {note_path}")
+            logger.info(f"[get_episodic_by_path] Found episodic: {note_path} (uuid: {episodic.uuid})")
+
+            # Convert EpisodicNode to dict for response
+            episodic_dict = {
+                "uuid": episodic.uuid,
+                "name": episodic.name,
+                "created_at": episodic.created_at.isoformat() if episodic.created_at else None,
+                "valid_at": episodic.valid_at.isoformat() if episodic.valid_at else None,
+                "source": episodic.source.value if episodic.source else None,
+                "content": episodic.content,
+                "source_description": episodic.source_description,
+                "group_id": episodic.group_id,
+            }
+
             return GetEpisodicResponse(
                 success=True,
-                episodic=episodic,
+                episodic=episodic_dict,
                 error=None,
             )
         else:
@@ -172,23 +188,39 @@ async def list_all_episodic(
     try:
         logger.info(f"[list_all_episodic] Retrieving up to {limit} episodic nodes")
 
-        # Initialize CRUD
-        crud = episodic_crud.EpisodicCRUD()
+        # Get Graphiti instance and manager
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
 
-        # Get all episodics from database
-        episodics = crud.list_all_episodic(limit=limit)
+        # Get all episodics from database using new manager method
+        episodics = await manager.list_episodics(limit=limit)
 
         logger.info(f"[list_all_episodic] Found {len(episodics)} episodic nodes")
 
+        # Convert EpisodicNode objects to dicts for response
+        episodics_dicts = [
+            {
+                "uuid": ep.uuid,
+                "name": ep.name,
+                "created_at": ep.created_at.isoformat() if ep.created_at else None,
+                "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
+                "source": ep.source.value if ep.source else None,
+                "content": ep.content,
+                "source_description": ep.source_description,
+                "group_id": ep.group_id,
+            }
+            for ep in episodics
+        ]
+
         # Log all names for debugging
-        if episodics:
-            names = [e.get("name") for e in episodics]
+        if episodics_dicts:
+            names = [e.get("name") for e in episodics_dicts]
             logger.info(f"[list_all_episodic] Names: {names}")
 
         return ListEpisodicResponse(
             success=True,
-            episodics=episodics,
-            count=len(episodics),
+            episodics=episodics_dicts,
+            count=len(episodics_dicts),
             error=None,
         )
 
@@ -625,5 +657,91 @@ async def process_existing_episode(
             edges_count=0,
             episodic_edges_count=0,
             para_entities_updated=[],
+            error=str(e),
+        )
+
+
+@router.post("/make-suggestions", response_model=MakeSuggestionsResponse)
+async def make_suggestions(request: MakeSuggestionsRequest) -> MakeSuggestionsResponse:
+    """
+    Find relevant PARA entities for an episodic note using hybrid search.
+
+    This endpoint analyzes the content of an existing episodic note and suggests
+    relevant PARA entities (Projects, Areas, Resources) that the note might be
+    related to. It uses Graphiti's hybrid search combining:
+    - BM25 (fulltext search on entity name and summary)
+    - Cosine similarity (vector search on entity name embeddings)
+    - RRF reranking for result fusion
+
+    Use this for:
+    - Discovering which Projects/Areas a note might belong to
+    - Auto-suggesting PARA classifications based on note content
+    - Finding semantically similar entities to link to
+
+    Example:
+        POST /api/v1/dev/make-suggestions
+        {
+            "episodic_name": "notes/meeting-2024-01-15.md",
+            "limit": 10,
+            "min_score": 0.5
+        }
+
+    Preconditions:
+    - Episodic node with given name must exist in the database
+    - At least one PARA entity should exist for meaningful suggestions
+
+    Returns:
+        MakeSuggestionsResponse with ranked list of relevant PARA entities
+    """
+    try:
+        logger.info(
+            f"[make_suggestions] Finding suggestions for: {request.episodic_name} "
+            f"(limit={request.limit}, min_score={request.min_score})"
+        )
+
+        # Get Graphiti instance
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        # Find relevant PARA entities
+        episodic_uuid, suggestions_list = await manager.make_suggestions(
+            episodic_name=request.episodic_name,
+            limit=request.limit,
+            min_score=request.min_score,
+        )
+
+        # Convert to Pydantic models
+        suggestions = [ParaSuggestion(**s) for s in suggestions_list]
+
+        logger.info(
+            f"[make_suggestions] Success: found {len(suggestions)} suggestions "
+            f"for episodic {episodic_uuid}"
+        )
+
+        return MakeSuggestionsResponse(
+            success=True,
+            episodic_uuid=episodic_uuid,
+            suggestions=suggestions,
+            count=len(suggestions),
+            error=None,
+        )
+
+    except ValueError as e:
+        # Handle Episodic not found validation error
+        logger.error(f"[make_suggestions] Validation error: {e}", exc_info=True)
+        return MakeSuggestionsResponse(
+            success=False,
+            episodic_uuid=None,
+            suggestions=[],
+            count=0,
+            error=str(e),
+        )
+    except Exception as e:
+        logger.error(f"[make_suggestions] Error: {e}", exc_info=True)
+        return MakeSuggestionsResponse(
+            success=False,
+            episodic_uuid=None,
+            suggestions=[],
+            count=0,
             error=str(e),
         )
