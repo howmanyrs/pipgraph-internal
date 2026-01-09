@@ -6,6 +6,11 @@ Supports OpenAI-compatible services through CloudRuPatchedClient.
 """
 
 import os
+
+# IMPORTANT: Import patch BEFORE importing Graphiti
+# This fixes lucene_sanitize() bug that breaks search for words with capital letters
+import app.services.graphiti.lucene_sanitize_patch  # noqa: F401 (applies patch on import)
+
 from graphiti_core import Graphiti
 from graphiti_core.llm_client.config import LLMConfig
 from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
