@@ -1359,7 +1359,7 @@ class PipGraphManager:
         """
         Find relevant PARA entities for an episodic note using hybrid search.
 
-        Uses Graphiti's hybrid search (BM25 + Cosine similarity + RRF reranking)
+        Uses Graphiti's hybrid search (BM25 + Cosine similarity +  reranking)
         to find existing PARA entities (Project, Area, Resource) that are
         semantically related to the episodic note's content.
 
