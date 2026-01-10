@@ -66,7 +66,7 @@ async def start_workflow(request: WorkflowCreateRequest) -> WorkflowCreateRespon
                 content=request.content,
                 source_description="Workflow processing",
                 reference_time=ref_time,
-                obsidian_path=request.file_path,
+                file_path=request.file_path,
             )
             logger.info(f"[start_workflow] Episode created: {episode.uuid}")
 

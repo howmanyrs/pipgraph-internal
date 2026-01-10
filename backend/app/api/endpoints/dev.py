@@ -255,7 +255,7 @@ async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse
             "name": "Meeting Notes",
             "content": "Discussed project timeline...",
             "source_description": "Obsidian note",
-            "obsidian_path": "notes/meetings/2024-01-15.md"
+            "file_path": "notes/meetings/2024-01-15.md"
         }
 
     Returns:
@@ -277,7 +277,7 @@ async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse
             content=request.content,
             source_description=request.source_description or "Obsidian note",
             reference_time=ref_time,
-            obsidian_path=request.obsidian_path,
+            file_path=request.file_path,
             frontmatter=request.frontmatter,
         )
 
@@ -325,7 +325,7 @@ async def create_para_entity(request: CreateParaEntityRequest) -> CreateParaEnti
             "para_type": "Project",
             "name": "Website Redesign Q1 2024",
             "summary": "Complete redesign of company website",
-            "obsidian_path": "projects/website-redesign.md",
+            "file_path": "projects/website-redesign.md",
             "attributes": {"status": "active", "priority": "high"}
         }
 
@@ -344,9 +344,8 @@ async def create_para_entity(request: CreateParaEntityRequest) -> CreateParaEnti
             para_type=request.para_type,
             name=request.name,
             summary=request.summary,
-            uuid=request.uuid,
             group_id=request.group_id,
-            obsidian_path=request.obsidian_path,
+            file_path=request.file_path,
             attributes=request.attributes,
         )
 

@@ -133,7 +133,7 @@ class CreateEpisodeRequest(BaseModel):
         None,
         description="Reference time for the episode (defaults to current time)"
     )
-    obsidian_path: Optional[str] = Field(
+    file_path: Optional[str] = Field(
         None,
         description="Full path to note in Obsidian vault"
     )
@@ -150,7 +150,7 @@ class CreateEpisodeRequest(BaseModel):
                     "content": "Discussed API migration timeline with the team...",
                     "source_description": "Obsidian note",
                     "reference_time": "2024-01-15T10:00:00Z",
-                    "obsidian_path": "notes/meetings/2024-01-15.md",
+                    "file_path": "notes/meetings/2024-01-15.md",
                     "frontmatter": {"tags": ["meeting", "api"], "status": "draft"}
                 }
             ]
@@ -189,9 +189,8 @@ class CreateParaEntityRequest(BaseModel):
     )
     name: str = Field(..., description="Entity display name")
     summary: str = Field("", description="Description/summary of the entity")
-    uuid: Optional[str] = Field(None, description="Optional predefined UUID (auto-generated if None)")
     group_id: Optional[str] = Field(None, description="Graph partition ID (defaults to provider default)")
-    obsidian_path: Optional[str] = Field(None, description="Optional path to source note in Obsidian vault")
+    file_path: Optional[str] = Field(None, description="Optional path to source note in Obsidian vault")
     attributes: Optional[dict] = Field(None, description="Optional custom attributes dict")
 
     model_config = {
@@ -201,7 +200,7 @@ class CreateParaEntityRequest(BaseModel):
                     "para_type": "Project",
                     "name": "Website Redesign Q1 2024",
                     "summary": "Complete redesign of company website with new branding",
-                    "obsidian_path": "projects/website-redesign.md",
+                    "file_path": "projects/website-redesign.md",
                     "attributes": {"status": "active", "priority": "high"}
                 }
             ]
