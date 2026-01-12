@@ -443,7 +443,7 @@ class PipGraphManager:
             content=content if self.store_raw_episode_content else '',
             source_description=source_description,
             created_at=now,
-            valid_at=reference_time,
+            valid_at=now,  # NOTE: Temporarily use current time as valid_at
             entity_edges=[],
             file_path=file_path,
             frontmatter=frontmatter or {},
