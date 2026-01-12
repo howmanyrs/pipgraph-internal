@@ -385,7 +385,7 @@ class ProcessExistingEpisodeResponse(BaseModel):
 class MakeSuggestionsRequest(BaseModel):
     """Request to find relevant PARA entities for an episodic note."""
 
-    episodic_name: str = Field(..., description="Name (path) of the Episodic node")
+    episodic_uuid: str = Field(..., description="UUID of the Episodic node")
     limit: int = Field(
         10,
         description="Maximum number of suggestions to return",
@@ -403,7 +403,7 @@ class MakeSuggestionsRequest(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "episodic_name": "notes/meeting-2024-01-15.md",
+                    "episodic_uuid": "550e8400-e29b-41d4-a716-446655440000",
                     "limit": 10,
                     "min_score": 0.0
                 }

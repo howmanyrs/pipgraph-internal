@@ -670,7 +670,7 @@ async def make_suggestions(request: MakeSuggestionsRequest) -> MakeSuggestionsRe
     related to. It uses Graphiti's hybrid search combining:
     - BM25 (fulltext search on entity name and summary)
     - Cosine similarity (vector search on entity name embeddings)
-    - RRF reranking for result fusion
+    - MMR reranking for result fusion
 
     Use this for:
     - Discovering which Projects/Areas a note might belong to
@@ -680,13 +680,13 @@ async def make_suggestions(request: MakeSuggestionsRequest) -> MakeSuggestionsRe
     Example:
         POST /api/v1/dev/make-suggestions
         {
-            "episodic_name": "notes/meeting-2024-01-15.md",
+            "episodic_uuid": "550e8400-e29b-41d4-a716-446655440000",
             "limit": 10,
             "min_score": 0.5
         }
 
     Preconditions:
-    - Episodic node with given name must exist in the database
+    - Episodic node with given UUID must exist in the database
     - At least one PARA entity should exist for meaningful suggestions
 
     Returns:
@@ -694,7 +694,7 @@ async def make_suggestions(request: MakeSuggestionsRequest) -> MakeSuggestionsRe
     """
     try:
         logger.info(
-            f"[make_suggestions] Finding suggestions for: {request.episodic_name} "
+            f"[make_suggestions] Finding suggestions for episodic: {request.episodic_uuid} "
             f"(limit={request.limit}, min_score={request.min_score})"
         )
 
@@ -704,7 +704,7 @@ async def make_suggestions(request: MakeSuggestionsRequest) -> MakeSuggestionsRe
 
         # Find relevant PARA entities
         episodic_uuid, suggestions_list = await manager.make_suggestions(
-            episodic_name=request.episodic_name,
+            episodic_uuid=request.episodic_uuid,
             limit=request.limit,
             min_score=request.min_score,
         )

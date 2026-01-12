@@ -1370,27 +1370,27 @@ class PipGraphManager:
 
     async def make_suggestions(
         self,
-        episodic_name: str,
+        episodic_uuid: str,
         limit: int = 30,
         min_score: float = 0.0,
     ) -> tuple[str, list[dict]]:
         """
         Find relevant PARA entities for an episodic note using hybrid search.
 
-        Uses Graphiti's hybrid search (BM25 + Cosine similarity +  reranking)
+        Uses Graphiti's hybrid search (BM25 + Cosine similarity + reranking)
         to find existing PARA entities (Project, Area, Resource) that are
         semantically related to the episodic note's content.
 
         This method:
-        1. Retrieves the Episodic node by name
+        1. Retrieves the Episodic node by UUID using EpisodicNode.get_by_uuid
         2. Extracts content from the note
         3. Performs hybrid search using the content as query
         4. Filters results to include only PARA entities
         5. Returns ranked suggestions with relevance scores
 
         Args:
-            episodic_name: Name (path) of the Episodic node
-            limit: Maximum number of suggestions to return (default: 10)
+            episodic_uuid: UUID of the Episodic node
+            limit: Maximum number of suggestions to return (default: 30)
             min_score: Minimum relevance score threshold (default: 0.0)
 
         Returns:
@@ -1403,7 +1403,7 @@ class PipGraphManager:
 
         Example:
             >>> episodic_uuid, suggestions = await manager.make_suggestions(
-            ...     episodic_name="notes/meeting-2024-01-15.md",
+            ...     episodic_uuid="550e8400-e29b-41d4-a716-446655440000",
             ...     limit=5,
             ...     min_score=0.5
             ... )
@@ -1411,19 +1411,19 @@ class PipGraphManager:
             ...     print(f"{suggestion['name']}: {suggestion['score']}")
         """
         try:
-            logger.info(f"[make_suggestions] Finding suggestions for: {episodic_name}")
+            logger.info(f"[make_suggestions] Finding suggestions for episodic UUID: {episodic_uuid}")
 
-            # STEP 1: Get Episodic node by name
-            episodic = await self.get_episodic_by_name(episodic_name)
+            # STEP 1: Get Episodic node by UUID using Graphiti's built-in method
+            episodic = await EpisodicNode.get_by_uuid(self.driver, episodic_uuid)
             if not episodic:
-                raise ValueError(f"Episodic not found: {episodic_name}")
+                raise ValueError(f"Episodic not found: {episodic_uuid}")
 
             # STEP 2: Extract content for search query
             # Note: Episodic nodes may have empty content if store_raw_episode_content=False
             content = episodic.content or ""
             if not content:
                 logger.warning(
-                    f"[make_suggestions] Episodic {episodic_name} has empty content, "
+                    f"[make_suggestions] Episodic {episodic.name} (uuid: {episodic_uuid}) has empty content, "
                     "using name as query"
                 )
                 query = episodic.name
