@@ -15,6 +15,7 @@ from app.api.schemas.dev import (
     ProcessNoteResponse,
     GetEpisodicResponse,
     ListEpisodicResponse,
+    GetEpisodicsByEntityResponse,
     CreateEpisodeRequest,
     CreateEpisodeResponse,
     CreateParaEntityRequest,
@@ -28,6 +29,7 @@ from app.api.schemas.dev import (
     MakeSuggestionsRequest,
     MakeSuggestionsResponse,
     ParaSuggestion,
+    ListUnlinkedEpisodicResponse,
 )
 from app.services.graphiti import get_graphiti, PipGraphManager
 
@@ -234,6 +236,91 @@ async def list_all_episodic(
         )
 
 
+@router.get("/episodic/unlinked", response_model=ListUnlinkedEpisodicResponse)
+async def list_unlinked_episodic(
+    limit: int = Query(100, description="Maximum number of nodes to return", ge=1, le=1000)
+) -> ListUnlinkedEpisodicResponse:
+    """
+    List all Episodic nodes that are NOT linked to any PARA entities.
+
+    Returns Episodic nodes that do not have MENTIONS relationships to any
+    Project, Area, Resource, or Archive entities. These are "orphaned" or
+    "unclassified" notes that need to be categorized into the PARA system.
+
+    Use cases:
+    - Finding notes that need PARA classification
+    - Inbox-like view of uncategorized notes
+    - Identifying notes that require user intervention
+
+    Query Parameters:
+    - limit: Maximum results (1-1000, default 100)
+
+    Example:
+        GET /api/v1/dev/episodic/unlinked?limit=50
+
+    Returns:
+        ListUnlinkedEpisodicResponse with list of unlinked episodic nodes
+    """
+    try:
+        logger.info(f"[list_unlinked_episodic] Retrieving up to {limit} unlinked episodic nodes")
+
+        # Get Graphiti instance and manager
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        # Get unlinked episodics from database
+        episodics = await manager.list_unlinked_episodics(limit=limit)
+
+        logger.info(f"[list_unlinked_episodic] Found {len(episodics)} unlinked episodic nodes")
+
+        # Convert EpisodicNode objects to dicts for response
+        episodics_dicts = [
+            {
+                "uuid": ep.uuid,
+                "name": ep.name,
+                "created_at": ep.created_at.isoformat() if ep.created_at else None,
+                "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
+                "source": ep.source.value if ep.source else None,
+                "content": ep.content,
+                "source_description": ep.source_description,
+                "group_id": ep.group_id,
+            }
+            for ep in episodics
+        ]
+
+        # Log sample names for debugging
+        if episodics_dicts:
+            sample_names = [e.get("name") for e in episodics_dicts[:5]]
+            logger.info(f"[list_unlinked_episodic] Sample names: {sample_names}")
+
+        return ListUnlinkedEpisodicResponse(
+            success=True,
+            episodics=episodics_dicts,
+            count=len(episodics_dicts),
+            error=None,
+        )
+
+    except ValueError as e:
+        # Validation errors (invalid limit, etc.)
+        logger.warning(f"[list_unlinked_episodic] Validation error: {e}")
+        return ListUnlinkedEpisodicResponse(
+            success=False,
+            episodics=[],
+            count=0,
+            error=f"Validation error: {str(e)}",
+        )
+
+    except Exception as e:
+        # Unexpected errors (database connection, etc.)
+        logger.error(f"[list_unlinked_episodic] Error: {e}", exc_info=True)
+        return ListUnlinkedEpisodicResponse(
+            success=False,
+            episodics=[],
+            count=0,
+            error=str(e),
+        )
+
+
 @router.post("/episode", response_model=CreateEpisodeResponse)
 async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse:
     """
@@ -296,6 +383,108 @@ async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse
             success=False,
             uuid=None,
             created_at=None,
+            error=str(e),
+        )
+
+
+@router.get("/episodics/by-entity", response_model=GetEpisodicsByEntityResponse)
+async def get_episodics_by_entity(
+    entity_uuid: str = Query(
+        ...,
+        description="UUID of the Entity node to query",
+        min_length=1
+    ),
+    limit: int = Query(
+        50,
+        description="Maximum number of episodics to return",
+        ge=1,
+        le=500
+    )
+) -> GetEpisodicsByEntityResponse:
+    """
+    Get all Episodic nodes that mention a specific Entity.
+
+    Returns Episodic nodes that have a MENTIONS relationship to the
+    specified Entity, ordered by creation date (newest first).
+
+    This is useful for:
+    - Viewing all notes mentioning a specific project/area/resource
+    - Timeline of entity mentions
+    - Content analysis for entity context
+
+    Query Parameters:
+    - entity_uuid: UUID of the Entity to query (required)
+    - limit: Maximum results (1-500, default 50)
+
+    Example:
+        GET /api/v1/dev/episodics/by-entity?entity_uuid=660e8400-e29b-41d4-a716-446655440111&limit=100
+
+    Returns:
+        GetEpisodicsByEntityResponse with episodics and metadata
+    """
+    try:
+        logger.info(
+            f"[get_episodics_by_entity] Querying episodics mentioning "
+            f"entity {entity_uuid} (limit={limit})"
+        )
+
+        # Get Graphiti instance and manager
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        # Get episodics from database
+        episodics = await manager.get_episodics_by_entity_uuid(
+            entity_uuid=entity_uuid,
+            limit=limit
+        )
+
+        logger.info(
+            f"[get_episodics_by_entity] Found {len(episodics)} episodics "
+            f"for entity {entity_uuid}"
+        )
+
+        # Convert EpisodicNode objects to dicts for response
+        episodics_dicts = [
+            {
+                "uuid": ep.uuid,
+                "name": ep.name,
+                "created_at": ep.created_at.isoformat() if ep.created_at else None,
+                "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
+                "source": ep.source.value if ep.source else None,
+                "content": ep.content,
+                "source_description": ep.source_description,
+                "group_id": ep.group_id,
+            }
+            for ep in episodics
+        ]
+
+        return GetEpisodicsByEntityResponse(
+            success=True,
+            entity_uuid=entity_uuid,
+            episodics=episodics_dicts,
+            count=len(episodics_dicts),
+            error=None,
+        )
+
+    except ValueError as e:
+        # Validation errors (invalid UUID, bad limit, etc.)
+        logger.warning(f"[get_episodics_by_entity] Validation error: {e}")
+        return GetEpisodicsByEntityResponse(
+            success=False,
+            entity_uuid=entity_uuid,
+            episodics=[],
+            count=0,
+            error=f"Validation error: {str(e)}",
+        )
+
+    except Exception as e:
+        # Unexpected errors (database connection, etc.)
+        logger.error(f"[get_episodics_by_entity] Error: {e}", exc_info=True)
+        return GetEpisodicsByEntityResponse(
+            success=False,
+            entity_uuid=entity_uuid,
+            episodics=[],
+            count=0,
             error=str(e),
         )
 

@@ -120,6 +120,44 @@ class ListEpisodicResponse(BaseModel):
     }
 
 
+class GetEpisodicsByEntityResponse(BaseModel):
+    """Response from getting episodics that mention a specific entity."""
+
+    success: bool = Field(..., description="Whether retrieval was successful")
+    entity_uuid: Optional[str] = Field(None, description="UUID of the queried entity")
+    episodics: list[dict] = Field(
+        default_factory=list,
+        description="List of Episodic nodes mentioning the entity"
+    )
+    count: int = Field(0, description="Number of episodics returned")
+    error: Optional[str] = Field(None, description="Error message if retrieval failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "entity_uuid": "660e8400-e29b-41d4-a716-446655440111",
+                    "episodics": [
+                        {
+                            "uuid": "550e8400-e29b-41d4-a716-446655440000",
+                            "name": "Meeting Notes 2024-01-15",
+                            "created_at": "2024-01-15T10:00:00Z",
+                            "valid_at": "2024-01-15T10:00:00Z",
+                            "source": "ingestion",
+                            "content": "Discussed project timeline...",
+                            "source_description": "Obsidian note",
+                            "group_id": "default"
+                        }
+                    ],
+                    "count": 1,
+                    "error": None
+                }
+            ]
+        }
+    }
+
+
 class CreateEpisodeRequest(BaseModel):
     """Request to create an Episodic node without full processing."""
 
@@ -464,6 +502,42 @@ class MakeSuggestionsResponse(BaseModel):
                             "summary": "Complete redesign of company website",
                             "score": 0.85,
                             "attributes": {"status": "active"}
+                        }
+                    ],
+                    "count": 1,
+                    "error": None
+                }
+            ]
+        }
+    }
+
+
+class ListUnlinkedEpisodicResponse(BaseModel):
+    """Response from listing Episodic nodes without PARA entity mentions."""
+
+    success: bool = Field(..., description="Whether retrieval was successful")
+    episodics: list[dict] = Field(
+        default_factory=list,
+        description="List of Episodic nodes without PARA entity mentions"
+    )
+    count: int = Field(0, description="Number of episodics returned")
+    error: Optional[str] = Field(None, description="Error message if retrieval failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "episodics": [
+                        {
+                            "uuid": "550e8400-e29b-41d4-a716-446655440000",
+                            "name": "Unclassified Note",
+                            "created_at": "2024-01-15T10:00:00Z",
+                            "valid_at": "2024-01-15T10:00:00Z",
+                            "source": "text",
+                            "content": "Note content...",
+                            "source_description": "Obsidian note",
+                            "group_id": "default"
                         }
                     ],
                     "count": 1,

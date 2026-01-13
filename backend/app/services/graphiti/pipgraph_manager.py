@@ -1145,6 +1145,157 @@ class PipGraphManager:
         logger.info(f"[list_episodics] Retrieved {len(episodics)} episodic nodes")
         return episodics
 
+    async def list_unlinked_episodics(self, limit: int = 100) -> List["PipGraphEpisodicNode"]:
+        """
+        List all Episodic nodes that do NOT have MENTIONS relationships to any PARA entities.
+
+        Returns Episodic nodes that are not linked to Project, Area, Resource, or Archive
+        entities via MENTIONS relationship. These are "orphaned" or "unclassified" notes
+        that need to be categorized into the PARA system.
+
+        Use cases:
+        - Finding notes that need to be classified into PARA structure
+        - Inbox-like view of uncategorized notes
+        - Identifying notes that require user intervention
+
+        Args:
+            limit: Maximum number of nodes to return (default: 100, max: 1000)
+
+        Returns:
+            List of PipGraphEpisodicNode objects without PARA entity mentions
+
+        Raises:
+            ValueError: If limit is out of range
+
+        Example:
+            >>> unlinked = await manager.list_unlinked_episodics(limit=50)
+            >>> for ep in unlinked:
+            ...     print(f"Unlinked: {ep.name}")
+        """
+        from graphiti_core.helpers import parse_db_date
+        from app.models.nodes import PipGraphEpisodicNode
+
+        if not 1 <= limit <= 1000:
+            raise ValueError(f"limit must be between 1 and 1000, got {limit}")
+
+        # Cypher query: Find Episodics without MENTIONS to PARA entities
+        # Uses NOT EXISTS with subquery to check for any PARA entity mentions
+        query = """
+        MATCH (ep:Episodic)
+        WHERE NOT EXISTS {
+            MATCH (ep)-[:MENTIONS]->(e:Entity)
+            WHERE e:Project OR e:Area OR e:Resource OR e:Archive
+        }
+        RETURN ep
+        ORDER BY ep.created_at DESC
+        LIMIT $limit
+        """
+
+        episodics = []
+        async with self.driver.session() as session:
+            result = await session.run(query, limit=limit)
+
+            async for record in result:
+                node_data = dict(record["ep"])
+
+                # Parse datetime fields from Neo4j format
+                if "created_at" in node_data and node_data["created_at"]:
+                    node_data["created_at"] = parse_db_date(node_data["created_at"])
+                if "valid_at" in node_data and node_data["valid_at"]:
+                    node_data["valid_at"] = parse_db_date(node_data["valid_at"])
+
+                # Parse PipGraph-specific fields
+                if "frontmatter" in node_data and node_data["frontmatter"]:
+                    node_data["frontmatter"] = json.loads(node_data["frontmatter"])
+
+                episodic = PipGraphEpisodicNode(**node_data)
+                episodics.append(episodic)
+
+        logger.info(
+            f"[list_unlinked_episodics] Retrieved {len(episodics)} unlinked episodic nodes "
+            f"(no MENTIONS to PARA entities)"
+        )
+        return episodics
+
+    async def get_episodics_by_entity_uuid(
+        self,
+        entity_uuid: str,
+        limit: int = 50
+    ) -> List["PipGraphEpisodicNode"]:
+        """
+        Get all Episodic nodes that mention a specific Entity.
+
+        Retrieves Episodic nodes that have a MENTIONS relationship to the
+        specified Entity, ordered by creation date (newest first).
+
+        Args:
+            entity_uuid: UUID of the Entity node
+            limit: Maximum number of episodics to return (default: 50, max: 500)
+
+        Returns:
+            List of PipGraphEpisodicNode objects that mention the entity
+
+        Raises:
+            ValueError: If limit is out of range or entity_uuid is invalid
+
+        Example:
+            >>> episodics = await manager.get_episodics_by_entity_uuid(
+            ...     entity_uuid="660e8400-e29b-41d4-a716-446655440111",
+            ...     limit=100
+            ... )
+            >>> for ep in episodics:
+            ...     print(ep.name, ep.created_at)
+        """
+        from graphiti_core.helpers import parse_db_date
+        from app.models.nodes import PipGraphEpisodicNode
+
+        # Validate inputs
+        if not entity_uuid or not entity_uuid.strip():
+            raise ValueError("entity_uuid cannot be empty")
+
+        if not 1 <= limit <= 500:
+            raise ValueError(f"limit must be between 1 and 500, got {limit}")
+
+        # Query: Find all Episodics that mention this Entity
+        # This is the inverse of _get_mentioned_para_entities
+        query = """
+        MATCH (ep:Episodic)-[:MENTIONS]->(e:Entity {uuid: $entity_uuid})
+        RETURN ep
+        ORDER BY ep.created_at DESC
+        LIMIT $limit
+        """
+
+        episodics = []
+        async with self.driver.session() as session:
+            result = await session.run(
+                query,
+                entity_uuid=entity_uuid,
+                limit=limit
+            )
+
+            async for record in result:
+                node_data = dict(record["ep"])
+
+                # Parse datetime fields from Neo4j format
+                if "created_at" in node_data and node_data["created_at"]:
+                    node_data["created_at"] = parse_db_date(node_data["created_at"])
+                if "valid_at" in node_data and node_data["valid_at"]:
+                    node_data["valid_at"] = parse_db_date(node_data["valid_at"])
+
+                # Parse PipGraph-specific fields
+                if "frontmatter" in node_data and node_data["frontmatter"]:
+                    node_data["frontmatter"] = json.loads(node_data["frontmatter"])
+
+                # Create PipGraphEpisodicNode from data
+                episodic = PipGraphEpisodicNode(**node_data)
+                episodics.append(episodic)
+
+        logger.info(
+            f"[get_episodics_by_entity_uuid] Found {len(episodics)} episodics "
+            f"mentioning entity {entity_uuid}"
+        )
+        return episodics
+
     async def update_episodic_timestamp(
         self,
         episodic_uuid: str,

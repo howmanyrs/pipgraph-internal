@@ -78,10 +78,12 @@ const API_PREFIX = '/api/v1/dev';
 | POST | `/dev/process-existing-episode` | Re-process existing episodic node |
 | GET | `/dev/episodic?uuid={uuid}` | Get episodic by UUID |
 | GET | `/dev/episodic?name={name}` | Get episodic by name (file path) |
-| GET | `/dev/episodics` | List all episodics |
-| POST | `/dev/create-episode` | Create lightweight episodic |
+| GET | `/dev/episodic/list?limit={n}` | List all episodics |
+| GET | `/dev/episodic/unlinked?limit={n}` | List episodics without PARA entity links (Inbox) |
+| GET | `/dev/episodics/by-entity?entity_uuid={uuid}&limit={n}` | Get episodics that mention specific entity |
+| POST | `/dev/episode` | Create lightweight episodic |
 | POST | `/dev/para-entity` | Create PARA entity (Project/Area/Resource/Archive) |
-| GET | `/dev/para-entities` | List PARA entities |
+| GET | `/dev/para-entity/list` | List PARA entities |
 | POST | `/dev/link-entity-episode` | Link entity to episode |
 | POST | `/dev/make-suggestions` | Hybrid search for relevant PARA entities |
 
