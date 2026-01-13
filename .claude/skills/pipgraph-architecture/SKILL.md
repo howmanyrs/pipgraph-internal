@@ -8,6 +8,8 @@ description: A comprehensive guide to the PipGraph backend structure, layer resp
 ## Purpose
 This skill defines the structural blueprint of the PipGraph backend. It enforces a strict layered architecture: **API → Workflows → Services → CRUD → Database**. Use this map to determine where code belongs and how components interact.
 
+**Note:** All file paths in this skill are relative to the `backend/` directory (e.g., `app/api/` refers to `backend/app/api/`).
+
 ## Directory Structure Map
 
 ```text

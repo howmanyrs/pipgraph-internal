@@ -8,6 +8,8 @@ description: Definitive guidelines for code style, Pydantic usage, async pattern
 ## Purpose
 Follow these guidelines to maintain code quality, consistency, and reliability across the PipGraph backend.
 
+**Note:** All file paths in this skill are relative to the `backend/` directory (e.g., `app/services/` refers to `backend/app/services/`).
+
 ## 1. Coding Style & Patterns
 
 ### Imports

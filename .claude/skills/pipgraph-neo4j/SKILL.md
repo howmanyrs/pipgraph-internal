@@ -8,6 +8,8 @@ description: Guidelines for working with graph db Neo4j in PipGraph. Use this sk
 ## Purpose
 This skill provides essential patterns and solutions for working with Neo4j in the PipGraph backend. Use it to avoid common pitfalls, ensure proper type handling, and write efficient Cypher queries.
 
+**Note:** All file paths in this skill are relative to the `backend/` directory (e.g., `app/crud/` refers to `backend/app/crud/`).
+
 ## 1. Critical: Type Serialization
 
 ### Problem

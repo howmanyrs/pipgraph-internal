@@ -8,6 +8,8 @@ description: Detailed logic of the LangGraph processing pipeline, the 6-node sta
 ## Purpose
 This skill defines the core processing pipeline orchestrated by LangGraph and the custom Graphiti integration logic. The system uses a state machine to manage the lifecycle of a note from ingestion to final storage, including Human-in-the-Loop (HITL) interruptions.
 
+**Note:** All file paths in this skill are relative to the `backend/` directory (e.g., `app/workflows/` refers to `backend/app/workflows/`).
+
 ## The PARA Workflow Engine
 
 The workflow is defined in `app/workflows/langgraph_service.py` and consists of 6 distinct nodes.
