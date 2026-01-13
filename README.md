@@ -1,216 +1,319 @@
-### **Архитектурное решение проекта "PipGraph" (Версия 1.3)**
+# PipGraph — Intelligent Knowledge Graph System
 
-**Дата:** 21.11.2025
 **Статус:** В активной разработке
+**Дата обновления:** 13.01.2026
 
-#### 1. Введение
+## Обзор проекта
 
-Этот документ описывает высокоуровневую архитектуру плагина PipGraph для Obsidian. Его цель — служить отправной точкой для команды из трех разработчиков, определить ключевые компоненты системы, их взаимодействие и общие принципы разработки.
+PipGraph — это система для преобразования неструктурированных заметок Markdown (Obsidian) в структурированный граф знаний с использованием LLM. Проект реализует философию "второго мозга" с поддержкой методологии PARA (Projects, Areas, Resources, Archives) от Tiago Forte.
 
-Проект находится на исследовательской стадии, поэтому данная архитектура должна быть гибкой и позволять быстрое прототипирование и итеративные изменения.
+**Ключевые принципы:**
+- **Неразрушающая обработка:** Контент заметок остается неизменным, метаданные пишутся только в YAML frontmatter
+- **Graph-First архитектура:** Знания хранятся как граф (узлы + связи) в Neo4j
+- **Human-in-the-Loop:** Система предлагает, пользователь решает
+- **REST API:** Прямой доступ к функциям через FastAPI эндпоинты
 
-**Текущий статус:** Бэкенд активно разрабатывается. Основное тестирование происходит через **pipgraph-cli**. Obsidian плагин и веб-прототип находятся в ранней стадии.
-
-#### 2. Ключевые архитектурные принципы
-
-1.  **Разделение Frontend и Backend:** Логика обработки заметок, работа с LLM и базой данных полностью вынесена в отдельный Python-сервер (бэкенд). Клиенты (CLI, плагин, веб) выступают в роли клиентов, взаимодействующих с бэкендом по сети.
-2.  **CLI-first разработка:** Основное тестирование и отладка происходит через **pipgraph-cli** — командный интерфейс с поддержкой REST API и workflow режима. Это позволяет быстро проверять функциональность без UI.
-3.  **Монорепозиторий:** Весь код проекта (бэкенд, CLI, плагин, веб-прототип) хранится в одном Git-репозитории для упрощения управления зависимостями и обеспечения консистентности кода.
-4.  **Слоистая архитектура бэкенда:** Бэкенд спроектирован с четким разделением на слои (API, Сервисы, Доступ к данным), чтобы обеспечить тестируемость и модульность.
-5.  **Гибридное взаимодействие:** WebSocket для real-time операций (обработка заметок), REST API для workflow управления и синхронных запросов. CLI использует REST API, Obsidian плагин будет использовать WebSocket.
-
-#### 3. Обзор компонентов системы
+## Архитектура системы
 
 ```
-+--------------------------------+       +------------------+       +------------------+
-|         OBSIDIAN (CLIENT)      |       |   pipgraph-cli   |       |  Web Prototype   |
-|         (в разработке)         |       | (основной тест)  |       |  (в разработке)  |
-| +----------------------------+ |       | +-------------+  |       | +--------------+ |
-| |       PipGraph Plugin      | |       | | CLI с REST  |  |       | | React/Svelte | |
-| |        (TypeScript)        | |       | +-------------+  |       | +--------------+ |
-| +----------------------------+ |       +------------------+       +------------------+
-+--------------------------------+                |                          |
-                  |                               |                          |
-                  +-------------------------------+--------------------------+
-                                                  |
-                    (WebSocket / REST API для workflow управления)
-                                                  |
-                                                  v
-+-----------------------------------------------------------------------------+
-|                                  BACKEND                                    |
-|                                (Python, FastAPI)                            |
-|                                                                             |
-| +------------------+   +------------------+   +---------------------------+ |
-| | Service Layer    |-->| LLM Service      |-->|   LLM Provider (OpenAI)   | |
-| | (Бизнес-логика)  |   +------------------+   +---------------------------+ |
-| +------------------+   +------------------+                                 |
-|          |             +------------------+                                 |
-|          |------------>| NL-to-Cypher     |                                 |
-|          |             | Service          |                                 |
-|          v             +------------------+                                 |
-| +------------------+                                                        |
-| | Data Access Layer|                                                        |
-| | (Работа с БД)    |                                                        |
-| +------------------+                                                        |
-|          |                                                                  |
-|          v                                                                  |
-| +------------------+                                                        |
-| | Graph Database   |                                                        |
-| | (Neo4j, Memgraph)|                                                        |
-| +------------------+                                                        |
-+-----------------------------------------------------------------------------+
-
+┌─────────────────────────────────────────────────────────────┐
+│                    FRONTEND CLIENTS                          │
+├──────────────────┬────────────────────┬─────────────────────┤
+│ pipgraph-web     │ obsidian-plugin    │ Direct API Access   │
+│ (Next.js 16)     │ (в разработке)     │ (curl/Python SDK)   │
+│ • TanStack Query │ • TypeScript       │                     │
+│ • shadcn/ui      │ • Svelte           │                     │
+│ • Rapid Proto    │ • WebSocket client │                     │
+└──────────────────┴────────────────────┴─────────────────────┘
+                            │
+                            │ REST API (HTTP/JSON)
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      BACKEND (Python)                        │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ API Layer (FastAPI)                                    │ │
+│  │ • /api/v1/dev/* endpoints                              │ │
+│  │ • Pydantic validation                                  │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                            │                                 │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ Service Layer                                          │ │
+│  │ • PipGraphManager (single source of truth)             │ │
+│  │ • LLM orchestration (OpenRouter/OpenAI)                │ │
+│  │ • Entity extraction                                    │ │
+│  │ • Hybrid search (BM25 + vector)                        │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                            │                                 │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ Data Access Layer                                      │ │
+│  │ • Graphiti integration                                 │ │
+│  │ • Neo4j Cypher queries                                 │ │
+│  │ • CRUD operations                                      │ │
+│  └────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+                    ┌───────────────┐
+                    │    Neo4j      │
+                    │  Graph DB     │
+                    └───────────────┘
 ```
 
-#### 4. Структура проекта (Монорепозиторий)
-
-Структура бэкенда уточнена для лучшего соответствия реализации.
+## Структура монорепозитория
 
 ```
-pipgraph-monorepo/
-├── backend/                  # Python-бэкенд (основной компонент)
-│   ├── app/                  # Исходный код приложения
-│   │   ├── api/              # FastAPI эндпоинты
-│   │   │   ├── endpoints/    # REST и WebSocket роутеры
-│   │   │   └── schemas/      # Pydantic request/response модели
-│   │   ├── services/         # Бизнес-логика
-│   │   │   ├── mocks/        # Mock сервисы для тестирования
-│   │   │   └── para/         # PARA classification сервисы
-│   │   ├── workflows/        # LangGraph workflows
-│   │   ├── crud/             # Neo4j операции
-│   │   └── models/           # Доменные Pydantic модели
-│   ├── tests/                # Тесты (unit/integration/e2e)
-│   ├── scripts/              # CLI утилиты и тестовые скрипты
-│   ├── docs/                 # Документация бэкенда
-│   └── requirements.txt      # Зависимости Python
+pipgraph/
+├── backend/                 # Python FastAPI бэкенд (основной компонент)
+│   ├── app/
+│   │   ├── api/            # REST эндпоинты
+│   │   │   ├── endpoints/  # Роутеры (/dev, /search, etc.)
+│   │   │   └── schemas/    # Pydantic request/response модели
+│   │   ├── services/       # Бизнес-логика
+│   │   │   └── graphiti/   # PipGraphManager — единая точка входа в БД
+│   │   ├── crud/           # Neo4j CRUD операции
+│   │   └── models/         # Доменные Pydantic модели
+│   ├── tests/              # Unit/Integration/E2E тесты
+│   ├── docs/               # Подробная документация
+│   │   ├── CONFIGURATION.md
+│   │   └── TESTING.md
+│   ├── CLAUDE.md           # Быстрая справка для Claude Code
+│   ├── TODO.md             # Трекинг задач
+│   └── CHANGELOG.md        # История версий
 │
-├── pipgraph-cli/             # CLI для тестирования (основной инструмент)
-│   └── ...                   # REST API клиент с workflow режимом
+├── pipgraph-web/           # Next.js веб-интерфейс (NEW)
+│   ├── src/
+│   │   ├── app/            # Next.js App Router
+│   │   ├── components/     # React компоненты (shadcn/ui)
+│   │   ├── lib/            # Утилиты
+│   │   └── hooks/          # Custom React hooks
+│   ├── CLAUDE.md           # Документация для разработки
+│   └── package.json        # npm зависимости
 │
-├── obsidian-plugin/          # Плагин для Obsidian (в разработке)
-│   └── ...                   # TypeScript, WebSocket клиент
+├── obsidian-plugin/        # Obsidian плагин (в разработке)
+│   └── ...                 # TypeScript, Svelte
 │
-├── web-prototype/            # Веб-интерфейс (в разработке)
-│   └── ...                   # React/Svelte прототип
-│
-├── CLAUDE.md                 # Справочник для Claude Code
-└── README.md                 # Архитектура и настройка
+├── CLAUDE.md               # Корневая справка для Claude Code
+└── README.md               # Этот файл
 ```
 
-#### 5. Технологический стек
+## Технологический стек
 
-*   **Backend:** Python 3.12+, FastAPI, Uvicorn, Pydantic, LangGraph.
-*   **Окружение Backend:** **uv** (для управления виртуальным окружением и пакетами).
-*   **CLI:** Python, REST API клиент с workflow режимом.
-*   **Frontend (Plugin & Prototype):** TypeScript, Svelte/React (в разработке).
-*   **База данных:** Neo4j (графовая БД с хорошей документацией и Neo4j Browser).
-*   **Взаимодействие:** REST API (workflow управление, CLI), WebSockets (real-time обработка).
+### Backend
+- **Runtime:** Python 3.12+
+- **Framework:** FastAPI, Uvicorn
+- **Database:** Neo4j (графовая БД)
+- **LLM Integration:** Graphiti, LangGraph
+- **Package Manager:** `uv`
+- **Testing:** pytest (unit/integration/e2e)
+- **Type Safety:** Pydantic, strict typing
 
-#### 6. Взаимодействие компонентов
+### Frontend (pipgraph-web)
+- **Framework:** Next.js 16.1.1 (App Router, React 19)
+- **Language:** TypeScript (strict mode)
+- **Styling:** Tailwind CSS v4, shadcn/ui (New York style)
+- **State Management:** TanStack Query v5 (server state)
+- **Form Validation:** React Hook Form + Zod
+- **Content Rendering:** react-markdown v10
 
-**6.1. API и WebSocket**
+### Frontend (obsidian-plugin, в разработке)
+- **Framework:** TypeScript, Svelte
+- **API Client:** REST fetch/axios
 
-*   **WebSocket** используется для real-time обработки заметок.
-    *   Клиент (плагин) устанавливает WebSocket-соединение с эндпоинтом `ws://<host>/api/v1/ws/notes/process`.
-    *   После установки соединения клиент отправляет JSON-сообщение с данными заметки (`{ "file_path": "...", "content": "..." }`).
-    *   Бэкенд немедленно отвечает сообщением-подтверждением: `{ "status": "processing", "message": "Note received..." }`.
-    *   После завершения длительной задачи (обработка LLM, сохранение в БД), бэкенд отправляет итоговое сообщение с извлеченными данными: `{ "status": "done", "data": { ... } }`.
-    *   Если происходит ошибка, бэкенд отправляет сообщение: `{ "status": "error", "message": "..." }`.
+## Быстрый старт
 
-*   **REST API (FastAPI)** используется для workflow управления и синхронных запросов.
+### 1. Установка зависимостей
 
-    **Workflow Management:**
-    *   `POST /api/v1/workflow/start` — запустить workflow для заметки
-    *   `GET /api/v1/workflow/{id}/status` — получить статус workflow
-    *   `POST /api/v1/workflow/{id}/resume` — продолжить workflow с ответом пользователя
-    *   `GET /api/v1/workflow/{id}/suggestions` — получить pending suggestions
+**Требования:**
+- Python 3.12+
+- Node.js 18+
+- Neo4j Desktop (или Docker)
+- `uv` (Python package manager): `pip install uv`
 
-    **Suggestions & Decisions:**
-    *   `POST /api/v1/suggestion/{id}/decision` — отправить решение пользователя
-    *   `GET /api/v1/inbox/suggestions` — получить все pending suggestions
-    *   `GET /api/v1/inbox/count` — количество pending suggestions
+### 2. Настройка Backend
 
-    **Legacy (deprecated):**
-    *   `POST /search` — выполнить поиск на естественном языке
-    *   `GET /suggestions/{note_id}` — получить сущности со статусом "на рассмотрении"
+```bash
+cd backend/
 
-**6.2. Пример сценария: Обработка новой заметки**
+# Создать виртуальное окружение
+uv venv && source .venv/bin/activate  # Linux/Mac
+# или .\.venv\Scripts\activate         # Windows
 
-1.  Пользователь создает или изменяет заметку в Obsidian.
-2.  Плагин (клиент) устанавливает WebSocket-соединение с бэкендом.
-3.  Плагин отправляет JSON-сообщение с содержимым файла и его путем.
-4.  Бэкенд (FastAPI) принимает сообщение, валидирует его и немедленно отправляет обратно подтверждение о начале обработки.
-5.  Бэкенд запускает обработку через Graphiti: извлекает сущности с помощью LLM и сохраняет их напрямую в Neo4j. Graphiti управляет как извлечением, так и записью в БД (метод `add_episode()` выполняет обе операции).
-6.  После извлечения сущностей бэкенд отправляет их клиенту для инициации цикла обратной связи.
-7.  Опционально: Возможны несколько раундов обратной связи:
-    *   Бэкенд может запросить уточнение у пользователя (например: "Python — это язык программирования или змея?")
-    *   Пользователь предоставляет дополнительный контекст
-    *   Система уточняет сущности на основе обратной связи
-8.  После завершения цикла обратной связи бэкенд отправляет финальное сообщение с валидированными сущностями и данными для обновления frontmatter.
-9.  Плагин, получив финальное сообщение, обновляет YAML-секцию (frontmatter) в файле заметки с извлеченными и уточненными сущностями и связями.
-10. Соединение закрывается.
+# Установить зависимости
+uv pip install -r requirements.txt
 
-#### 7. Архитектура Backend (Слоистая модель)
+# Настроить .env файл
+cp .env.example .env
+# Отредактировать .env: OPENROUTER_API_KEY, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
 
-*   **API Layer (`app/api/`)**: Отвечает за прием WebSocket-соединений и HTTP-запросов. Валидирует входящие данные с помощью Pydantic. Не содержит бизнес-логики. Его задача — вызвать соответствующий метод из сервисного слоя.
-*   **Service Layer (`app/services/`)**: Ядро бизнес-логики. Оркестрирует взаимодействие между разными частями системы (LLM, база данных). Не зависит от FastAPI.
-*   **CRUD Layer (`app/crud/`)**: Абстракция для работы с базой данных (Create, Read, Update, Delete). Содержит весь код, специфичный для графовой БД (например, Cypher-запросы). В документе `backend-overview.md` этот слой назван `repository`. Мы будем придерживаться названия `crud` для единообразия с практиками FastAPI.
+# Запустить сервер
+uvicorn app.api.main:app --reload
+# Сервер доступен на http://localhost:8000
+# Swagger docs: http://localhost:8000/docs
+```
 
-#### 8. Распределение ролей и зон ответственности
+### 3. Настройка pipgraph-web
 
-*   **Разработчик 1 (Frontend):**
-    *   **Задачи:** Разработка UI в `web-prototype`, его последующая интеграция в `obsidian-plugin`. Реализация WebSocket-клиента для взаимодействия с бэкендом.
-    *   **Для независимой работы:** Может использовать mock WebSocket-сервер или `websocat` для тестирования.
+```bash
+cd pipgraph-web/
 
-*   **Разработчик 2 (Backend Integration):**
-    *   **Задачи:** Разработка API-слоя (FastAPI, WebSocket эндпоинты), сервисного слоя, интеграция всех частей бэкенда. Написание `requirements.txt`.
-    *   **Для независимой работы:** Определяет и документирует API-контракт (Pydantic-модели). Может использовать функции-заглушки для модулей, разрабатываемых Разработчиком 3.
+# Установить зависимости
+npm install
 
-*   **Разработчик 3 (Core LLM & Cypher):**
-    *   **Задачи:** Реализация логики в `app/services/note_processor.py`, включая интеграцию с LLM и `app/crud/graph_repository.py`. Работа с промптами для LLM, преобразование естественного языка в Cypher.
-    *   **Для независимой работы:** Может писать и тестировать свои модули как обычные Python-скрипты, подавая на вход строки и проверяя результат.
+# Настроить .env.local (опционально)
+# NEXT_PUBLIC_API_URL=http://localhost:8000
 
-#### 9. Настройка окружения и запуск (без Docker)
+# Запустить dev сервер
+npm run dev
+# Web UI доступен на http://localhost:3000
+```
 
-1.  **Общие шаги:**
-    *   `git clone [URL вашего репозитория]`
-    *   Установить Python 3.12+.
-    *   Установить Node.js 18+.
-    *   Установить `uv` глобально: `pip install uv`.
-    *   Установить и запустить локально графовую базу данных Neo4j Desktop.
+### 4. Запуск Neo4j
 
-2.  **Запуск Backend:**
-    *   `cd backend/`
-    *   Создать виртуальное окружение: `uv venv`
-    *   Активировать окружение: `source .venv/bin/activate` (или `.\.venv\Scripts\activate` на Windows).
-    *   Установить зависимости: `uv pip install -r requirements.txt`
-    *   Создать файл `.env` с настройками подключения к БД.
-    *   Запустить сервер: `uvicorn app.api.main:app --reload` (Сервер будет доступен на `localhost:8000`)
+```bash
+# Через Neo4j Desktop (рекомендуется):
+# 1. Создать новый проект
+# 2. Создать локальную БД (по умолчанию bolt://localhost:7687)
+# 3. Запустить БД
 
-3.  **Тестирование через CLI (рекомендуется):**
-    *   Использовать `pipgraph-cli` для тестирования workflow:
-    ```bash
-    # Запустить workflow для заметки
-    pipgraph workflow start --file notes/test.md
+# Или через Docker:
+docker run \
+  --name neo4j \
+  -p 7474:7474 -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/your_password \
+  neo4j:latest
+```
 
-    # Получить статус и suggestions
-    pipgraph workflow status <workflow_id>
-    pipgraph workflow suggestions <workflow_id>
+## Ключевые API эндпоинты
 
-    # Отправить решение
-    pipgraph suggestion decide <suggestion_id> --action confirm
-    ```
+Все функции доступны через `/api/v1/dev`:
 
-4.  **Запуск Frontend (Web Prototype) — опционально:**
-    *   `cd web-prototype/`
-    *   `npm install`
-    *   `npm run dev`
+| Method | Endpoint | Описание |
+|--------|----------|----------|
+| POST | `/dev/process-note` | Полная обработка заметки с LLM |
+| POST | `/dev/process-existing-episode` | Переобработка существующего episodic |
+| GET | `/dev/episodic?uuid={uuid}` | Получить episodic по UUID |
+| GET | `/dev/episodic?name={name}` | Получить episodic по имени |
+| GET | `/dev/episodics` | Список всех episodics |
+| POST | `/dev/create-episode` | Создать легковесный episodic |
+| POST | `/dev/para-entity` | Создать PARA сущность |
+| GET | `/dev/para-entities` | Список PARA сущностей |
+| POST | `/dev/link-entity-episode` | Связать сущность с episodic |
+| POST | `/dev/make-suggestions` | Гибридный поиск релевантных сущностей |
 
-#### 10. Следующие шаги
+**Детали:** См. `backend/app/api/endpoints/dev.py`
 
-1.  **Текущий фокус:** Разработка и тестирование PARA workflow через CLI.
-2.  **Backend:** Замена mock-сервисов на реальные LLM вызовы (L1 → L2 → L3).
-3.  **Frontend:** Интеграция Obsidian плагина с новым REST API.
+## Методология PARA
+
+Система организует знания по методологии PARA:
+
+- **Projects** — краткосрочные цели с дедлайнами
+- **Areas** — долгосрочные зоны ответственности
+- **Resources** — темы постоянного интереса
+- **Archives** — неактивные элементы
+- **Inbox** — дефолтная зона для новых заметок
+
+## Модель данных (Neo4j)
+
+### Узлы
+
+**Episodic** (заметка):
+```cypher
+(:Episodic {
+  uuid: "...",
+  name: "path/to/note.md",
+  content: "...",
+  created_at: "...",
+  valid_at: "..."
+})
+```
+
+**PARA Entity**:
+```cypher
+(:Entity:Project|:Area|:Resource|:Archive {
+  uuid: "...",
+  name: "Project Alpha",
+  summary: "...",
+  name_embedding: [...],
+  attributes: {...},
+  created_at: "..."
+})
+```
+
+### Связи
+
+- `(:Episodic)-[:MENTIONS]->(:Entity)` — эпизод упоминает сущность
+- `(:Entity)-[:RELATES_TO]->(:Entity)` — связь между сущностями
+
+## Тестирование
+
+```bash
+cd backend/
+
+# Быстрые unit-тесты (без внешних зависимостей)
+pytest -m unit
+
+# Integration тесты (требуют Neo4j, OpenRouter)
+pytest -m integration
+
+# Исключить медленные LLM-вызовы
+pytest -m "not slow"
+
+# Запустить все тесты
+pytest
+```
+
+**Подробности:** См. `backend/docs/TESTING.md`
+
+## Документация
+
+### Для разработчиков
+- **[CLAUDE.md](CLAUDE.md)** — Краткая справка для Claude Code
+- **[backend/CLAUDE.md](backend/CLAUDE.md)** — Backend quick reference
+- **[pipgraph-web/CLAUDE.md](pipgraph-web/CLAUDE.md)** — Web UI quick reference
+- **[backend/docs/](backend/docs/)** — Подробные технические документы
+
+### Для пользователей
+- **[backend/TODO.md](backend/TODO.md)** — Roadmap и текущие задачи
+- **[backend/CHANGELOG.md](backend/CHANGELOG.md)** — История изменений
+
+## Текущий статус разработки
+
+### ✅ Готово
+- Backend REST API (`/api/v1/dev`)
+- PipGraphManager (единая точка доступа к БД)
+- Entity extraction через LLM
+- Hybrid search (BM25 + vector embeddings)
+- PARA classification
+- pipgraph-web базовая структура (Next.js + TanStack Query)
+
+### 🚧 В разработке
+- pipgraph-web UI компоненты (Inbox, PARA management)
+- Obsidian плагин интеграция
+- Natural language search (NL-to-Cypher)
+
+### 📋 В планах
+- Real-time синхронизация с Obsidian
+- Advanced graph visualizations
+- Multi-user support
+
+## Контрибьюция
+
+Проект находится в активной исследовательской стадии. Архитектура может меняться.
+
+**Перед коммитом:**
+1. Запустите тесты: `pytest -m unit`
+2. Проверьте type hints: `mypy app/`
+3. Отформатируйте код: `black .` и `isort .`
+
+## Лицензия
+
+[Указать лицензию]
+
+## Контакты
+
+[Указать контакты]
 
 ---
-*Этот документ является живым и будет обновляться по мере развития проекта и получения новой информации в ходе исследовательского процесса.*
+
+**Для Claude Code:** Это основной README. Для быстрой справки см. [CLAUDE.md](CLAUDE.md). Для специфичных компонентов см. `backend/CLAUDE.md` и `pipgraph-web/CLAUDE.md`.
