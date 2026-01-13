@@ -1,0 +1,371 @@
+/**
+ * Typed API client for PipGraph backend
+ *
+ * All functions return typed responses matching backend Pydantic schemas.
+ * Uses environment variable NEXT_PUBLIC_API_URL for base URL.
+ */
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_PREFIX = '/api/v1/dev';
+
+function getApiUrl(endpoint: string): string {
+  return `${API_BASE}${API_PREFIX}${endpoint}`;
+}
+
+// ============================================================================
+// TypeScript Types (mirroring backend Pydantic schemas)
+// ============================================================================
+
+// --- Process Note ---
+export interface ProcessNoteRequest {
+  name: string;
+  episode_body: string;
+  source_description?: string;
+  reference_time?: string; // ISO datetime string
+  use_para_entities?: boolean;
+}
+
+export interface ProcessNoteResponse {
+  success: boolean;
+  episode_uuid?: string;
+  nodes_count: number;
+  edges_count: number;
+  error?: string;
+}
+
+// --- Get Episodic ---
+export interface GetEpisodicResponse {
+  success: boolean;
+  episodic?: EpisodicNode;
+  error?: string;
+}
+
+export interface EpisodicNode {
+  uuid: string;
+  name: string;
+  content?: string;
+  created_at: string;
+  valid_at: string;
+  source_description?: string;
+  [key: string]: any; // Allow additional properties
+}
+
+// --- List Episodics ---
+export interface ListEpisodicResponse {
+  success: boolean;
+  episodics: EpisodicNode[];
+  count: number;
+  error?: string;
+}
+
+// --- Create Episode ---
+export interface CreateEpisodeRequest {
+  name: string;
+  content: string;
+  source_description?: string;
+  reference_time?: string;
+  file_path?: string;
+  frontmatter?: Record<string, any>;
+}
+
+export interface CreateEpisodeResponse {
+  success: boolean;
+  uuid?: string;
+  created_at?: string;
+  error?: string;
+}
+
+// --- PARA Entity ---
+export interface CreateParaEntityRequest {
+  para_type: 'Project' | 'Area' | 'Resource' | 'Archive';
+  name: string;
+  summary?: string;
+  group_id?: string;
+  file_path?: string;
+  attributes?: Record<string, any>;
+}
+
+export interface CreateParaEntityResponse {
+  success: boolean;
+  uuid?: string;
+  para_type?: string;
+  name?: string;
+  created_at?: string;
+  error?: string;
+}
+
+export interface ParaEntity {
+  uuid: string;
+  name: string;
+  para_type: string;
+  created_at?: string;
+  summary?: string;
+  attributes: Record<string, any>;
+}
+
+export interface ListParaEntitiesResponse {
+  success: boolean;
+  entities: ParaEntity[];
+  count: number;
+  error?: string;
+}
+
+// --- Link Entity-Episode ---
+export interface LinkEntityEpisodeRequest {
+  episodic_uuid: string;
+  entity_uuid: string;
+  created_at?: string;
+}
+
+export interface LinkEntityEpisodeResponse {
+  success: boolean;
+  edge_uuid?: string;
+  episodic_uuid?: string;
+  entity_uuid?: string;
+  created_at?: string;
+  error?: string;
+}
+
+// --- Process Existing Episode ---
+export interface ProcessExistingEpisodeRequest {
+  episodic_uuid: string;
+  update_communities?: boolean;
+}
+
+export interface ProcessExistingEpisodeResponse {
+  success: boolean;
+  episode_uuid?: string;
+  nodes_count: number;
+  edges_count: number;
+  episodic_edges_count: number;
+  para_entities_updated: string[];
+  error?: string;
+}
+
+// --- Make Suggestions ---
+export interface MakeSuggestionsRequest {
+  episodic_uuid: string;
+  limit?: number; // 1-50, default 10
+  min_score?: number; // 0.0-1.0, default 0.0
+}
+
+export interface ParaSuggestion {
+  uuid: string;
+  name: string;
+  para_type: string;
+  summary: string;
+  score: number;
+  attributes: Record<string, any>;
+}
+
+export interface MakeSuggestionsResponse {
+  success: boolean;
+  episodic_uuid?: string;
+  suggestions: ParaSuggestion[];
+  count: number;
+  error?: string;
+}
+
+// ============================================================================
+// API Error Class
+// ============================================================================
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public response?: any
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+// ============================================================================
+// Generic Fetch Helper
+// ============================================================================
+
+async function fetchJson<T>(
+  url: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new ApiError(
+      `API request failed: ${response.statusText}`,
+      response.status,
+      errorText
+    );
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// API Functions
+// ============================================================================
+
+/**
+ * Process a note directly through Graphiti with full LLM pipeline
+ */
+export async function processNote(
+  request: ProcessNoteRequest
+): Promise<ProcessNoteResponse> {
+  return fetchJson<ProcessNoteResponse>(getApiUrl('/process-note'), {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * Process an existing episodic node with entity extraction
+ */
+export async function processExistingEpisode(
+  request: ProcessExistingEpisodeRequest
+): Promise<ProcessExistingEpisodeResponse> {
+  return fetchJson<ProcessExistingEpisodeResponse>(
+    getApiUrl('/process-existing-episode'),
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }
+  );
+}
+
+/**
+ * Get a single episodic by UUID or name
+ */
+export async function getEpisodic(params: {
+  uuid?: string;
+  name?: string;
+}): Promise<GetEpisodicResponse> {
+  const searchParams = new URLSearchParams();
+  if (params.uuid) searchParams.set('uuid', params.uuid);
+  if (params.name) searchParams.set('name', params.name);
+
+  return fetchJson<GetEpisodicResponse>(
+    getApiUrl(`/episodic?${searchParams.toString()}`)
+  );
+}
+
+/**
+ * List all episodic nodes
+ */
+export async function listEpisodics(params?: {
+  limit?: number;
+  skip?: number;
+}): Promise<ListEpisodicResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.limit) searchParams.set('limit', params.limit.toString());
+  if (params?.skip) searchParams.set('skip', params.skip.toString());
+
+  const query = searchParams.toString();
+  return fetchJson<ListEpisodicResponse>(
+    getApiUrl(`/episodics${query ? `?${query}` : ''}`)
+  );
+}
+
+/**
+ * Create a lightweight episodic node without full processing
+ */
+export async function createEpisode(
+  request: CreateEpisodeRequest
+): Promise<CreateEpisodeResponse> {
+  return fetchJson<CreateEpisodeResponse>(getApiUrl('/create-episode'), {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * Create a PARA entity (Project/Area/Resource/Archive)
+ */
+export async function createParaEntity(
+  request: CreateParaEntityRequest
+): Promise<CreateParaEntityResponse> {
+  return fetchJson<CreateParaEntityResponse>(getApiUrl('/para-entity'), {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * List PARA entities with optional filtering
+ */
+export async function listParaEntities(params?: {
+  limit?: number;
+  skip?: number;
+  para_types?: string[]; // e.g., ['Project', 'Area']
+}): Promise<ListParaEntitiesResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.limit) searchParams.set('limit', params.limit.toString());
+  if (params?.skip) searchParams.set('skip', params.skip.toString());
+  if (params?.para_types) {
+    params.para_types.forEach((type) =>
+      searchParams.append('para_types', type)
+    );
+  }
+
+  const query = searchParams.toString();
+  return fetchJson<ListParaEntitiesResponse>(
+    getApiUrl(`/para-entities${query ? `?${query}` : ''}`)
+  );
+}
+
+/**
+ * Link an entity to an episode (create MENTIONS relationship)
+ */
+export async function linkEntityToEpisode(
+  request: LinkEntityEpisodeRequest
+): Promise<LinkEntityEpisodeResponse> {
+  return fetchJson<LinkEntityEpisodeResponse>(
+    getApiUrl('/link-entity-episode'),
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }
+  );
+}
+
+/**
+ * Get relevant PARA entity suggestions for an episodic node
+ * Uses hybrid search (BM25 + vector similarity)
+ */
+export async function makeSuggestions(
+  request: MakeSuggestionsRequest
+): Promise<MakeSuggestionsResponse> {
+  return fetchJson<MakeSuggestionsResponse>(getApiUrl('/make-suggestions'), {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+// ============================================================================
+// Export all
+// ============================================================================
+
+export const api = {
+  processNote,
+  processExistingEpisode,
+  getEpisodic,
+  listEpisodics,
+  createEpisode,
+  createParaEntity,
+  listParaEntities,
+  linkEntityToEpisode,
+  makeSuggestions,
+};
+
+export default api;
