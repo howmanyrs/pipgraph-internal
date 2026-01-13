@@ -104,8 +104,10 @@ Backend development tasks and roadmap for PipGraph.
 - [x] Test suite setup (pytest with markers)
 - [x] Configuration management with pydantic-settings
 - [x] CLI utilities for manual testing
-- [x] **LangGraph PARA workflow implementation**
-  - ✅ State machine with interrupt/resume support
-  - ✅ REST API endpoints for workflow management
-  - ✅ Cascade auto-resolution for similar suggestions
-  - ✅ Mock services for development/testing
+- [x] **LangGraph PARA workflow** (REMOVED 2026-01-13)
+  - ~~State machine with interrupt/resume support~~
+  - ~~REST API endpoints for workflow management~~
+  - ~~Cascade auto-resolution for similar suggestions~~
+  - ~~Mock services for development/testing~~
+  - Replaced with direct `/api/v1/dev/make-suggestions` endpoint
+  - Simplified architecture without state machine complexity

@@ -13,9 +13,6 @@ logging.basicConfig(
 
 # # DEBUG только для модулей приложения
 # if log_level == "DEBUG":
-logging.getLogger("app.api.endpoints.suggestions").setLevel(logging.DEBUG)
-logging.getLogger("app.api.endpoints.workflow").setLevel(logging.DEBUG)
-logging.getLogger("app.workflows").setLevel(logging.DEBUG)
 logging.getLogger("app.services").setLevel(logging.DEBUG)
 logging.getLogger("app.crud").setLevel(logging.DEBUG)
 
@@ -26,16 +23,12 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 print(f"🔧 Logging level set to: {log_level}")
-from app.api.endpoints import workflow as workflow_endpoints
-from app.api.endpoints import suggestions
 from app.api.endpoints import dev
 
 
 app = FastAPI(title="PipGraph Backend")
 
 # REST API роутеры
-app.include_router(workflow_endpoints.router, prefix="/api/v1")
-app.include_router(suggestions.router, prefix="/api/v1")
 app.include_router(dev.router, prefix="/api/v1")
 
 @app.get("/")

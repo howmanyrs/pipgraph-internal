@@ -7,7 +7,6 @@ Exports all Pydantic models for:
 """
 
 from app.models.para_entities import Project, Area, Resource, Archive
-from app.models.proposal import PARACandidate, PARAProposal, UserDecisionPayload
 from app.models.entity import ExtractedCandidate
 from app.models.nodes import PipGraphEpisodicNode, PipGraphEntityNode
 
@@ -17,10 +16,6 @@ __all__ = [
     "Area",
     "Resource",
     "Archive",
-    # Proposals
-    "PARACandidate",
-    "PARAProposal",
-    "UserDecisionPayload",
     # Extracted entities
     "ExtractedCandidate",
     # Graphiti node wrappers

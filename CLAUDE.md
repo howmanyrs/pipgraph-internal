@@ -48,58 +48,20 @@ uvicorn app.api.main:app --reload
 
 ## Backend Architecture
 
-**Layered design**: API → Services/Workflows → CRUD → Database
+**Layered design**: API → Services → CRUD → Database
 
 - **API Layer**: REST endpoints, Pydantic validation
-- **Workflow Layer**: LangGraph state machine with interrupt/resume
 - **Service Layer**: Business logic, LLM orchestration
 - **CRUD Layer**: Neo4j operations, Cypher queries
 
+### Available Endpoints
 
-## Workflow System (PARA)
-
-The backend implements a LangGraph-based workflow for PARA (Projects/Areas/Resources/Archive) classification:
-
-### Key Components
-
-- **Mock Services** (`app/services/mocks/`) - Deterministic mocks for testing without LLM
-- **Proposal Manager** (`app/services/proposal_manager.py`) - Generates PARA suggestions
-- **Cascade Service** (`app/services/cascade_service.py`) - Auto-resolves similar suggestions
-- **LangGraph Workflow** (`app/workflows/para_workflow.py`) - State machine with interrupt/resume
-
-### REST API Endpoints
-
-```bash
-# Workflow management
-POST /api/v1/workflow/start          # Start new workflow
-GET  /api/v1/workflow/{id}/status    # Get status
-POST /api/v1/workflow/{id}/resume    # Resume with answer
-
-# Suggestions
-GET  /api/v1/workflow/{id}/suggestions  # Get pending suggestions
-POST /api/v1/suggestion/{id}/decision   # Submit decision
-
-# Inbox
-GET  /api/v1/inbox/suggestions       # All pending suggestions
-GET  /api/v1/inbox/count             # Count
-```
-
-### Cascade Feature
-
-When user confirms a suggestion, the system automatically resolves similar suggestions:
-- Threshold-based: confidence > 0.85 auto-resolves
-- Uses Neo4j as source of truth for relationships
-- Returns list of auto-resolved items in response
-
-### Mock Implementation
-
-For development/testing, mocks replace LLM calls:
-- `mock_classifier.py` - L1 PARA type classification
-- `mock_proposal_generator.py` - L2 proposal generation
-- `mock_graphiti.py` - L3 entity extraction
-- `mock_cascade.py` - Cascade candidate finding
-
-Switch between mock/real via imports in `app/services/para/__init__.py`.
+All functionality is exposed through `/api/v1/dev` endpoints:
+- `POST /dev/process-note` - Process note with full LLM pipeline
+- `GET /dev/episodic` - Retrieve episodic nodes
+- `POST /dev/para-entity` - Create PARA entities
+- `POST /dev/make-suggestions` - Hybrid search for relevant entities
+- See `backend/app/api/endpoints/dev.py` for complete list
 
 ## Configuration
 

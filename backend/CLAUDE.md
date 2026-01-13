@@ -8,9 +8,8 @@ The system does not modify the body of user notes. Instead, it builds an externa
 ## Core Philosophy
 
 1.  **Non-Destructive Processing**: The text content of notes is sacred. The system reads notes but only writes to a dedicated metadata section (YAML) or the external database.
-2.  **Human-in-the-Loop (HITL)**: AI is a proposer, not a decider. The system classifies notes and suggests links with confidence scores. High-confidence actions may be automated, but ambiguous ones require explicit user confirmation via an "Inbox" workflow.
-3.  **Graph-First Structure**: Information is stored as nodes (Episodes, Entities, PARA Containers) and edges (Relationships), enabling complex semantic queries that flat file searches cannot handle.
-4.  **Mock-First Development**: The architecture supports swapping real AI services with deterministic mocks to ensure logical stability and rapid testing before incurring LLM costs.
+2.  **Graph-First Structure**: Information is stored as nodes (Episodes, Entities, PARA Containers) and edges (Relationships), enabling complex semantic queries that flat file searches cannot handle.
+3.  **Direct Processing**: The system provides direct REST API access to LLM-powered processing and hybrid search, without complex workflow orchestration.
 
 ## Business Logic & Methodology
 
@@ -23,22 +22,11 @@ The system organizes knowledge based on the PARA methodology by Tiago Forte. Eve
 -   **Inbox**: The default holding area for unclassified content.
 
 ### 2. The Processing Pipeline
-Data flows through a multi-stage pipeline:
+Data flows through a direct processing pipeline:
 1.  **Ingestion**: A note is received as an "Episode" (an event in time).
-2.  **L1 Classification**: The system determines the note type (e.g., Meeting Note, Idea, Fact) and PARA context.
-3.  **L2 Proposal Generation**: AI suggests links to existing containers (e.g., "Link to Project Alpha") or property updates (e.g., "Rename Project Alpha").
-4.  **User Decision (Intervention)**:
-    *   High confidence (>95%) -> Auto-link.
-    *   Low confidence -> Create a "Suggestion" in the Inbox.
-    *   **Cascade Effect**: If a user confirms a suggestion, similar pending suggestions for other notes are auto-resolved.
-5.  **L3 Entity Extraction**: Once context is confirmed, the system extracts granular entities (Tasks, Concepts, Persons) from the text, using the confirmed context to improve accuracy.
-
-### 3. Granular Suggestions
-Unlike systems that make binary choices, PipGraph generates atomic suggestions. A single note might generate:
--   A suggestion to link to a Project.
--   A suggestion to update the Project's status.
--   A suggestion to extract a specific task.
-The user can accept or reject these individually.
+2.  **Entity Extraction**: The system extracts entities (Tasks, Concepts, Persons, Technologies) from the text using LLM.
+3.  **Graph Storage**: Extracted entities are stored in Neo4j with relationships to the Episode.
+4.  **Hybrid Search**: When needed, the system can find relevant PARA entities using BM25 + vector similarity search.
 
 ## Key Features
 
@@ -96,8 +84,8 @@ edge = await manager.link_entity_to_episode(episodic_uuid, entity_uuid)
 **Legacy CRUD Classes (REMOVED):**
 - ~~`EpisodicCRUD`~~ - Removed, use `PipGraphManager`
 - ~~`PARAContainerCRUD`~~ - Removed, use `PipGraphManager`
-- `RelationshipCRUD` - Still exists for `:SUGGESTS` and `:IS_PART_OF` relationships
-- `EntityCRUD` - Still exists for low-level entity queries
+- `RelationshipCRUD` - Core CRUD for relationship management
+- `EntityCRUD` - Core CRUD for entity queries
 
 ### Schema Consistency
 
@@ -110,7 +98,6 @@ All nodes created by `PipGraphManager` use **Graphiti schema**:
 **Never create nodes manually** - always use PipGraphManager to ensure schema consistency.
 
 ## Documentation Structure
-For technical implementation details, refer to the `.claude/skills/` directory:
+For technical implementation details, refer to the codebase:
 -   **Architecture & Navigation**: Folder structure, layers, and key components.
--   **Workflows**: Deep dive into LangGraph state machines and decision logic.
 -   **Coding Standards**: Testing, configuration, and patterns.

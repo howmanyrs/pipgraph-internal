@@ -13,10 +13,6 @@ from app.services.graphiti.pipgraph_manager import (
     PipGraphManager,
     AddEpisodeResults,
 )
-from app.workflows.decision_processing import (
-    process_user_decision,
-    extract_entities_with_context,
-)
 
 __all__ = [
     # Client
@@ -25,7 +21,4 @@ __all__ = [
     # Manager
     "PipGraphManager",
     "AddEpisodeResults",
-    # Workflow helpers
-    "process_user_decision",
-    "extract_entities_with_context",
 ]
