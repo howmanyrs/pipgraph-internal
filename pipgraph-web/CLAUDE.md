@@ -37,7 +37,7 @@ npm run build            # Production build
 npm run lint             # ESLint check
 ```
 
-**Backend dependency**: Ensure `backend/` is running at `http://localhost:8000` (or configure via environment variables).
+**Backend dependency**: Ensure `backend/` is running at `http://localhost:8001` (or configure via environment variables).
 
 ## Project Structure
 
