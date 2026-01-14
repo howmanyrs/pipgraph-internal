@@ -546,3 +546,25 @@ class ListUnlinkedEpisodicResponse(BaseModel):
             ]
         }
     }
+
+
+class DeleteNodeResponse(BaseModel):
+    """Response from node deletion."""
+
+    success: bool = Field(..., description="Whether deletion was successful")
+    node_uuid: Optional[str] = Field(None, description="UUID of the deleted node")
+    node_type: Optional[str] = Field(None, description="Type of the deleted node (Episodic or Entity)")
+    error: Optional[str] = Field(None, description="Error message if deletion failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "node_uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "node_type": "Episodic",
+                    "error": None
+                }
+            ]
+        }
+    }

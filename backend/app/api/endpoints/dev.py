@@ -30,6 +30,7 @@ from app.api.schemas.dev import (
     MakeSuggestionsResponse,
     ParaSuggestion,
     ListUnlinkedEpisodicResponse,
+    DeleteNodeResponse,
 )
 from app.services.graphiti import get_graphiti, PipGraphManager
 
@@ -931,5 +932,70 @@ async def make_suggestions(request: MakeSuggestionsRequest) -> MakeSuggestionsRe
             episodic_uuid=None,
             suggestions=[],
             count=0,
+            error=str(e),
+        )
+
+
+@router.delete("/node/{node_uuid}", response_model=DeleteNodeResponse)
+async def delete_node(node_uuid: str) -> DeleteNodeResponse:
+    """
+    Delete a node (Episodic or Entity) by UUID.
+
+    This endpoint automatically detects the node type (Episodic or Entity)
+    and deletes it along with all its relationships using DETACH DELETE.
+
+    Relationships deleted:
+    - For Episodic: MENTIONS edges to entities
+    - For Entity: MENTIONS edges from episodics, RELATES_TO edges to other entities
+
+    Use cases:
+    - Remove incorrectly created nodes
+    - Clean up test data
+    - Delete obsolete episodics or entities
+
+    WARNING: This operation is irreversible. All relationships will be permanently deleted.
+
+    Path Parameters:
+    - node_uuid: UUID of the node to delete (Episodic or Entity)
+
+    Example:
+        DELETE /api/v1/dev/node/550e8400-e29b-41d4-a716-446655440000
+
+    Returns:
+        DeleteNodeResponse with deletion status and node type
+    """
+    try:
+        logger.info(f"[delete_node] Deleting node: {node_uuid}")
+
+        # Get Graphiti instance and manager
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        # Delete node (automatically detects type)
+        success, node_type = await manager.delete_node(node_uuid)
+
+        if success:
+            logger.info(f"[delete_node] Successfully deleted {node_type} node: {node_uuid}")
+            return DeleteNodeResponse(
+                success=True,
+                node_uuid=node_uuid,
+                node_type=node_type,
+                error=None,
+            )
+        else:
+            logger.warning(f"[delete_node] Node not found: {node_uuid}")
+            return DeleteNodeResponse(
+                success=False,
+                node_uuid=None,
+                node_type=None,
+                error=f"Node not found: {node_uuid}",
+            )
+
+    except Exception as e:
+        logger.error(f"[delete_node] Error: {e}", exc_info=True)
+        return DeleteNodeResponse(
+            success=False,
+            node_uuid=None,
+            node_type=None,
             error=str(e),
         )

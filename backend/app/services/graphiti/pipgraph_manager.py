@@ -1375,6 +1375,59 @@ class PipGraphManager:
                 logger.warning(f"[delete_episodic] Not found: uuid={episodic_uuid}")
                 return False
 
+    async def delete_node(self, node_uuid: str) -> tuple[bool, str | None]:
+        """
+        Delete a node (Episodic or Entity) by UUID, automatically detecting its type.
+
+        This is a universal deletion method that:
+        1. Queries the node to determine its type (Episodic or Entity)
+        2. Deletes the node and all its relationships using DETACH DELETE
+        3. Returns success status and detected node type
+
+        Args:
+            node_uuid: UUID of the node to delete (Episodic or Entity)
+
+        Returns:
+            Tuple of (success: bool, node_type: str | None)
+            - success: True if deleted, False if not found
+            - node_type: "Episodic", "Entity", or None if not found
+
+        Warning:
+            This operation is irreversible. All relationships will be deleted via DETACH DELETE.
+
+        Example:
+            >>> success, node_type = await manager.delete_node(
+            ...     node_uuid="550e8400-e29b-41d4-a716-446655440000"
+            ... )
+            >>> print(f"Deleted {node_type}: {success}")
+        """
+        # Query to detect node type and delete in one transaction
+        # Checks for both Episodic and Entity labels
+        query = """
+        MATCH (n {uuid: $uuid})
+        WHERE n:Episodic OR n:Entity
+        WITH n,
+             CASE
+                WHEN n:Episodic THEN 'Episodic'
+                WHEN n:Entity THEN 'Entity'
+                ELSE NULL
+             END as node_type
+        DETACH DELETE n
+        RETURN node_type, 1 as deleted_count
+        """
+
+        async with self.driver.session() as session:
+            result = await session.run(query, uuid=node_uuid)
+            record = await result.single()
+
+            if record and record["deleted_count"] > 0:
+                node_type = record["node_type"]
+                logger.info(f"[delete_node] Deleted {node_type} node: uuid={node_uuid}")
+                return True, node_type
+            else:
+                logger.warning(f"[delete_node] Node not found: uuid={node_uuid}")
+                return False, None
+
     # ============================================================================
     # Entity CRUD Methods
     # ============================================================================
