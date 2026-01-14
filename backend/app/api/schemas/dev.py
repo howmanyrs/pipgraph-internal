@@ -161,8 +161,12 @@ class GetEpisodicsByEntityResponse(BaseModel):
 class CreateEpisodeRequest(BaseModel):
     """Request to create an Episodic node without full processing."""
 
-    name: str = Field(..., description="Name/title of the episode (note path or title)")
     content: str = Field(..., description="Content of the note")
+    name: Optional[str] = Field(
+        None,
+        description="Name/title of the episode. If not provided, will be auto-generated "
+                   "from content using LLM (recommended for better naming consistency)"
+    )
     source_description: Optional[str] = Field(
         "Obsidian note",
         description="Description of the episode source"
@@ -201,6 +205,7 @@ class CreateEpisodeResponse(BaseModel):
 
     success: bool = Field(..., description="Whether creation was successful")
     uuid: Optional[str] = Field(None, description="UUID of created episode")
+    name: Optional[str] = Field(None, description="Name of the episode (auto-generated or provided)")
     created_at: Optional[datetime] = Field(None, description="Timestamp when episode was created")
     error: Optional[str] = Field(None, description="Error message if creation failed")
 
@@ -210,6 +215,7 @@ class CreateEpisodeResponse(BaseModel):
                 {
                     "success": True,
                     "uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Project Planning Meeting",
                     "created_at": "2024-01-15T10:00:00Z",
                     "error": None
                 }
@@ -295,6 +301,29 @@ class LinkEntityEpisodeRequest(BaseModel):
     }
 
 
+class LinkParaNodesRequest(BaseModel):
+    """Request to create a BELONGS_TO relationship between two PARA Entity nodes."""
+
+    source_entity_uuid: str = Field(..., description="UUID of source Entity (child)")
+    target_entity_uuid: str = Field(..., description="UUID of target Entity (parent)")
+    created_at: Optional[datetime] = Field(
+        None,
+        description="Optional timestamp for the relationship (defaults to current time)"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "source_entity_uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "target_entity_uuid": "660e8400-e29b-41d4-a716-446655440111",
+                    "created_at": None
+                }
+            ]
+        }
+    }
+
+
 class LinkEntityEpisodeResponse(BaseModel):
     """Response from MENTIONS relationship creation."""
 
@@ -313,6 +342,32 @@ class LinkEntityEpisodeResponse(BaseModel):
                     "edge_uuid": "770e8400-e29b-41d4-a716-446655440222",
                     "episodic_uuid": "550e8400-e29b-41d4-a716-446655440000",
                     "entity_uuid": "660e8400-e29b-41d4-a716-446655440111",
+                    "created_at": "2024-01-08T10:30:00Z",
+                    "error": None
+                }
+            ]
+        }
+    }
+
+
+class LinkParaNodesResponse(BaseModel):
+    """Response from BELONGS_TO relationship creation."""
+
+    success: bool = Field(..., description="Whether link creation was successful")
+    edge_uuid: Optional[str] = Field(None, description="UUID of created BELONGS_TO edge")
+    source_entity_uuid: Optional[str] = Field(None, description="UUID of source Entity (child)")
+    target_entity_uuid: Optional[str] = Field(None, description="UUID of target Entity (parent)")
+    created_at: Optional[datetime] = Field(None, description="Timestamp when relationship was created")
+    error: Optional[str] = Field(None, description="Error message if creation failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "edge_uuid": "770e8400-e29b-41d4-a716-446655440333",
+                    "source_entity_uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "target_entity_uuid": "660e8400-e29b-41d4-a716-446655440111",
                     "created_at": "2024-01-08T10:30:00Z",
                     "error": None
                 }

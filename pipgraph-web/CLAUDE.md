@@ -15,7 +15,7 @@
 
 ### Styling & Components
 - **Tailwind CSS v4** (@tailwindcss/postcss)
-- **shadcn/ui** (New York style, via MCP server)
+- **shadcn/ui** (New York style, **use MCP tools for all operations** - see `SHADCN.md`)
 - **lucide-react** icons (preferred for all icons)
 - **class-variance-authority** + **clsx** + **tailwind-merge** for dynamic styles
 
@@ -46,13 +46,26 @@ pipgraph-web/
 ├── src/
 │   ├── app/                    # Next.js App Router pages
 │   │   ├── layout.tsx         # Root layout (providers, fonts)
-│   │   ├── page.tsx           # Home page
+│   │   ├── page.tsx           # Home page (Inbox with note form)
 │   │   └── globals.css        # Global styles + Tailwind base
 │   ├── components/            # React components
-│   │   └── ui/                # shadcn/ui components (auto-generated via MCP)
+│   │   ├── ui/                # shadcn/ui components
+│   │   │   ├── button.tsx     # Button component
+│   │   │   ├── card.tsx       # Card container
+│   │   │   ├── label.tsx      # Form labels
+│   │   │   ├── textarea.tsx   # Multi-line input
+│   │   │   ├── sidebar.tsx    # Sidebar navigation
+│   │   │   ├── sonner.tsx     # Toast notifications
+│   │   │   └── skeleton.tsx   # Loading placeholders
+│   │   ├── app-sidebar.tsx    # Application sidebar (Inbox nav)
+│   │   ├── note-creation-form.tsx  # Note creation form
+│   │   └── providers.tsx      # Client-side providers wrapper
 │   ├── lib/                   # Utilities
+│   │   ├── api.ts             # Typed API client for backend
 │   │   └── utils.ts           # cn() helper for className merging
-│   └── hooks/                 # Custom React hooks (create as needed)
+│   ├── hooks/                 # Custom React hooks
+│   │   └── use-create-episode.ts  # TanStack Query mutation for episodes
+│   └── .todo/                 # Implementation plans and tasks
 ├── public/                    # Static assets
 ├── components.json            # shadcn/ui configuration
 ├── tsconfig.json              # TypeScript config
@@ -129,38 +142,77 @@ const mutation = useMutation({
 });
 ```
 
-## Working with shadcn/ui via MCP Server
+## Working with shadcn/ui Components
 
-**IMPORTANT**: This project uses an MCP server for shadcn/ui components. Claude Code has direct access to component source via MCP tools.
+### Installed Components
 
-### Adding Components
+The following shadcn/ui components are already available in `src/components/ui/`:
 
-When you need a shadcn component (e.g., Button, Card, Dialog):
+- **button.tsx** - Button with variants (default, destructive, outline, ghost, link)
+- **card.tsx** - Card container with header, content, footer
+- **label.tsx** - Form field labels
+- **textarea.tsx** - Multi-line text input
+- **sidebar.tsx** - Sidebar navigation with context provider
+- **sonner.tsx** - Toast notifications (uses `sonner` library)
+- **skeleton.tsx** - Loading state placeholders
 
-1. **Fetch via MCP tool**: Use `mcp__shadcn-ui-mcp__get_component` to get source code
-2. **Place in `src/components/ui/`**: Save as `{component-name}.tsx`
-3. **Import and use**: Import from `@/components/ui/{component-name}`
+### Adding New Components
 
+**IMPORTANT: Use MCP Server as PRIMARY method** for working with shadcn/ui components.
+
+This project has an active shadcn MCP server configured. **Always use MCP tools** for browsing, searching, and adding components.
+
+#### MCP Workflow (RECOMMENDED)
+
+**1. Search for components:**
 ```typescript
-// Example: Adding a Button component
-import { mcp__shadcn_ui_mcp__get_component } from 'mcp-tools';
-
-// Fetch button source
-const buttonSource = await mcp__shadcn_ui_mcp__get_component({ componentName: 'button' });
-
-// Save to src/components/ui/button.tsx
-// Then use:
-import { Button } from '@/components/ui/button';
+// Search by keyword
+mcp__shadcn__search_items_in_registries({
+  registries: ["@shadcn"],
+  query: "dialog",
+  limit: 5
+})
 ```
 
-### Available MCP Tools
+**2. View component details:**
+```typescript
+// Get component info and dependencies
+mcp__shadcn__view_items_in_registries({
+  items: ["@shadcn/dialog"]
+})
+```
 
-- `mcp__shadcn-ui-mcp__list_components` - List all available components
-- `mcp__shadcn-ui-mcp__get_component` - Get component source code
-- `mcp__shadcn-ui-mcp__get_component_demo` - Get usage examples
-- `mcp__shadcn-ui-mcp__get_component_metadata` - Get component info
-- `mcp__shadcn-ui-mcp__list_blocks` - List pre-built UI blocks (e.g., `dashboard-01`, `login-02`)
-- `mcp__shadcn-ui-mcp__get_block` - Get full block source with components
+**3. Get usage examples:**
+```typescript
+// Find demo/example code
+mcp__shadcn__get_item_examples_from_registries({
+  registries: ["@shadcn"],
+  query: "dialog-demo"
+})
+```
+
+**4. Get installation command:**
+```typescript
+// Get the CLI command to add components
+mcp__shadcn__get_add_command_for_items({
+  items: ["@shadcn/dialog", "@shadcn/alert-dialog"]
+})
+// Returns: npx shadcn@latest add @shadcn/dialog @shadcn/alert-dialog
+```
+
+**Full shadcn/ui documentation**: See `SHADCN.md` in this directory for complete component catalog and guides.
+
+#### Manual Installation (Fallback)
+
+If MCP server is unavailable:
+
+1. Visit https://ui.shadcn.com/docs/components/{component-name}
+2. Copy component source code
+3. Save to `src/components/ui/{component-name}.tsx`
+4. Install required dependencies (usually @radix-ui packages)
+5. Add `'use client'` directive if component uses React hooks
+
+**Important**: All components using `createContext`, `useState`, or other React hooks MUST have `'use client'` at the top.
 
 ### Component Configuration
 
@@ -179,7 +231,7 @@ import { Button } from '@/components/ui/button';
 - Three similar lines > complex utility function
 - Don't add error handling for impossible scenarios
 
-### 2. **Type Safety First**
+### 2. **Type Safety First**Create new notes and extract entities with A
 - Use Zod schemas for form validation
 - Derive TypeScript types from Zod: `type FormData = z.infer<typeof schema>`
 - Mirror backend Pydantic models in frontend Zod schemas when possible
@@ -231,6 +283,104 @@ import ReactMarkdown from 'react-markdown';
   <ReactMarkdown>{noteContent}</ReactMarkdown>
 </article>
 ```
+
+## Using Existing Components
+
+### API Client
+
+The typed API client is available at `src/lib/api.ts`. All backend endpoints are typed:
+
+```typescript
+import { createEpisode, listEpisodics } from '@/lib/api';
+
+// Create episode (fast, no LLM)
+const result = await createEpisode({
+  name: 'note-2025-01-14.md',
+  content: 'My note content',
+  source_description: 'Web UI',
+});
+
+// List all episodics
+const { episodics, count } = await listEpisodics({ limit: 100 });
+```
+
+### Custom Hooks
+
+**useCreateEpisode** - TanStack Query mutation for creating episodes:
+
+```typescript
+'use client';
+import { useCreateEpisode } from '@/hooks/use-create-episode';
+import { toast } from 'sonner';
+
+function MyComponent() {
+  const { mutate: createEpisode, isPending } = useCreateEpisode();
+
+  const handleSubmit = () => {
+    createEpisode(
+      { name: 'note.md', content: 'Content', source_description: 'Web' },
+      {
+        onSuccess: (response) => {
+          toast.success('Note saved!');
+        },
+        onError: (error) => {
+          toast.error('Failed to save', { description: error.message });
+        },
+      }
+    );
+  };
+
+  return <button onClick={handleSubmit} disabled={isPending}>Save</button>;
+}
+```
+
+### Toast Notifications
+
+Use Sonner for toast notifications:
+
+```typescript
+'use client';
+import { toast } from 'sonner';
+
+// Success toast
+toast.success('Note saved successfully', {
+  description: 'Episode UUID: 12345...',
+});
+
+// Error toast
+toast.error('Failed to save note', {
+  description: 'Network error',
+});
+
+// Loading toast
+const toastId = toast.loading('Saving...');
+// Later: toast.dismiss(toastId);
+```
+
+### Sidebar Navigation
+
+Current sidebar structure in `AppSidebar`:
+
+```typescript
+<Sidebar>
+  <SidebarContent>
+    <SidebarGroup>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton asChild>
+            <Link href="/">
+              <Inbox />
+              <span>Inbox</span>
+            </Link>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </SidebarGroup>
+  </SidebarContent>
+</Sidebar>
+```
+
+To add new navigation items, add more `SidebarMenuItem` components.
 
 ## Common Tasks
 
@@ -327,11 +477,29 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ## Common Pitfalls
 
-1. **Forgetting `'use client'`**: If you use hooks (useState, useQuery), add `'use client'` at top.
+1. **Forgetting `'use client'`**: If you use hooks (useState, useQuery, useContext) or `createContext`, add `'use client'` at top.
+   - **Critical**: Components using `React.createContext` MUST have `'use client'` directive
+   - Error: `createContext only works in Client Components`
+
 2. **Mixing server/client**: Server components can't use client-only hooks. Compose them correctly.
+   - Server components (default): Good for static content, data fetching
+   - Client components (`'use client'`): Required for interactivity, state, effects
+
 3. **Not using TanStack Query**: Always use it for API calls. Don't write manual loading states.
-4. **Hardcoded API URLs**: Use environment variables or a centralized config.
+   - Use custom hooks like `useCreateEpisode` for mutations
+   - Use `useQuery` for data fetching with automatic caching
+
+4. **Hardcoded API URLs**: Use environment variables or the typed API client from `src/lib/api.ts`.
+   - Never hardcode `http://localhost:8000` in components
+   - Use `NEXT_PUBLIC_API_URL` in `.env.local`
+
 5. **Skipping Zod validation**: Always validate form inputs. Backend errors are harder to debug.
+   - Use `zodResolver` with React Hook Form
+   - Mirror backend Pydantic schemas in frontend Zod schemas
+
+6. **Incorrect API endpoints**: Backend endpoint is `/dev/episode`, not `/dev/create-episode`.
+   - Always verify against `backend/app/api/endpoints/dev.py`
+   - Use typed API client to avoid typos
 
 ## Integration with Backend
 
@@ -357,20 +525,50 @@ const processNoteSchema = z.object({
 });
 ```
 
-## Next Steps
+## Current Implementation Status
 
-📋 **See `.todo/setup-tasks.md`** for detailed initialization checklist.
+### ✅ Completed Features
 
-Quick overview:
-1. **Setup providers**: Create `QueryClientProvider` in `src/app/layout.tsx`
-2. **Build Inbox view**: List episodics pending classification
-3. **PARA management**: CRUD interface for Projects/Areas/Resources
-4. **Search interface**: Use `/dev/make-suggestions` endpoint
-5. **Note viewer**: Render episodic content with Markdown
+**Infrastructure**:
+- ✅ TanStack Query Provider configured in `src/components/providers.tsx`
+- ✅ Typed API client (`src/lib/api.ts`) for all backend endpoints
+- ✅ shadcn/ui components installed (button, card, textarea, label, sidebar, sonner, skeleton)
+- ✅ Environment configuration (`.env.local` for `NEXT_PUBLIC_API_URL`)
+
+**UI Components**:
+- ✅ Fixed vertical sidebar with navigation (`AppSidebar`)
+- ✅ Note creation form with validation (`NoteCreationForm`)
+- ✅ Toast notifications for user feedback (Sonner)
+- ✅ Custom hook for episode creation (`useCreateEpisode`)
+
+**Current Page**:
+- ✅ **Home (Inbox)** - `/` - Create new notes with fast episode creation (no LLM wait)
+
+### 🚧 Next Steps
+
+📋 **See `.todo/setup-tasks.md`** for detailed task list.
+
+**Immediate priorities**:
+1. **Episodics list view** - Display created notes in Inbox
+2. **PARA entity management** - CRUD interface for Projects/Areas/Resources/Archives
+3. **Search/suggestions interface** - Use `/dev/make-suggestions` endpoint
+4. **Markdown preview** - Render note content with `react-markdown`
+5. **Navigation expansion** - Add more sidebar items (PARA sections, Settings)
+
+### 📝 Implementation Pattern
+
+When adding new features, follow this pattern:
+
+1. **Create custom hook** (if API call needed) in `src/hooks/`
+2. **Create component** in `src/components/`
+3. **Add to page** or create new page in `src/app/`
+4. **Use existing shadcn/ui components** from `src/components/ui/`
+5. **Update documentation** in `.todo/setup-tasks.md`
 
 ## Documentation References
 
 ### Project Documentation
+- **shadcn/ui Guide**: `SHADCN.md` - complete shadcn/ui component catalog and documentation (mirror of https://ui.shadcn.com/llms.txt)
 - **Setup Tasks**: `.todo/setup-tasks.md` - initialization checklist
 - **Backend API**: `backend/app/api/endpoints/dev.py` - all available endpoints
 - **Backend Schemas**: `backend/app/api/schemas/dev.py` - Pydantic models for API
@@ -379,9 +577,36 @@ Quick overview:
 ### External Documentation
 - **Next.js Docs**: https://nextjs.org/docs
 - **TanStack Query**: https://tanstack.com/query/latest/docs/framework/react/overview
-- **shadcn/ui**: https://ui.shadcn.com/ (use MCP server for components)
+- **shadcn/ui**: https://ui.shadcn.com/ (use MCP server for components, see `SHADCN.md` for full reference)
 - **Tailwind CSS**: https://tailwindcss.com/docs
 
 ---
 
-**Golden Rule for Claude Code**: When in doubt, use MCP tools for shadcn components, TanStack Query for data, and keep it simple. This is a prototype, not a production system.
+## Quick Reference Summary
+
+### ✅ What's Working
+- Dev server: `npm run dev` → http://localhost:3000
+- Production build: `npm run build` (working after adding `'use client'` to sidebar)
+- Linting: `npm run lint` (0 errors, 0 warnings)
+- Backend API: Typed client in `src/lib/api.ts`
+- UI: Sidebar navigation + Note creation form + Toast notifications
+
+### 🎯 Key Files to Know
+- **`SHADCN.md`** - Complete shadcn/ui component reference (use with MCP)
+- **`src/lib/api.ts`** - All backend API functions (typed)
+- **`src/components/providers.tsx`** - TanStack Query + Sidebar + Toast providers
+- **`src/hooks/use-create-episode.ts`** - Mutation hook for creating episodes
+- **`src/components/note-creation-form.tsx`** - Main form component
+- **`.todo/setup-tasks.md`** - Completed and pending tasks
+
+### 🚨 Critical Requirements
+1. **Always** use shadcn MCP tools for browsing and adding UI components (see `SHADCN.md`)
+2. **Always** add `'use client'` to components using hooks or createContext
+3. **Always** use TanStack Query for API calls (never raw fetch in components)
+4. **Always** validate forms with Zod + React Hook Form
+5. **Always** use typed API client from `src/lib/api.ts`
+6. **Never** skip error handling - use toast notifications for user feedback
+
+---
+
+**Golden Rule for Claude Code**: When in doubt, use existing patterns from the codebase, TanStack Query for data, and keep it simple. This is a prototype, not a production system.

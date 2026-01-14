@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import settings
 
@@ -27,6 +28,20 @@ from app.api.endpoints import dev
 
 
 app = FastAPI(title="PipGraph Backend")
+
+# CORS настройки для разработки
+# Разрешаем запросы с frontend (localhost:3000) и других источников
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",  # Next.js dev server
+        "http://localhost:3001",  # Alternative port
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],  # Разрешить все методы (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],  # Разрешить все заголовки
+)
 
 # REST API роутеры
 app.include_router(dev.router, prefix="/api/v1")

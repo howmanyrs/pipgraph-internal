@@ -22,6 +22,8 @@ from app.api.schemas.dev import (
     CreateParaEntityResponse,
     LinkEntityEpisodeRequest,
     LinkEntityEpisodeResponse,
+    LinkParaNodesRequest,
+    LinkParaNodesResponse,
     ParaEntityProperty,
     ListParaEntitiesResponse,
     ProcessExistingEpisodeRequest,
@@ -332,25 +334,35 @@ async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse
     - Edge creation
     - Community updates
 
+    The name will be auto-generated from content using LLM if not provided.
+
     Use this for:
     - Fast note ingestion without LLM processing
     - Incremental loading of notes
     - Development and testing
 
-    Example:
+    Example (auto-generate name):
         POST /api/v1/dev/episode
         {
-            "name": "Meeting Notes",
-            "content": "Discussed project timeline...",
+            "content": "Today we discussed the project timeline and decided to push the deadline by 2 weeks...",
             "source_description": "Obsidian note",
             "file_path": "notes/meetings/2024-01-15.md"
+        }
+
+    Example (explicit name):
+        POST /api/v1/dev/episode
+        {
+            "name": "Q1 Planning Meeting",
+            "content": "Discussed project timeline...",
+            "source_description": "Obsidian note"
         }
 
     Returns:
         CreateEpisodeResponse with created episode UUID and timestamp
     """
     try:
-        logger.info(f"[create_episode] Creating episode: {request.name}")
+        name_info = f"name='{request.name}'" if request.name else "auto-generating name"
+        logger.info(f"[create_episode] Creating episode: {name_info}")
 
         # Get Graphiti instance
         graphiti = await get_graphiti()
@@ -360,20 +372,22 @@ async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse
         ref_time = request.reference_time or datetime.now(timezone.utc)
 
         # Create episode without full processing
+        # Note: positional args changed - content comes first now
         episode = await manager.create_episode(
-            name=request.name,
             content=request.content,
             source_description=request.source_description or "Obsidian note",
             reference_time=ref_time,
+            name=request.name,  # Optional - will auto-generate if None
             file_path=request.file_path,
             frontmatter=request.frontmatter,
         )
 
-        logger.info(f"[create_episode] Success: uuid={episode.uuid}")
+        logger.info(f"[create_episode] Success: uuid={episode.uuid}, name='{episode.name}'")
 
         return CreateEpisodeResponse(
             success=True,
             uuid=episode.uuid,
+            name=episode.name,
             created_at=episode.created_at,
             error=None,
         )
@@ -655,6 +669,92 @@ async def link_entity_to_episode(request: LinkEntityEpisodeRequest) -> LinkEntit
             edge_uuid=None,
             episodic_uuid=None,
             entity_uuid=None,
+            created_at=None,
+            error=str(e),
+        )
+
+
+@router.post("/link-para-nodes", response_model=LinkParaNodesResponse)
+async def link_para_nodes(request: LinkParaNodesRequest) -> LinkParaNodesResponse:
+    """
+    Create a BELONGS_TO relationship between two PARA Entity nodes.
+
+    This endpoint creates hierarchical relationships between PARA entities
+    for building organizational structures:
+    - (Project)-[:BELONGS_TO]->(Area)
+    - (Resource)-[:BELONGS_TO]->(Area)
+    - (Area)-[:BELONGS_TO]->(Archive)
+
+    Unlike /link-entity-episode (Episodic->Entity MENTIONS), this creates
+    Entity->Entity BELONGS_TO relationships without Episodic constraints.
+
+    Use this for:
+    - Building PARA hierarchy (Projects nested in Areas, etc.)
+    - Organizing knowledge graph into containers
+    - Creating parent-child relationships between entities
+
+    The BELONGS_TO edge uses MERGE semantics, making it idempotent
+    (safe to call multiple times with same parameters).
+
+    Example:
+        POST /api/v1/dev/link-para-nodes
+        {
+            "source_entity_uuid": "550e8400-e29b-41d4-a716-446655440000",
+            "target_entity_uuid": "660e8400-e29b-41d4-a716-446655440111"
+        }
+
+    Returns:
+        LinkParaNodesResponse with created edge UUID and metadata
+    """
+    try:
+        logger.info(
+            f"[link_para_nodes] Creating BELONGS_TO: "
+            f"{request.source_entity_uuid} -> {request.target_entity_uuid}"
+        )
+
+        # Get Graphiti instance
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        # Create BELONGS_TO relationship
+        edge = await manager.link_para_nodes(
+            source_entity_uuid=request.source_entity_uuid,
+            target_entity_uuid=request.target_entity_uuid,
+            created_at=request.created_at,
+        )
+
+        logger.info(
+            f"[link_para_nodes] Success: Created edge {edge.uuid} "
+            f"({request.source_entity_uuid} -> {request.target_entity_uuid})"
+        )
+
+        return LinkParaNodesResponse(
+            success=True,
+            edge_uuid=edge.uuid,
+            source_entity_uuid=edge.source_node_uuid,
+            target_entity_uuid=edge.target_node_uuid,
+            created_at=edge.created_at,
+            error=None,
+        )
+
+    except ValueError as e:
+        # Handle entity not found validation errors
+        logger.error(f"[link_para_nodes] Validation error: {e}", exc_info=True)
+        return LinkParaNodesResponse(
+            success=False,
+            edge_uuid=None,
+            source_entity_uuid=None,
+            target_entity_uuid=None,
+            created_at=None,
+            error=str(e),
+        )
+    except Exception as e:
+        logger.error(f"[link_para_nodes] Error: {e}", exc_info=True)
+        return LinkParaNodesResponse(
+            success=False,
+            edge_uuid=None,
+            source_entity_uuid=None,
+            target_entity_uuid=None,
             created_at=None,
             error=str(e),
         )
