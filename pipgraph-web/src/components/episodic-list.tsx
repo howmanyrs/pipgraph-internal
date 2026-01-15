@@ -7,9 +7,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 interface EpisodicListProps {
   selectedEntityUuid: string | null;
+  selectedEntityName?: string;
 }
 
-export function EpisodicList({ selectedEntityUuid }: EpisodicListProps) {
+export function EpisodicList({
+  selectedEntityUuid,
+  selectedEntityName,
+}: EpisodicListProps) {
   // Conditionally use different hooks based on selection
   const allEpisodicQuery = useAllEpisodics();
   const filteredEpisodicQuery = useEpisodicsByEntity(
@@ -21,7 +25,7 @@ export function EpisodicList({ selectedEntityUuid }: EpisodicListProps) {
   const query = selectedEntityUuid ? filteredEpisodicQuery : allEpisodicQuery;
   const { data, isLoading, error } = query;
 
-  const heading = selectedEntityUuid ? 'Filtered Notes' : 'All Notes';
+  const heading = selectedEntityName || (selectedEntityUuid ? 'Filtered Notes' : 'All Notes');
 
   if (isLoading) {
     return (

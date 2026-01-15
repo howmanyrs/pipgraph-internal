@@ -17,7 +17,7 @@ export function InboxView() {
   return (
     <div className="flex h-screen">
       {/* Left Panel - PARA Tree with Score Indicators */}
-      <div className="w-[35%] border-r overflow-y-auto bg-background">
+      <div className="w-[25%] min-w-[240px] border-r overflow-y-auto bg-background">
         <ParaTreeWithScores
           suggestions={suggestionsData?.suggestions || []}
           selectedNoteUuid={selectedNoteUuid}
@@ -26,7 +26,7 @@ export function InboxView() {
       </div>
 
       {/* Right Panel - Unlinked Notes List */}
-      <div className="w-[65%] overflow-y-auto bg-background">
+      <div className="w-[75%] overflow-y-auto bg-background">
         <UnlinkedEpisodicList
           selectedNoteUuid={selectedNoteUuid}
           onSelectNote={setSelectedNoteUuid}

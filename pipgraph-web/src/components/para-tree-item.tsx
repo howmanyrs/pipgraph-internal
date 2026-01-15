@@ -54,7 +54,8 @@ export function ParaTreeItem({
   ) : null;
 
   // Checkmark button: render when note is selected (visibility controlled by hover/click CSS)
-  const showCheckmark = selectedNoteUuid !== null;
+  // Check for both null and undefined to ensure button only shows in Inbox view
+  const showCheckmark = selectedNoteUuid != null;
 
   // Button click handler
   const handleLinkClick = (e: React.MouseEvent) => {
