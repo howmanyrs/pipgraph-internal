@@ -89,16 +89,18 @@ const API_PREFIX = '/api/v1/dev';
 |--------|----------|---------|
 | POST | `/dev/process-note` | Process note with full LLM pipeline |
 | POST | `/dev/process-existing-episode` | Re-process existing episodic node |
-| GET | `/dev/episodic?uuid={uuid}` | Get episodic by UUID |
-| GET | `/dev/episodic?name={name}` | Get episodic by name (file path) |
-| GET | `/dev/episodic/list?limit={n}` | List all episodics |
+| GET | `/dev/episodic?note_path={path}` | Get episodic by file path (note name) |
+| GET | `/dev/episodic/list?limit={n}` | List all episodics (ordered by created_at) |
 | GET | `/dev/episodic/unlinked?limit={n}` | List episodics without PARA entity links (Inbox) |
 | GET | `/dev/episodics/by-entity?entity_uuid={uuid}&limit={n}` | Get episodics that mention specific entity |
-| POST | `/dev/episode` | Create lightweight episodic |
+| POST | `/dev/episode` | Create lightweight episodic (auto-generate name if not provided) |
 | POST | `/dev/para-entity` | Create PARA entity (Project/Area/Resource/Archive) |
-| GET | `/dev/para-entity/list` | List PARA entities |
-| POST | `/dev/link-entity-episode` | Link entity to episode |
-| POST | `/dev/make-suggestions` | Hybrid search for relevant PARA entities |
+| GET | `/dev/para-entity/list?limit={n}&para_type={types}` | List PARA entities with optional filtering |
+| POST | `/dev/link-entity-episode` | Link entity to episode (MENTIONS relationship) |
+| POST | `/dev/link-para-nodes` | Link PARA entities (BELONGS_TO hierarchy) |
+| POST | `/dev/make-suggestions` | Hybrid search for relevant PARA entities (BM25 + vector) |
+| DELETE | `/dev/node/{node_uuid}` | Delete node (Episodic or Entity) with all relationships |
+| GET | `/dev/para-tree` | Get hierarchical PARA tree structure (recursive) |
 
 ### TanStack Query Pattern
 
@@ -112,7 +114,7 @@ function EpisodicsList() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['episodics', { limit: 100 }],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/v1/dev/episodics?limit=100`);
+      const res = await fetch(`${API_BASE}/api/v1/dev/episodic/list?limit=100`);
       if (!res.ok) throw new Error('Failed to fetch');
       return res.json();
     },
@@ -413,7 +415,7 @@ export function DataList() {
   const { data, isLoading } = useQuery({
     queryKey: ['items'],
     queryFn: async () => {
-      const res = await fetch('/api/v1/dev/episodics');
+      const res = await fetch('/api/v1/dev/episodic/list');
       return res.json();
     },
   });

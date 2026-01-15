@@ -24,9 +24,7 @@ pipgraph/
 │   ├── tests/           # Unit/Integration/E2E tests
 │   ├── docs/            # Detailed documentation
 │   ├── CLAUDE.md        # Backend quick reference
-│   ├── README.md        # Backend developer guide
-│   ├── TODO.md          # Task tracking
-│   └── CHANGELOG.md     # Version history
+│   └── README.md        # Backend developer guide
 │
 ├── pipgraph-web/        # Next.js web interface (NEW)
 │   ├── src/             # React components, pages, hooks
@@ -205,10 +203,6 @@ npm run build            # Production build test
 - **[CONFIGURATION.md](backend/docs/CONFIGURATION.md)** — Environment setup, .env variables
 - **[TESTING.md](backend/docs/TESTING.md)** — Test strategy, fixtures, markers
 
-### Project Management
-- **[backend/TODO.md](backend/TODO.md)** — Task tracking and roadmap
-- **[backend/CHANGELOG.md](backend/CHANGELOG.md)** — Version history
-
 ### Root Documentation
 - **[README.md](README.md)** — Full architecture overview (Russian, comprehensive)
 - **[CLAUDE.md](CLAUDE.md)** — This file (quick reference for AI)
@@ -229,7 +223,6 @@ npm run build            # Production build test
 2. Use PipGraphManager for all database operations
 3. Follow layered architecture: API → Services → CRUD
 4. Write tests: `pytest -m unit` before committing
-5. Update TODO.md and CHANGELOG.md when completing features
 
 ### When Working on Web UI
 1. Read [pipgraph-web/CLAUDE.md](pipgraph-web/CLAUDE.md) for detailed guidance
@@ -283,45 +276,6 @@ curl -X POST http://localhost:8000/api/v1/dev/process-note \
   -H "Content-Type: application/json" \
   -d '{"name": "test.md", "episode_body": "My note content"}'
 ```
-
-## Documentation Maintenance (for Claude Code)
-
-### When to Update Documentation
-
-**CHANGELOG.md** (backend) - Update when:
-- ✅ New feature added (endpoint, service, integration)
-- ✅ Significant bug fixed
-- ✅ Architecture changed
-- ✅ API contract changed (breaking change)
-- ❌ Skip: refactoring, typos, comments
-
-**TODO.md** (backend) - Update when:
-- ✅ Task completed → move to Completed section
-- ✅ New technical debt discovered
-- ✅ Feature request deferred
-- ❌ Skip: exploratory research
-
-**docs/ files** - Update when:
-- ✅ New environment variable → CONFIGURATION.md
-- ✅ New test fixture → TESTING.md
-- ❌ Skip: minor tweaks
-
-### Update Strategy
-
-**Always ask before updating**:
-```
-"I've made these changes:
-- Added search endpoint
-- Created SearchService
-
-Update CHANGELOG.md and TODO.md? (y/n)"
-```
-
-**Update triggers**:
-1. User explicitly requests: "update docs", "mark task as done"
-2. Before PR/commit creation
-3. Feature completion
-4. Session end (ask user)
 
 ## Current Status
 
