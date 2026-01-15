@@ -12,7 +12,7 @@ export function InboxView() {
   const { data: suggestionsData } = useMakeSuggestions(selectedNoteUuid);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-screen">
       {/* Left Panel - PARA Tree with Score Indicators */}
       <div className="w-[35%] border-r overflow-y-auto bg-background">
         <ParaTreeWithScores

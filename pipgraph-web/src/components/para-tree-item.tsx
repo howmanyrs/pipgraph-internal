@@ -28,17 +28,19 @@ export function ParaTreeItem({
   const normalizedScore = scoreMap?.get(node.id);
   const hasScore = normalizedScore !== undefined;
 
+  // Apply minimum threshold for visibility (but show all scores)
+  const displayScore = hasScore ? Math.max(normalizedScore!, 0.05) : 0;
+
   // Score indicator circle (size and opacity based on normalized score)
   const ScoreIndicator = hasScore ? (
     <div
-      className="rounded-full ml-auto"
+      className="rounded-full ml-auto bg-primary"
       style={{
-        width: `${8 + normalizedScore * 8}px`, // Range: 8px to 16px
-        height: `${8 + normalizedScore * 8}px`,
-        backgroundColor: 'hsl(var(--primary))',
-        opacity: normalizedScore * 0.7 + 0.3, // Range: 0.3 to 1.0
+        width: `${8 + displayScore * 8}px`, // Range: 8.4px (min) to 16px
+        height: `${8 + displayScore * 8}px`,
+        opacity: displayScore * 0.7 + 0.3, // Range: 0.335 (min) to 1.0
       }}
-      title={`Relevance: ${(normalizedScore * 100).toFixed(0)}%`}
+      title={`Relevance: ${(normalizedScore! * 100).toFixed(0)}%`}
     />
   ) : null;
 
