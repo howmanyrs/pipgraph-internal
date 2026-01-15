@@ -2,25 +2,27 @@
 Models package for PipGraph backend.
 
 Exports all Pydantic models for:
-- Notes and graph data structures
 - PARA entity types (Projects, Areas, Resources, Archive)
+- Graphiti node wrappers (PipGraphEpisodicNode, PipGraphEntityNode)
+- Graphiti edge wrappers (PipGraphBelongsToEdge)
 """
 
-from app.models.note import NotePayload
-from app.models.graph import GraphData
 from app.models.para_entities import Project, Area, Resource, Archive
-from app.models.proposal import PARACandidate, PARAProposal, UserDecisionPayload
 from app.models.entity import ExtractedCandidate
+from app.models.nodes import PipGraphEpisodicNode, PipGraphEntityNode
+from app.models.edges import PipGraphBelongsToEdge
 
 __all__ = [
-    "NotePayload",
-    "GraphData",
+    # PARA entities
     "Project",
     "Area",
     "Resource",
     "Archive",
-    "PARACandidate",
-    "PARAProposal",
-    "UserDecisionPayload",
+    # Extracted entities
     "ExtractedCandidate",
+    # Graphiti node wrappers
+    "PipGraphEpisodicNode",
+    "PipGraphEntityNode",
+    # Graphiti edge wrappers
+    "PipGraphBelongsToEdge",
 ]

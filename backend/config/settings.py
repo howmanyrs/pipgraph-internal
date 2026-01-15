@@ -1,6 +1,9 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
+    # Logging
+    LOG_LEVEL: str = "INFO"
+
     # Neo4j Database Configuration
     NEO4J_URI: str
     NEO4J_USER: str

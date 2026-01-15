@@ -1,6 +1,6 @@
 """Console UI helpers for PipGraph CLI."""
 
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 try:
     from rich.console import Console
@@ -60,7 +60,7 @@ class UI:
             max_content_len: Maximum content preview length
         """
         if self.use_rich:
-            self.console.print(f"\n[bold cyan]Testing note:[/bold cyan] {file_path}")
+            self.console.print(f"\n[bold cyan]Processing note:[/bold cyan] {file_path}")
             self.console.print(f"[bold cyan]Content preview:[/bold cyan]")
 
             preview = content[:max_content_len]
@@ -69,7 +69,7 @@ class UI:
 
             self.console.print(Panel(preview, border_style="dim"))
         else:
-            print(f"\nTesting note: {file_path}")
+            print(f"\nProcessing note: {file_path}")
             print(f"Content:")
             preview = content[:max_content_len]
             if len(content) > max_content_len:
@@ -108,7 +108,7 @@ class UI:
         else:
             print(f"\n✓ {message}")
 
-    def print_result(self, result: dict):
+    def print_result(self, result: Dict[str, Any]):
         """
         Print processing result.
 
@@ -134,7 +134,6 @@ class UI:
             self.console.print("PipGraph CLI - Interactive Note Processor", style="bold blue", justify="center")
             self.console.print("=" * 60, style="bold blue")
             self.console.print("\nCommands:", style="bold")
-            self.console.print("  • Type 'demo' to run demo examples")
             self.console.print("  • Type 'quit' or 'exit' to stop")
             self.console.print("  • Enter file path and content to process note")
             self.console.print("=" * 60 + "\n", style="bold blue")
@@ -143,7 +142,6 @@ class UI:
             print("PipGraph CLI - Interactive Note Processor".center(60))
             print("=" * 60)
             print("\nCommands:")
-            print("  • Type 'demo' to run demo examples")
             print("  • Type 'quit' or 'exit' to stop")
             print("  • Enter file path and content to process note")
             print("=" * 60 + "\n")
@@ -174,44 +172,45 @@ class UI:
     # Workflow-specific UI methods
     # ========================================================================
 
-    def print_workflow_started(self, workflow_id: str, status: str):
+    def print_workflow_started(self, file_path: str, status: str):
         """Print workflow started message."""
         if self.use_rich:
-            self.console.print(f"\n[bold green]Workflow started:[/bold green] {workflow_id}")
+            self.console.print(f"\n[bold green]Workflow started for:[/bold green] {file_path}")
             self.console.print(f"[bold cyan]Status:[/bold cyan] {status}")
         else:
-            print(f"\nWorkflow started: {workflow_id}")
+            print(f"\nWorkflow started for: {file_path}")
             print(f"Status: {status}")
 
-    def print_workflow_status(self, status: dict):
+    def print_workflow_status(self, status: Dict[str, Any]):
         """Print workflow status details."""
         if self.use_rich:
             self.console.print(f"\n[bold cyan]Workflow Status:[/bold cyan]")
-            self.console.print(f"  ID: {status.get('workflow_id', 'unknown')}")
+            self.console.print(f"  File: {status.get('file_path', 'unknown')}")
             self.console.print(f"  Status: {status.get('status', 'unknown')}")
-            if status.get('file_path'):
-                self.console.print(f"  File: {status.get('file_path')}")
             if status.get('episode_uuid'):
                 self.console.print(f"  Episode: {status.get('episode_uuid')}")
             if status.get('error'):
                 self.console.print(f"  [red]Error: {status.get('error')}[/red]")
         else:
             print(f"\nWorkflow Status:")
-            print(f"  ID: {status.get('workflow_id', 'unknown')}")
+            print(f"  File: {status.get('file_path', 'unknown')}")
             print(f"  Status: {status.get('status', 'unknown')}")
-            if status.get('file_path'):
-                print(f"  File: {status.get('file_path')}")
             if status.get('episode_uuid'):
                 print(f"  Episode: {status.get('episode_uuid')}")
             if status.get('error'):
                 print(f"  Error: {status.get('error')}")
 
-    def print_suggestion(self, suggestion: dict, index: int = 0):
+    def print_suggestion(self, suggestion: Dict[str, Any], index: int = 0):
         """Print a single suggestion for user review."""
         if self.use_rich:
             self.console.print(f"\n[bold yellow]Suggestion #{index + 1}:[/bold yellow]")
             self.console.print(f"  Type: {suggestion.get('suggestion_type', 'unknown')}")
             self.console.print(f"  Container: {suggestion.get('container_name', 'unknown')} ({suggestion.get('container_type', '')})")
+            
+            reasoning = suggestion.get('reasoning')
+            if reasoning:
+                self.console.print(f"  Reasoning: [italic]{reasoning}[/italic]")
+
             confidence = suggestion.get('confidence', 0)
             color = "green" if confidence > 0.8 else "yellow" if confidence > 0.5 else "red"
             self.console.print(f"  Confidence: [{color}]{confidence:.2f}[/{color}]")
@@ -225,6 +224,11 @@ class UI:
             print(f"\nSuggestion #{index + 1}:")
             print(f"  Type: {suggestion.get('suggestion_type', 'unknown')}")
             print(f"  Container: {suggestion.get('container_name', 'unknown')} ({suggestion.get('container_type', '')})")
+            
+            reasoning = suggestion.get('reasoning')
+            if reasoning:
+                print(f"  Reasoning: {reasoning}")
+                
             print(f"  Confidence: {suggestion.get('confidence', 0):.2f}")
 
             alternatives = suggestion.get('alternatives', [])
@@ -248,28 +252,43 @@ class UI:
             print("  modify - Change the suggested value")
             print("  create_custom - Create a new container")
 
-    def print_cascade_result(self, cascade_applied: list):
-        """Print cascade auto-resolution results."""
+    def print_cascade_result(self, cascade_applied: List[Dict[str, Any]]):
+        """
+        Print cascade auto-resolution results.
+        Expected items contain: note_path, confidence, etc.
+        """
         if not cascade_applied:
             return
 
         if self.use_rich:
             self.console.print(f"\n[bold magenta]Cascade auto-resolved {len(cascade_applied)} similar suggestion(s):[/bold magenta]")
             for item in cascade_applied:
-                self.console.print(f"  - {item.get('note_path', 'unknown')} (confidence: {item.get('confidence', 0):.2f})")
+                path = item.get('note_path', 'unknown')
+                conf = item.get('confidence', 0)
+                self.console.print(f"  - {path} (confidence: {conf:.2f})")
         else:
             print(f"\nCascade auto-resolved {len(cascade_applied)} similar suggestion(s):")
             for item in cascade_applied:
-                print(f"  - {item.get('note_path', 'unknown')} (confidence: {item.get('confidence', 0):.2f})")
+                path = item.get('note_path', 'unknown')
+                conf = item.get('confidence', 0)
+                print(f"  - {path} (confidence: {conf:.2f})")
 
-    def print_workflow_complete(self, episode_uuid: str = None):
+    def print_workflow_complete(self, episode_uuid: Optional[str] = None, file_path: Optional[str] = None):
         """Print workflow completion message."""
         if self.use_rich:
-            self.console.print(f"\n[bold green]✓ Workflow completed successfully![/bold green]")
+            msg = "\n[bold green]✓ Workflow completed successfully![/bold green]"
+            if file_path:
+                msg = f"\n[bold green]✓ Workflow completed for: {file_path}[/bold green]"
+            self.console.print(msg)
+            
             if episode_uuid:
                 self.console.print(f"[dim]Episode UUID: {episode_uuid}[/dim]")
         else:
-            print(f"\n✓ Workflow completed successfully!")
+            msg = "\n✓ Workflow completed successfully!"
+            if file_path:
+                msg = f"\n✓ Workflow completed for: {file_path}"
+            print(msg)
+            
             if episode_uuid:
                 print(f"Episode UUID: {episode_uuid}")
 

@@ -6,9 +6,9 @@ This module exports entity type dictionaries and edge type mappings for the PARA
 (Projects, Areas, Resources, Archive).
 
 Based on:
-- backend/docs/attend/PARA_ENTITY_DOCSTRINGS.md
-- backend/docs/attend/PARA_TYPES_ARCHITECTURE.md
-- backend/docs/custom_entities/CUSTOM_ENTITIES_EXAMPLES.md
+- backend/.docs/custom_entities/PARA_ENTITY_DOCSTRINGS.md
+- backend/.docs/custom_entities/PARA_TYPES_ARCHITECTURE.md
+- backend/.docs/custom_entities/CUSTOM_ENTITIES_EXAMPLES.md
 
 Usage:
     from config.para_config import PARA_ENTITY_TYPES, PARA_EDGE_TYPE_MAP

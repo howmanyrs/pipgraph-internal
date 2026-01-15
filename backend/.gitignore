@@ -48,3 +48,12 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# SQLite temp files
+workflow_checkpoints.db-shm
+workflow_checkpoints.db-wal
+workflow_checkpoints.db-journal
+
+# Dev
+.docs
+.docs/

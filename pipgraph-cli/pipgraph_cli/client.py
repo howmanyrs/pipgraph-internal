@@ -1,15 +1,6 @@
-"""WebSocket and REST client for PipGraph backend API."""
+"""REST client for PipGraph backend API."""
 
-import asyncio
-import json
-from typing import Optional, Callable, Any
-from dataclasses import dataclass
-
-try:
-    import websockets
-    from websockets.client import WebSocketClientProtocol
-except ImportError:
-    raise ImportError("websockets library not installed. Run: pip install websockets")
+from typing import Optional, Dict, Any
 
 try:
     import httpx
@@ -17,135 +8,29 @@ except ImportError:
     raise ImportError("httpx library not installed. Run: pip install httpx")
 
 
-@dataclass
-class NotePayload:
-    """Data model for note processing."""
-    file_path: str
-    content: str
-
-    def to_dict(self) -> dict:
-        return {
-            "file_path": self.file_path,
-            "content": self.content
-        }
-
-
 class PipGraphClient:
-    """Client for interacting with PipGraph backend WebSocket and REST API."""
+    """REST client for PipGraph backend API."""
 
-    def __init__(self, backend_url: str = "ws://localhost:8000"):
+    def __init__(self, backend_url: str = "http://localhost:8000"):
         """
         Initialize PipGraph client.
 
         Args:
             backend_url: Base URL of backend server (without /api/v1 prefix)
         """
-        self.backend_url = backend_url.rstrip("/")
-        self.ws_endpoint = f"{self.backend_url}/api/v1/ws/notes/process"
-        # Convert WebSocket URL to HTTP for REST endpoints
-        self.http_base = self.backend_url.replace("ws://", "http://").replace("wss://", "https://")
+        # Support both http:// and legacy ws:// URLs
+        self.http_base = backend_url.rstrip("/").replace("ws://", "http://").replace("wss://", "https://")
 
-    async def process_note(
-        self,
-        note: NotePayload,
-        on_status: Optional[Callable[[str, str], None]] = None,
-        on_error: Optional[Callable[[str], None]] = None,
-    ) -> Optional[dict]:
+    async def start_workflow(self, file_path: str, content: str) -> Dict[str, Any]:
         """
-        Send note to backend for processing via WebSocket.
+        Start or restart a workflow for note processing.
 
         Args:
-            note: Note payload with file_path and content
-            on_status: Callback for status updates (status, message)
-            on_error: Callback for errors (error_message)
-
-        Returns:
-            Processed result data or None if error occurred
-
-        Raises:
-            ConnectionError: If cannot connect to backend
-            TimeoutError: If connection timeout
-        """
-        try:
-            async with websockets.connect(
-                self.ws_endpoint,
-                ping_interval=20,
-                ping_timeout=10,
-                close_timeout=10,
-            ) as websocket:
-                # Send note payload
-                await websocket.send(json.dumps(note.to_dict()))
-
-                # Receive responses until done or error
-                while True:
-                    try:
-                        response_raw = await asyncio.wait_for(
-                            websocket.recv(),
-                            timeout=300  # 5 minutes for LLM processing
-                        )
-                        response = json.loads(response_raw)
-
-                        status = response.get("status")
-                        message = response.get("message", "")
-
-                        if status == "processing":
-                            if on_status:
-                                on_status("processing", message)
-
-                        elif status == "done":
-                            if on_status:
-                                on_status("done", "Processing completed successfully")
-                            return response.get("data")
-
-                        elif status == "error":
-                            error_msg = message or "Unknown error occurred"
-                            if on_error:
-                                on_error(error_msg)
-                            return None
-
-                        else:
-                            # Unknown status, just log it
-                            if on_status:
-                                on_status(status, message)
-
-                    except asyncio.TimeoutError:
-                        error_msg = "Timeout waiting for backend response (5 min)"
-                        if on_error:
-                            on_error(error_msg)
-                        raise TimeoutError(error_msg)
-
-        except websockets.exceptions.WebSocketException as e:
-            error_msg = f"WebSocket error: {e}"
-            if on_error:
-                on_error(error_msg)
-            raise ConnectionError(error_msg)
-
-        except ConnectionRefusedError:
-            error_msg = f"Cannot connect to backend at {self.ws_endpoint}"
-            if on_error:
-                on_error(error_msg)
-            raise ConnectionError(error_msg)
-
-        except Exception as e:
-            error_msg = f"Unexpected error: {e}"
-            if on_error:
-                on_error(error_msg)
-            raise
-
-    # ========================================================================
-    # REST API Methods for Workflow Management
-    # ========================================================================
-
-    async def start_workflow(self, file_path: str, content: str) -> dict:
-        """
-        Start a new workflow for note processing.
-
-        Args:
-            file_path: Path to the note file
+            file_path: Path to the note file (acts as unique ID)
             content: Content of the note
 
         Returns:
-            dict with workflow_id, status, file_path
+            dict with file_path, status
 
         Raises:
             httpx.HTTPStatusError: If request fails
@@ -158,64 +43,69 @@ class PipGraphClient:
             response.raise_for_status()
             return response.json()
 
-    async def get_workflow_status(self, workflow_id: str) -> dict:
+    async def get_workflow_status(self, file_path: str) -> Dict[str, Any]:
         """
-        Get current status of a workflow.
+        Get current status of a workflow by file path.
 
         Args:
-            workflow_id: Workflow identifier
+            file_path: Path to the note file
 
         Returns:
-            dict with workflow_id, status, pending_question, etc.
+            dict with file_path, status, pending_question, etc.
 
         Raises:
             httpx.HTTPStatusError: If request fails
         """
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
-                f"{self.http_base}/api/v1/workflow/{workflow_id}/status"
+                f"{self.http_base}/api/v1/workflow/status",
+                params={"file_path": file_path}
             )
             response.raise_for_status()
             return response.json()
 
-    async def resume_workflow(self, workflow_id: str, answer: dict) -> dict:
+    async def resume_workflow(self, file_path: str, answer: Dict[str, Any]) -> Dict[str, Any]:
         """
         Resume a workflow with user's answer.
 
         Args:
-            workflow_id: Workflow identifier
-            answer: User's answer to the pending question
+            file_path: Path to the note file (identifies the workflow)
+            answer: User's answer to the pending question (suggestion_id, action, etc.)
 
         Returns:
-            dict with updated status, next_question, etc.
+            dict with updated status, next_question, cascade_applied, etc.
 
         Raises:
             httpx.HTTPStatusError: If request fails
         """
-        async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min for LLM
+        async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min for LLM processing
             response = await client.post(
-                f"{self.http_base}/api/v1/workflow/{workflow_id}/resume",
-                json={"answer": answer}
+                f"{self.http_base}/api/v1/workflow/resume",
+                json={
+                    "file_path": file_path,
+                    "answer": answer
+                }
             )
             response.raise_for_status()
             return response.json()
 
-    async def get_suggestions(self, workflow_id: str) -> dict:
+    async def get_suggestions(self, file_path: str) -> Dict[str, Any]:
         """
-        Get suggestions for a workflow.
+        Get suggestions for a specific note.
 
         Args:
-            workflow_id: Workflow identifier
+            file_path: Path to the note file
 
         Returns:
-            dict with workflow_id and list of suggestions
+            dict with file_path and list of suggestions
 
         Raises:
             httpx.HTTPStatusError: If request fails
         """
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
-                f"{self.http_base}/api/v1/workflow/{workflow_id}/suggestions"
+                f"{self.http_base}/api/v1/suggestions",
+                params={"file_path": file_path}
             )
             response.raise_for_status()
             return response.json()
@@ -226,9 +116,10 @@ class PipGraphClient:
         action: str,
         modified_value: Optional[str] = None,
         custom_container_name: Optional[str] = None
-    ) -> dict:
+    ) -> Dict[str, Any]:
         """
-        Submit a decision on a suggestion.
+        Submit a decision on a suggestion directly.
+        (Usually called via resume_workflow in the CLI loop, but available for direct API usage).
 
         Args:
             suggestion_id: Suggestion identifier
@@ -237,7 +128,7 @@ class PipGraphClient:
             custom_container_name: Name for 'create_custom' action
 
         Returns:
-            dict with success, workflow_id, cascade_applied
+            dict with success, file_path, cascade_applied
 
         Raises:
             httpx.HTTPStatusError: If request fails
@@ -256,12 +147,12 @@ class PipGraphClient:
             response.raise_for_status()
             return response.json()
 
-    async def get_inbox(self) -> dict:
+    async def get_inbox(self) -> Dict[str, Any]:
         """
         Get all pending suggestions from inbox.
 
         Returns:
-            dict with suggestions list and total_count
+            dict with suggestions list (containing note_path) and total_count
 
         Raises:
             httpx.HTTPStatusError: If request fails
@@ -274,24 +165,21 @@ class PipGraphClient:
             return response.json()
 
 
-async def test_connection(backend_url: str = "ws://localhost:8000") -> bool:
+async def test_connection(backend_url: str = "http://localhost:8000") -> bool:
     """
     Test connection to backend server.
 
     Args:
-        backend_url: Backend WebSocket URL
+        backend_url: Backend HTTP URL
 
     Returns:
         True if connection successful, False otherwise
     """
     try:
-        client = PipGraphClient(backend_url)
-        # Try to connect briefly
-        async with websockets.connect(
-            client.ws_endpoint,
-            ping_interval=None,
-            close_timeout=2,
-        ):
-            return True
+        # Convert ws:// to http:// if needed (for backwards compatibility)
+        http_url = backend_url.replace("ws://", "http://").replace("wss://", "https://")
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{http_url}/docs") # Check docs or health if available
+            return response.status_code == 200
     except Exception:
         return False

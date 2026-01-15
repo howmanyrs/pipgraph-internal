@@ -1,370 +1,103 @@
-# CLAUDE.md - Backend
+# PipGraph Backend — Conceptual Manifest
 
-Quick reference guide for Claude Code when working with the PipGraph backend.
+## Project Overview
+PipGraph is an intelligent backend engine designed to bridge unstructured Markdown notes (Obsidian) with a structured Knowledge Graph (Neo4j). It acts as a "second brain" processor that structures, links, and classifies information while strictly adhering to a **Human-in-the-Loop** philosophy.
 
-> **Detailed documentation**: See [docs/](docs/) directory for comprehensive guides.
+The system does not modify the body of user notes. Instead, it builds an external graph layer and syncs metadata back to the note's YAML frontmatter.
 
-## Quick Start
+## Core Philosophy
 
-```bash
-cd backend/
-uv venv && source .venv/bin/activate
-uv pip install -r requirements.txt
-uvicorn app.api.main:app --reload
-```
+1.  **Non-Destructive Processing**: The text content of notes is sacred. The system reads notes but only writes to a dedicated metadata section (YAML) or the external database.
+2.  **Graph-First Structure**: Information is stored as nodes (Episodes, Entities, PARA Containers) and edges (Relationships), enabling complex semantic queries that flat file searches cannot handle.
+3.  **Direct Processing**: The system provides direct REST API access to LLM-powered processing and hybrid search, without complex workflow orchestration.
 
-Server runs at `http://localhost:8000`
+## Business Logic & Methodology
 
-## Project Structure
+### 1. The PARA Method
+The system organizes knowledge based on the PARA methodology by Tiago Forte. Every note (Episode) is evaluated for context:
+-   **Projects**: Short-term efforts with goals and deadlines.
+-   **Areas**: Long-term responsibilities with standards to maintain.
+-   **Resources**: Topics or themes of ongoing interest.
+-   **Archives**: Inactive items from the above categories.
+-   **Inbox**: The default holding area for unclassified content.
 
-```
-app/
-├── api/              # FastAPI endpoints, WebSocket handlers
-├── services/         # Business logic, LLM orchestration
-│   ├── pipgraph_manager.py   # 7-stage note processing wrapper over Graphiti
-│   ├── cloudru_patched_client.py  # Cloud.ru/Qwen LLM client
-│   └── note_processor.py     # Note processing service
-├── crud/             # Database operations (Neo4j)
-└── models/           # Pydantic data models
-```
+### 2. The Processing Pipeline
+Data flows through a direct processing pipeline:
+1.  **Ingestion**: A note is received as an "Episode" (an event in time).
+2.  **Entity Extraction**: The system extracts entities (Tasks, Concepts, Persons, Technologies) from the text using LLM.
+3.  **Graph Storage**: Extracted entities are stored in Neo4j with relationships to the Episode.
+4.  **Hybrid Search**: When needed, the system can find relevant PARA entities using BM25 + vector similarity search.
 
-**Layered architecture**: API → Services → CRUD → Database
+## Key Features
 
-## Configuration
+### Natural Language Search
+The system converts natural language questions (e.g., "What tasks did we discuss regarding the API migration last week?") into formal graph queries (Cypher), allowing users to interrogate their knowledge base without learning query languages.
 
-Uses `pydantic-settings` with `.env` file:
+### No-Cache Policy (Episodic Memory)
+The "Episodic" nodes (the notes) do not store context permanently in their own properties. Context is derived dynamically by traversing relationships (`:IS_PART_OF`) in the graph. This ensures that if a Project is renamed or moved, the historical notes linked to it remain valid without needing bulk updates.
 
-```bash
-# Required variables
-OPENROUTER_API_KEY=sk-or-v1-...
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_password
-```
+## Data Layer Architecture
 
-Import in code:
+### CRUD Operations via PipGraphManager
+
+**All database operations** are performed through `PipGraphManager` (located in `app/services/graphiti/pipgraph_manager.py`). This is the **single source of truth** for Neo4j CRUD operations.
+
+**Key Principles:**
+- **Async-first**: All methods are asynchronous
+- **Graphiti integration**: Returns Graphiti node objects (EpisodicNode, EntityNode)
+- **UUID-based**: Uses UUIDs as primary identifiers
+- **Type-safe**: Leverages Pydantic models from Graphiti
+
+### PipGraphManager Methods
+
+**Episodic Operations:**
 ```python
-from config.settings import settings
+# Retrieve
+episodic = await manager.get_episodic_by_name("path/to/note.md")
+episodics = await manager.list_episodics(limit=100)
+
+# Modify
+success = await manager.update_episodic_timestamp(uuid, valid_at)
+success = await manager.delete_episodic(uuid)
+
+# Create (full processing pipeline)
+result = await manager.process_note(name, content, ...)
+# Or lightweight creation
+episode = await manager.create_episode(name, content, ...)
 ```
 
-📖 Full guide: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
-
-## Key Patterns
-
-### WebSocket Handler
-
+**Entity Operations:**
 ```python
-@router.websocket("/ws/notes/process")
-async def process_note(websocket: WebSocket):
-    await websocket.accept()
-    data = await websocket.receive_json()
-    payload = NotePayload(**data)  # Validate
+# Retrieve
+entity = await manager.get_para_entity_by_uuid(uuid)
+entity = await manager.get_para_entity_by_name("Project Alpha", para_type="Project")
+entities = await manager.list_para_entities(limit=100, para_types=["project", "area"])
 
-    await websocket.send_json({"status": "processing"})
-    result = await note_processor.process_and_store_note(payload)
-    await websocket.send_json({"status": "done", "data": result.dict()})
+# Create
+entity = await manager.create_para_entity(para_type="Project", name="Website Redesign", summary="...")
+inbox = await manager.ensure_inbox_exists()
+
+# Link
+edge = await manager.link_entity_to_episode(episodic_uuid, entity_uuid)
 ```
 
-### Service Layer - PipGraphManager
-
-The `PipGraphManager` wraps Graphiti and exposes 7 processing stages with intervention points:
-
-```python
-from app.services.pipgraph_manager import PipGraphManager
-
-async def process_and_store_note(note: NotePayload) -> GraphData:
-    """Process note using PipGraphManager for step-by-step control."""
-    manager = PipGraphManager(graphiti_instance)
-
-    # Process note with full control over each stage
-    result = await manager.process_note(
-        name=note.file_path,
-        content=note.content,
-        reference_time=datetime.now(timezone.utc)
-    )
-
-    # Result contains entities and edges extracted
-    logger.info(f"Extracted {result['entity_count']} entities, "
-                f"{result['edge_count']} edges")
-
-    return result
-```
-
-**7 Processing Stages** (from `docs/attend/pipgraph_manager_discussion.md`):
-1. Input validation
-2. Fact extraction (LLM)
-3. Entity resolution
-4. Relationship extraction
-5. Duplicate detection
-6. Graph updates (Neo4j)
-7. Result formatting
-
-### CRUD Layer
-
-```python
-async def save_graph_data(graph_data: GraphData) -> bool:
-    async with driver.session() as session:
-        for node in graph_data.nodes:
-            await session.run("MERGE (n:Node {id: $id}) ...", ...)
-    return True
-```
-
-## Testing
-
-```bash
-# Install test dependencies
-uv pip install -r requirements-dev.txt
-
-# Run tests by type
-pytest -m unit           # Fast, no external dependencies
-pytest -m integration    # Requires Neo4j, OpenRouter
-pytest -m "not slow"     # Exclude expensive LLM calls
-
-# Specific test with output
-pytest tests/integration/test_openrouter.py::test_openrouter_llm_connection -sv
-```
-
-📖 Full guide: [docs/TESTING.md](docs/TESTING.md)
-
-## API Endpoints
-
-### WebSocket
-- `ws://localhost:8000/api/v1/ws/notes/process` - Note processing
-
-### REST
-- `GET /` - Health check
-
-### Planned
-- `POST /api/v1/search` - Natural language search
-- `GET /api/v1/suggestions/{note_id}` - Entity suggestions
-
-## Common Tasks
-
-### Add new endpoint
-
-1. Create route in `app/api/endpoints/`
-2. Define Pydantic models in `app/models/`
-3. Implement logic in `app/services/`
-4. Add tests in `tests/integration/`
-
-### Add database operation
-
-1. Define method in `app/crud/graph_crud.py`
-2. Write Cypher query
-3. Call from service layer
-4. Test with `@pytest.mark.integration`
-
-### Debug WebSocket
-
-```bash
-# Test with websocat
-echo '{"file_path": "test.md", "content": "Test"}' | \
-websocat ws://127.0.0.1:8000/api/v1/ws/notes/process
-```
-
-## Technology Stack
-
-- **Framework**: FastAPI (async, WebSocket support)
-- **Database**: Neo4j (graph database)
-- **LLM Integration**:
-  - Graphiti (entity extraction framework)
-  - OpenRouter (main, small, embedding models)
-  - CloudRuPatchedClient (Cloud.ru/Qwen compatibility)
-- **Validation**: Pydantic + pydantic-settings
-- **Testing**: pytest with markers (unit/integration/e2e)
-- **Package Manager**: uv
-
-## Important Notes
-
-- **PipGraphManager Design**:
-  - Copied `add_episode` logic from graphiti_core for controlled modifications
-  - Enables gradual customization without modifying library code
-  - Documents modification points for future enhancements
-  - Based on architectural design from `docs/attend/pipgraph_manager_discussion.md`
-
-- **Duplicate Note Detection** (High Priority TODO):
-  - SHA-256 content hash verification planned
-  - Scenario 1: Skip processing if content unchanged (cost optimization)
-  - Scenario 2: Handle modified note re-processing (design needed)
-  - Requires `find_episode_by_name()` implementation
-
-- **CloudRuPatchedClient**:
-  - Fixes JSON schema duplication in Cloud.ru/Qwen responses
-  - Single-line modification: "return data only, not the schema"
-  - Full compatibility with OpenAIGenericClient
-
-- **WebSocket flow**:
-  1. Client connects
-  2. Server sends immediate "processing" acknowledgment
-  3. Server processes via PipGraphManager (7 stages)
-  4. Server sends extracted entities to client
-  5. Optional: Multiple feedback rounds with client
-  6. Server sends "done" with frontmatter update data
-  7. Client updates note frontmatter
-
-- **Layer responsibilities**:
-  - API: Validation, transport
-  - Services: Business logic (PipGraphManager orchestrates)
-  - CRUD: Database only
-
-## Documentation
-
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - Design decisions, patterns
-- [CONFIGURATION.md](docs/CONFIGURATION.md) - Environment setup
-- [TESTING.md](docs/TESTING.md) - Test strategy, fixtures
-- [TODO.md](TODO.md) - Planned features
-- [CHANGELOG.md](CHANGELOG.md) - Version history
-
-## Root Documentation
-
-- [Root CLAUDE.md](../CLAUDE.md) - Monorepo overview
-- [Root README.md](../README.md) - Full architecture (Russian)
-
-## Documentation Maintenance (for Claude Code)
-
-### Automatic Documentation Updates
-
-Claude should update documentation at these specific moments:
-
-#### Update CHANGELOG.md when:
-
-- ✅ New endpoint added to `app/api/endpoints/`
-- ✅ New service created in `app/services/`
-- ✅ New CRUD operation in `app/crud/`
-- ✅ Integration added (LLM, database driver, external API)
-- ✅ Bug fix that affects user behavior
-- ✅ Dependency version updated (major/minor)
-- ❌ **Skip**: Refactoring, renaming, typos, comment changes
-
-**Format**: Add to `[Unreleased]` section under:
-- `### Added` - New features
-- `### Changed` - Changes in existing functionality
-- `### Fixed` - Bug fixes
-
-#### Update TODO.md when:
-
-- ✅ Task from TODO completed → move to Completed ✓ section
-- ✅ New technical debt identified during implementation
-- ✅ Feature request discovered during work
-- ✅ Research task needs to be tracked
-- ❌ **Skip**: Trivial tasks, temporary experiments
-
-**Ask user**: "Mark '[task name]' as completed in TODO?"
-
-#### Update docs/ARCHITECTURE.md when:
-
-- ✅ New layer added to architecture
-- ✅ New design pattern introduced
-- ✅ Technology choice changed (database, LLM provider)
-- ✅ Significant architectural decision made
-- ❌ **Skip**: Minor code organization changes
-
-#### Update docs/CONFIGURATION.md when:
-
-- ✅ New environment variable added to `config/settings.py`
-- ✅ Configuration method changed
-- ✅ New service requires credentials
-- ✅ New deployment configuration needed
-
-#### Update docs/TESTING.md when:
-
-- ✅ New test fixture added to `conftest.py`
-- ✅ New pytest marker introduced
-- ✅ New testing pattern established
-- ✅ Test infrastructure changed
-
-### Update Protocol
-
-**1. Detect significant change**
-
-Examples of changes that trigger updates:
-
-```python
-# ✅ New file created: app/api/endpoints/search.py
-# → Update CHANGELOG: "Added natural language search endpoint"
-
-# ✅ New environment variable in config/settings.py:
-# SEARCH_INDEX_NAME: str
-# → Update CONFIGURATION.md
-
-# ❌ Renamed variable in existing function
-# → Skip documentation update
-```
-
-**2. Ask user for confirmation**
-
-Before updating, ask explicitly:
-
-```
-"I've added a new search endpoint at POST /api/v1/search.
-Should I update CHANGELOG.md with this feature? (y/n)"
-```
-
-**3. Batch updates at natural breakpoints**
-
-Don't update after every file change. Instead, batch at:
-- End of feature implementation
-- Before git commit/PR
-- User explicitly requests: "update docs"
-- Session completion
-
-Example prompt:
-```
-"During this session I've:
-- Added search endpoint (POST /api/v1/search)
-- Created SearchService in app/services/
-- Added integration tests in tests/integration/test_search.py
-
-Update documentation? This would affect:
-- CHANGELOG.md (Added section)
-- TODO.md (mark 'Natural language search' as completed)
-(y/n)"
-```
-
-**4. Never update silently**
-
-Always inform user:
-```
-"✓ Updated CHANGELOG.md: Added natural language search endpoint
-✓ Updated TODO.md: Marked search task as completed"
-```
-
-### Examples
-
-**Good trigger** ✅:
-```
-User: "Add a health check endpoint"
-Agent: [creates app/api/endpoints/health.py with GET /health]
-Agent: "Added health check endpoint. Update CHANGELOG? (y/n)"
-User: "y"
-Agent: [Updates CHANGELOG.md under ### Added]
-```
-
-**Bad trigger** ❌:
-```
-Agent: [Refactors process_note function to use helper methods]
-Agent: [Does NOT update CHANGELOG - no user-visible changes]
-```
-
-**TODO update** ✅:
-```
-User: "The search feature is done"
-Agent: [Reviews TODO.md, finds "Natural language search endpoint"]
-Agent: "Move 'Natural language search endpoint' from High Priority to Completed? (y/n)"
-User: "y"
-Agent: "✓ Updated TODO.md: Task marked as completed"
-```
-
-### Quick Reference
-
-**User commands**:
-- `"update changelog"` - Review and update CHANGELOG.md
-- `"update todo"` - Sync TODO.md with completed work
-- `"update docs"` - Review all docs for accuracy
-- `"mark task as done"` - Move TODO item to Completed
-
-**When in doubt**:
-- If change affects API contract → update CHANGELOG
-- If change adds new pattern → consider docs/ update
-- If trivial refactor → skip documentation
-- **Always ask user before updating**
+**Legacy CRUD Classes (REMOVED):**
+- ~~`EpisodicCRUD`~~ - Removed, use `PipGraphManager`
+- ~~`PARAContainerCRUD`~~ - Removed, use `PipGraphManager`
+- `RelationshipCRUD` - Core CRUD for relationship management
+- `EntityCRUD` - Core CRUD for entity queries
+
+### Schema Consistency
+
+All nodes created by `PipGraphManager` use **Graphiti schema**:
+- **Episodic**: `:Episodic {uuid, name, content, created_at, valid_at, ...}`
+- **PARA Entities**: `:Entity:Project`, `:Entity:Area`, `:Entity:Resource`, `:Entity:Archive`
+  - Properties: `uuid`, `name`, `summary`, `name_embedding`, `attributes`, `created_at`
+- **Relationships**: `:MENTIONS` (Episodic → Entity), `:RELATES_TO` (Entity → Entity)
+
+**Never create nodes manually** - always use PipGraphManager to ensure schema consistency.
+
+## Documentation Structure
+For technical implementation details, refer to the codebase:
+-   **Architecture & Navigation**: Folder structure, layers, and key components.
+-   **Coding Standards**: Testing, configuration, and patterns.

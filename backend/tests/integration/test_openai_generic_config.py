@@ -103,7 +103,7 @@ async def test_embedding_model():
 # @pytest.mark.asyncio
 # async def test_graphiti_client_initialization():
 #     """Test LLM provider connection through Graphiti client wrapper."""
-#     from app.services.llm_graphiti_client import get_graphiti
+#     from app.services.graphiti.setup_graphiti import get_graphiti
 
 #     try:
 #         graphiti = await get_graphiti()
@@ -121,7 +121,7 @@ async def test_embedding_model():
 # @pytest.mark.asyncio
 # async def test_graphiti_llm_communication():
 #     """Test that Graphiti framework can communicate with LLM provider."""
-#     from app.services.llm_graphiti_client import get_graphiti
+#     from app.services.graphiti.setup_graphiti import get_graphiti
 
 #     try:
 #         graphiti = await get_graphiti()

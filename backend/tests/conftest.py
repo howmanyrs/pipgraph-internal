@@ -86,7 +86,7 @@ async def graphiti_instance():
     Use this fixture for tests that need actual LLM processing.
     Mark such tests with @pytest.mark.integration
     """
-    from app.services.llm_graphiti_client import get_graphiti
+    from app.services.graphiti.setup_graphiti import get_graphiti
     instance = await get_graphiti()
     return instance
 
@@ -110,27 +110,6 @@ def mock_llm_response():
 # ============================================================================
 # Test Data Fixtures
 # ============================================================================
-
-@pytest.fixture
-def sample_note_content():
-    """Provide sample note content for testing."""
-    return """# Test Note
-
-This is a test note about John Doe.
-John works at TechCorp as a software engineer.
-He specializes in Python and FastAPI development.
-"""
-
-
-@pytest.fixture
-def sample_note_payload(sample_note_content):
-    """Provide sample NotePayload for testing."""
-    from app.models.note import NotePayload
-    return NotePayload(
-        file_path="test/notes/sample.md",
-        content=sample_note_content
-    )
-
 
 # ============================================================================
 # Pytest Markers

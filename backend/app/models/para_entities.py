@@ -5,8 +5,8 @@ This module defines high-level PARA (Projects, Areas, Resources, Archive) entity
 for use with Graphiti knowledge graph. These models provide detailed docstrings and field
 descriptions optimized for LLM-based entity extraction and classification.
 
-Based on: backend/docs/attend/PARA_ENTITY_DOCSTRINGS.md
-Architecture: backend/docs/attend/PARA_TYPES_ARCHITECTURE.md
+Based on: backend/.docs/custom_entities/PARA_ENTITY_DOCSTRINGS.md
+Architecture: backend/.docs/custom_entities/PARA_TYPES_ARCHITECTURE.md
 
 Usage:
     from app.models.para_entities import Project, Area, Resource, Archive
