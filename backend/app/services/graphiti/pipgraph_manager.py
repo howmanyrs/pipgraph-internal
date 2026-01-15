@@ -1757,24 +1757,30 @@ class PipGraphManager:
             logger.info(f"[make_suggestions] Using query (length={len(query)})")
 
             # STEP 3: Perform hybrid search using Graphiti's search
-            # Configuration: BM25 (fulltext) + Cosine similarity (vector) + RRF reranking
+            # Configuration: BM25 (fulltext) only for now (cosine_similarity disabled for testing)
             # Override default limit (10) with user-provided limit
             custom_config = SearchConfig(
                 node_config=NodeSearchConfig(
+                    # search_methods=[NodeSearchMethod.bm25],  # Only BM25 for now
                     search_methods=[NodeSearchMethod.bm25, NodeSearchMethod.cosine_similarity],
-                    # reranker=NodeReranker.rrf, # Неверно выводит см. backend/.docs/about_graphiti/issues/rrf_reranker_positional_scores.md
-                    reranker=NodeReranker.mmr,  
+                    reranker=NodeReranker.rrf, # Неверно выводит см. backend/.docs/about_graphiti/issues/rrf_reranker_positional_scores.md
+                    # reranker=NodeReranker.mmr,
                 ),
                 limit=limit,  # Use limit from method parameter
             )
 
-            # TODO: Можно и сразу отсекать ноды в которых нет PARA лейблов?
+            # Filter search to only PARA entities (Project, Area, Resource, Archive)
+            # This significantly improves search relevance by excluding generic Entity nodes
+            para_filter = SearchFilters(
+                node_labels=["Project", "Area", "Resource", "Archive"]
+            )
+
             search_results = await search(
                 clients=self.clients,
                 query=query,
                 group_ids=[episodic.group_id],
                 config=custom_config,
-                search_filter=SearchFilters(),
+                search_filter=para_filter,
             )
 
             logger.info(

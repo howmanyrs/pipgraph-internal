@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronRight, FolderTree, Folder, FileBox, Archive } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { TreeNode } from '@/lib/api';
@@ -11,6 +11,7 @@ interface ParaTreeItemProps {
   selectedEntityUuid: string | null;
   onSelectEntity: (uuid: string) => void;
   level?: number;
+  scoreMap?: Map<string, number>; // NEW: uuid -> normalized score (0-1)
 }
 
 export function ParaTreeItem({
@@ -18,27 +19,28 @@ export function ParaTreeItem({
   selectedEntityUuid,
   onSelectEntity,
   level = 0,
+  scoreMap,
 }: ParaTreeItemProps) {
   const isSelected = selectedEntityUuid === node.id;
   const hasChildren = node.children && node.children.length > 0;
 
-  // Icon and color by PARA type
-  const getIconAndColor = () => {
-    switch (node.type) {
-      case 'Project':
-        return { Icon: FolderTree, color: 'text-blue-500' };
-      case 'Area':
-        return { Icon: Folder, color: 'text-purple-500' };
-      case 'Resource':
-        return { Icon: FileBox, color: 'text-green-500' };
-      case 'Archive':
-        return { Icon: Archive, color: 'text-gray-400' };
-      default:
-        return { Icon: Folder, color: 'text-gray-500' };
-    }
-  };
+  // Calculate score visualization if score exists for this node
+  const normalizedScore = scoreMap?.get(node.id);
+  const hasScore = normalizedScore !== undefined;
 
-  const { Icon, color } = getIconAndColor();
+  // Score indicator circle (size and opacity based on normalized score)
+  const ScoreIndicator = hasScore ? (
+    <div
+      className="rounded-full ml-auto"
+      style={{
+        width: `${8 + normalizedScore * 8}px`, // Range: 8px to 16px
+        height: `${8 + normalizedScore * 8}px`,
+        backgroundColor: 'hsl(var(--primary))',
+        opacity: normalizedScore * 0.7 + 0.3, // Range: 0.3 to 1.0
+      }}
+      title={`Relevance: ${(normalizedScore * 100).toFixed(0)}%`}
+    />
+  ) : null;
 
   // Leaf node (no children) - simple button
   if (!hasChildren) {
@@ -52,8 +54,8 @@ export function ParaTreeItem({
           )}
           style={{ paddingLeft: `${level * 16 + 8}px` }}
         >
-          <Icon className={cn('size-4', color)} />
-          <span>{node.name}</span>
+          <span className="flex-1">{node.name}</span>
+          {ScoreIndicator}
         </SidebarMenuButton>
       </SidebarMenuItem>
     );
@@ -63,7 +65,7 @@ export function ParaTreeItem({
   return (
     <Collapsible className="group/collapsible">
       <SidebarMenuItem>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center">
           <CollapsibleTrigger asChild>
             <button
               className="p-1 hover:bg-sidebar-accent rounded"
@@ -79,8 +81,8 @@ export function ParaTreeItem({
               isSelected && 'bg-sidebar-accent text-sidebar-accent-foreground'
             )}
           >
-            <Icon className={cn('size-4', color)} />
-            <span>{node.name}</span>
+            <span className="flex-1">{node.name}</span>
+            {ScoreIndicator}
           </SidebarMenuButton>
         </div>
 
@@ -93,6 +95,7 @@ export function ParaTreeItem({
                 selectedEntityUuid={selectedEntityUuid}
                 onSelectEntity={onSelectEntity}
                 level={level + 1}
+                scoreMap={scoreMap}
               />
             ))}
           </ul>

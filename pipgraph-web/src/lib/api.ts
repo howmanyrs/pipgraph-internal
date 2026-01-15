@@ -195,6 +195,14 @@ export interface GetEpisodicsByEntityResponse {
   error?: string;
 }
 
+// --- Unlinked Episodics ---
+export interface ListUnlinkedEpisodicResponse {
+  success: boolean;
+  episodics: EpisodicNode[];
+  count: number;
+  error?: string;
+}
+
 // ============================================================================
 // API Error Class
 // ============================================================================
@@ -298,7 +306,7 @@ export async function listEpisodics(params?: {
 
   const query = searchParams.toString();
   return fetchJson<ListEpisodicResponse>(
-    getApiUrl(`/episodics${query ? `?${query}` : ''}`)
+    getApiUrl(`/episodic/list${query ? `?${query}` : ''}`)
   );
 }
 
@@ -402,6 +410,24 @@ export async function getEpisodicsByEntity(params: {
   );
 }
 
+/**
+ * Get episodics that are NOT linked to any PARA entities (unlinked notes)
+ * These are "orphaned" or "unclassified" notes that need PARA categorization
+ */
+export async function getUnlinkedEpisodics(params?: {
+  limit?: number;
+}): Promise<ListUnlinkedEpisodicResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.limit) {
+    searchParams.set('limit', params.limit.toString());
+  }
+
+  const query = searchParams.toString();
+  return fetchJson<ListUnlinkedEpisodicResponse>(
+    getApiUrl(`/episodic/unlinked${query ? `?${query}` : ''}`)
+  );
+}
+
 // ============================================================================
 // Export all
 // ============================================================================
@@ -418,6 +444,7 @@ export const api = {
   makeSuggestions,
   getParaTree,
   getEpisodicsByEntity,
+  getUnlinkedEpisodics,
 };
 
 export default api;

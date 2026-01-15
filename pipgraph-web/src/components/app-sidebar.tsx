@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Plus, FolderTree } from 'lucide-react';
+import { Plus, Inbox, FolderTree } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -23,6 +23,13 @@ export function AppSidebar() {
                 <SidebarMenuButton asChild>
                   <Link href="/">
                     <Plus />
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <Link href="/inbox">
+                    <Inbox />
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

@@ -100,6 +100,9 @@ def fixed_get_default_group_id(provider):
     return "default"
 
 
+_patch_applied = False
+
+
 def apply_patch():
     """
     Apply patches to Graphiti functions.
@@ -108,6 +111,12 @@ def apply_patch():
     1. graphiti_core.helpers.lucene_sanitize
     2. graphiti_core.helpers.get_default_group_id
     """
+    global _patch_applied
+
+    if _patch_applied:
+        logger.debug("[graphiti_patches] Patches already applied, skipping")
+        return
+
     try:
         import graphiti_core.helpers as helpers
         import graphiti_core.search.search_utils as search_utils
@@ -135,12 +144,22 @@ def apply_patch():
         def fulltext_query_with_logging(query, group_ids, driver):
             result = original_fulltext_query(query, group_ids, driver)
             logger.info(
-                f"[fulltext_query] input='{query[:100]}', group_ids={group_ids}, "
-                f"output='{result[:100] if result else result}'"
+                f"[fulltext_query] input length={len(query)}, words={len(query.split())}, "
+                f"group_ids={group_ids}"
             )
+            logger.info(
+                f"[fulltext_query] output length={len(result) if result else 0}, "
+                f"is_empty={result == ''}, first_100='{result[:100] if result else ''}'"
+            )
+            if not result:
+                logger.warning(
+                    f"[fulltext_query] EMPTY RESULT! Input query: '{query[:200]}...'"
+                )
             return result
 
         search_utils.fulltext_query = fulltext_query_with_logging
+
+        _patch_applied = True
 
         logger.info(
             "[graphiti_patches] Successfully patched lucene_sanitize, "

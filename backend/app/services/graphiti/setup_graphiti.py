@@ -9,7 +9,7 @@ import os
 
 # IMPORTANT: Import patch BEFORE importing Graphiti
 # This fixes lucene_sanitize() bug that breaks search for words with capital letters
-import app.services.graphiti.lucene_sanitize_patch  # noqa: F401 (applies patch on import)
+from app.services.graphiti.lucene_sanitize_patch import apply_patch
 
 from graphiti_core import Graphiti
 from graphiti_core.llm_client.config import LLMConfig
@@ -17,6 +17,9 @@ from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
 from config.settings import settings
 from app.services.graphiti.patched_client import CloudRuPatchedClient
+
+# Ensure patch is applied after Graphiti import (idempotent, safe to call multiple times)
+apply_patch()
 
 # Disable telemetry
 os.environ['GRAPHITI_TELEMETRY_ENABLED'] = 'false'
