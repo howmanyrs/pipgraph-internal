@@ -33,8 +33,10 @@ from app.api.schemas.dev import (
     ParaSuggestion,
     ListUnlinkedEpisodicResponse,
     DeleteNodeResponse,
+    GetParaTreeResponse,
 )
 from app.services.graphiti import get_graphiti, PipGraphManager
+from app.services.graphiti.para_tree import PARATreeBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -1097,5 +1099,67 @@ async def delete_node(node_uuid: str) -> DeleteNodeResponse:
             success=False,
             node_uuid=None,
             node_type=None,
+            error=str(e),
+        )
+
+
+@router.get("/para-tree", response_model=GetParaTreeResponse)
+async def get_para_tree() -> GetParaTreeResponse:
+    """
+    Get hierarchical PARA tree structure.
+
+    Builds and returns a hierarchical tree of PARA entities (Projects, Areas,
+    Resources, Archives) based on BELONGS_TO relationships. The tree reflects
+    the organizational structure where:
+    - Areas can contain Projects, Resources, or other Areas
+    - Projects can contain Resources
+    - Archives can contain any inactive containers
+
+    The tree is built recursively, starting from root nodes (nodes without
+    parents) and traversing down through BELONGS_TO relationships.
+
+    Each node in the tree contains:
+    - id: UUID of the entity
+    - name: Entity name
+    - type: PARA type (Project, Area, Resource, Archive)
+    - children: List of nested child nodes (recursive structure)
+
+    Use cases:
+    - Displaying organizational hierarchy in UI
+    - Navigating knowledge graph structure
+    - Understanding PARA container relationships
+
+    Example:
+        GET /api/v1/dev/para-tree
+
+    Returns:
+        GetParaTreeResponse with tree structure and metadata
+    """
+    try:
+        logger.info("[get_para_tree] Building PARA tree structure")
+
+        # Get Graphiti instance (need driver for PARATreeBuilder)
+        graphiti = await get_graphiti()
+        driver = graphiti.driver
+
+        # Build tree using PARATreeBuilder
+        builder = PARATreeBuilder(driver)
+        tree = await builder.build_tree()
+
+        logger.info(f"[get_para_tree] Successfully built tree with {len(tree)} root nodes")
+
+        return GetParaTreeResponse(
+            success=True,
+            tree=tree,
+            count=len(tree),
+            error=None,
+        )
+
+    except Exception as e:
+        logger.error(f"[get_para_tree] Error building tree: {e}", exc_info=True)
+        return GetParaTreeResponse(
+            success=False,
+            tree=[],
+            count=0,
             error=str(e),
         )

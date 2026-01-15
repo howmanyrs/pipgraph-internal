@@ -623,3 +623,39 @@ class DeleteNodeResponse(BaseModel):
             ]
         }
     }
+
+
+class GetParaTreeResponse(BaseModel):
+    """Response from getting PARA tree structure."""
+
+    success: bool = Field(..., description="Whether tree retrieval was successful")
+    tree: list[dict] = Field(default_factory=list, description="PARA tree structure (list of root nodes)")
+    count: int = Field(0, description="Number of root nodes in the tree")
+    error: Optional[str] = Field(None, description="Error message if retrieval failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "tree": [
+                        {
+                            "id": "550e8400-e29b-41d4-a716-446655440000",
+                            "name": "Product Development",
+                            "type": "Area",
+                            "children": [
+                                {
+                                    "id": "660e8400-e29b-41d4-a716-446655440111",
+                                    "name": "Website Redesign",
+                                    "type": "Project",
+                                    "children": []
+                                }
+                            ]
+                        }
+                    ],
+                    "count": 1,
+                    "error": None
+                }
+            ]
+        }
+    }

@@ -171,6 +171,30 @@ export interface MakeSuggestionsResponse {
   error?: string;
 }
 
+// --- PARA Tree ---
+export interface TreeNode {
+  id: string;
+  name: string;
+  type: 'Project' | 'Area' | 'Resource' | 'Archive';
+  children: TreeNode[];
+}
+
+export interface GetParaTreeResponse {
+  success: boolean;
+  tree: TreeNode[];
+  count: number;
+  error?: string;
+}
+
+// --- Episodics by Entity ---
+export interface GetEpisodicsByEntityResponse {
+  success: boolean;
+  entity_uuid?: string;
+  episodics: EpisodicNode[];
+  count: number;
+  error?: string;
+}
+
 // ============================================================================
 // API Error Class
 // ============================================================================
@@ -353,6 +377,31 @@ export async function makeSuggestions(
   });
 }
 
+/**
+ * Get hierarchical PARA tree structure
+ */
+export async function getParaTree(): Promise<GetParaTreeResponse> {
+  return fetchJson<GetParaTreeResponse>(getApiUrl('/para-tree'));
+}
+
+/**
+ * Get episodics that mention a specific entity
+ */
+export async function getEpisodicsByEntity(params: {
+  entity_uuid: string;
+  limit?: number;
+}): Promise<GetEpisodicsByEntityResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set('entity_uuid', params.entity_uuid);
+  if (params.limit) {
+    searchParams.set('limit', params.limit.toString());
+  }
+
+  return fetchJson<GetEpisodicsByEntityResponse>(
+    getApiUrl(`/episodics/by-entity?${searchParams.toString()}`)
+  );
+}
+
 // ============================================================================
 // Export all
 // ============================================================================
@@ -367,6 +416,8 @@ export const api = {
   listParaEntities,
   linkEntityToEpisode,
   makeSuggestions,
+  getParaTree,
+  getEpisodicsByEntity,
 };
 
 export default api;
