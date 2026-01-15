@@ -11,12 +11,17 @@ export function InboxView() {
   // Fetch suggestions when a note is selected
   const { data: suggestionsData } = useMakeSuggestions(selectedNoteUuid);
 
+  // Clear selection (called after successful link+process)
+  const clearSelection = () => setSelectedNoteUuid(null);
+
   return (
     <div className="flex h-screen">
       {/* Left Panel - PARA Tree with Score Indicators */}
       <div className="w-[35%] border-r overflow-y-auto bg-background">
         <ParaTreeWithScores
           suggestions={suggestionsData?.suggestions || []}
+          selectedNoteUuid={selectedNoteUuid}
+          onClearSelection={clearSelection}
         />
       </div>
 

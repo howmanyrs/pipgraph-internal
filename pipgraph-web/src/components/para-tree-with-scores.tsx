@@ -8,6 +8,8 @@ import { useMemo } from 'react';
 
 interface ParaTreeWithScoresProps {
   suggestions: ParaSuggestion[];
+  selectedNoteUuid: string | null; // Selected unlinked note for linking
+  onClearSelection: () => void; // Callback to clear selection after successful link
 }
 
 /**
@@ -36,7 +38,11 @@ function normalizeSuggestions(
   return scoreMap;
 }
 
-export function ParaTreeWithScores({ suggestions }: ParaTreeWithScoresProps) {
+export function ParaTreeWithScores({
+  suggestions,
+  selectedNoteUuid,
+  onClearSelection,
+}: ParaTreeWithScoresProps) {
   const { data, isLoading, error } = useParaTree();
 
   // Memoize score normalization to avoid recalculating on every render
@@ -87,6 +93,8 @@ export function ParaTreeWithScores({ suggestions }: ParaTreeWithScoresProps) {
             selectedEntityUuid={null} // No selection in Inbox view
             onSelectEntity={() => {}} // No-op in Inbox view
             scoreMap={scoreMap} // Pass normalized scores
+            selectedNoteUuid={selectedNoteUuid} // Pass selected note for linking
+            onClearSelection={onClearSelection} // Pass clear callback
           />
         ))}
       </ul>
