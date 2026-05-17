@@ -1,7 +1,11 @@
 import logging
+from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from neo4j import AsyncGraphDatabase
+from neo4j.exceptions import AuthError, ServiceUnavailable
 
 from config.settings import settings
 
@@ -26,8 +30,83 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 print(f"🔧 Logging level set to: {log_level}")
 from app.api.endpoints import dev
 
+logger = logging.getLogger(__name__)
 
-app = FastAPI(title="PipGraph Backend")
+
+async def _verify_neo4j() -> None:
+    logger.info(f"Verifying Neo4j connectivity at {settings.NEO4J_URI} ...")
+    driver = AsyncGraphDatabase.driver(
+        settings.NEO4J_URI,
+        auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+    )
+    try:
+        await driver.verify_connectivity()
+        await driver.verify_authentication()
+    except ServiceUnavailable as e:
+        logger.error(f"Neo4j unreachable at {settings.NEO4J_URI}: {e}")
+        raise RuntimeError(
+            f"Neo4j is unreachable at {settings.NEO4J_URI}. "
+            "Check that the database is running and NEO4J_URI is correct."
+        ) from e
+    except AuthError as e:
+        logger.error(f"Neo4j authentication failed for user '{settings.NEO4J_USER}': {e}")
+        raise RuntimeError(
+            f"Neo4j authentication failed for user '{settings.NEO4J_USER}'. "
+            "Check NEO4J_USER and NEO4J_PASSWORD."
+        ) from e
+    finally:
+        await driver.close()
+    logger.info("Neo4j connectivity OK")
+
+
+async def _verify_llm() -> None:
+    # Лёгкая проверка LLM-провайдера через OpenAI-совместимый GET /models.
+    # Использует те же base_url и api_key, что и CloudRuPatchedClient в setup_graphiti.py,
+    # но не инстанцирует Graphiti (избегаем build_indices и расхода токенов).
+    base_url = settings.CLOUDRU_BASE_URL.rstrip("/")
+    url = f"{base_url}/models"
+    logger.info(f"Verifying LLM service availability at {base_url} ...")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {settings.CLOUDRU_API_KEY}"},
+            )
+    except httpx.HTTPError as e:
+        logger.error(f"LLM service unreachable at {base_url}: {e}")
+        raise RuntimeError(
+            f"LLM service unreachable at {base_url}. "
+            "Check network and CLOUDRU_BASE_URL."
+        ) from e
+
+    if resp.status_code == 401 or resp.status_code == 403:
+        logger.error(f"LLM authentication failed ({resp.status_code}): {resp.text[:200]}")
+        raise RuntimeError(
+            f"LLM authentication failed at {base_url} (HTTP {resp.status_code}). "
+            "Check CLOUDRU_API_KEY."
+        )
+    if resp.status_code >= 500:
+        logger.error(f"LLM service error ({resp.status_code}): {resp.text[:200]}")
+        raise RuntimeError(
+            f"LLM service returned HTTP {resp.status_code} at {base_url}."
+        )
+    if resp.status_code >= 400:
+        # 404 на /models у некоторых провайдеров считаем не фатальным — соединение и ключ работают
+        logger.warning(
+            f"LLM /models returned HTTP {resp.status_code}; "
+            "treating as reachable (endpoint may not expose model listing)."
+        )
+    logger.info("LLM service connectivity OK")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await _verify_neo4j()
+    await _verify_llm()
+    yield
+
+
+app = FastAPI(title="PipGraph Backend", lifespan=lifespan)
 
 # CORS настройки для разработки
 # Разрешаем запросы с frontend (localhost:3000) и других источников
