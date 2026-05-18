@@ -1,0 +1,9 @@
+{
+  "id": "pipgraph",
+  "name": "PipGraph",
+  "version": "0.0.1",
+  "minAppVersion": "1.5.0",
+  "description": "Triage your inbox of notes with LLM-suggested PARA placements, powered by the PipGraph backend.",
+  "author": "Anton Lobachev",
+  "isDesktopOnly": true
+}
