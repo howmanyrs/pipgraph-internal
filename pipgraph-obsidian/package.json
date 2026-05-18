@@ -1,0 +1,26 @@
+{
+  "name": "pipgraph-obsidian",
+  "version": "0.0.1",
+  "description": "Obsidian plugin for the PipGraph triage panel.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "pipgraph"
+  ],
+  "author": "Anton Lobachev",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.20.2",
+    "obsidian": "^1.5.7",
+    "tslib": "^2.6.2",
+    "typescript": "^5.4.5"
+  }
+}
