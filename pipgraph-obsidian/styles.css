@@ -1,1 +1,28 @@
-/* PipGraph plugin styles. Populated in M5 (decoration). */
+/* PipGraph plugin styles. */
+
+.pipgraph-triage-panel__first-run {
+  padding: var(--size-4-3);
+  margin-top: var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.pipgraph-triage-panel__first-run-link {
+  display: inline-block;
+  margin-top: var(--size-2-2);
+  color: var(--text-accent);
+  cursor: pointer;
+}
+
+.pipgraph-settings__warning {
+  margin-top: var(--size-4-2);
+  padding: var(--size-4-2);
+  border-left: 2px solid var(--text-error);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+}
+
+.pipgraph-settings__warning p {
+  margin: 0 0 var(--size-2-2) 0;
+}
