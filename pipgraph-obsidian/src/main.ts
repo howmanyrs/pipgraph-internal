@@ -1,9 +1,24 @@
 import { Plugin, WorkspaceLeaf } from "obsidian";
 import { TriagePanelView, TRIAGE_VIEW_TYPE } from "./views/TriagePanelView";
+import {
+  DEFAULT_SETTINGS,
+  PipGraphSettings,
+  hasNonDefaultValues,
+} from "./settings/PipGraphSettings";
+import { PipGraphSettingTab } from "./settings/PipGraphSettingTab";
 
 export default class PipGraphPlugin extends Plugin {
+  settings!: PipGraphSettings;
+
   async onload(): Promise<void> {
-    this.registerView(TRIAGE_VIEW_TYPE, (leaf) => new TriagePanelView(leaf));
+    await this.loadSettings();
+
+    this.registerView(
+      TRIAGE_VIEW_TYPE,
+      (leaf) => new TriagePanelView(leaf, this),
+    );
+
+    this.addSettingTab(new PipGraphSettingTab(this.app, this));
 
     this.addRibbonIcon("inbox", "Open PipGraph triage panel", () => {
       void this.activateTriagePanel();
@@ -20,6 +35,28 @@ export default class PipGraphPlugin extends Plugin {
 
   onunload(): void {
     this.app.workspace.detachLeavesOfType(TRIAGE_VIEW_TYPE);
+  }
+
+  async loadSettings(): Promise<void> {
+    const raw = (await this.loadData()) as Partial<PipGraphSettings> | null;
+    this.settings = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
+  }
+
+  async saveSettings(): Promise<void> {
+    if (!this.settings.initialized && hasNonDefaultValues(this.settings)) {
+      this.settings.initialized = true;
+    }
+    await this.saveData(this.settings);
+    this.notifyTriageViews();
+  }
+
+  private notifyTriageViews(): void {
+    this.app.workspace.getLeavesOfType(TRIAGE_VIEW_TYPE).forEach((leaf) => {
+      const view = leaf.view;
+      if (view instanceof TriagePanelView) {
+        view.refresh();
+      }
+    });
   }
 
   private async activateTriagePanel(): Promise<void> {
