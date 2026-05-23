@@ -1,103 +1,218 @@
-# PipGraph Backend — Conceptual Manifest
+# PipGraph Backend — Direction & Environment
 
-## Project Overview
-PipGraph is an intelligent backend engine designed to bridge unstructured Markdown notes (Obsidian) with a structured Knowledge Graph (Neo4j). It acts as a "second brain" processor that structures, links, and classifies information while strictly adhering to a **Human-in-the-Loop** philosophy.
+> **Purpose of this file.** Orient Claude (and the next implementer) to *where this component sits*, *what it is responsible for*, *what its current API surface looks like*, and *which docs to consult before doing anything non-trivial*. Conceptual narrative ("what is PARA", "why graphs") lives in [`README.md`](./README.md); this file is the working manual.
 
-The system does not modify the body of user notes. Instead, it builds an external graph layer and syncs metadata back to the note's YAML frontmatter.
+## What this is
 
-## Core Philosophy
+`backend/` is the **single source of truth** for graph state in the PipGraph monorepo. It is a FastAPI service that:
 
-1.  **Non-Destructive Processing**: The text content of notes is sacred. The system reads notes but only writes to a dedicated metadata section (YAML) or the external database.
-2.  **Graph-First Structure**: Information is stored as nodes (Episodes, Entities, PARA Containers) and edges (Relationships), enabling complex semantic queries that flat file searches cannot handle.
-3.  **Direct Processing**: The system provides direct REST API access to LLM-powered processing and hybrid search, without complex workflow orchestration.
+- Owns the Neo4j connection — no other component talks to the database directly.
+- Owns all LLM calls — clients never invoke an LLM provider themselves.
+- Exposes one HTTP surface (`/api/v1/dev`) that both clients consume:
+  - [`../pipgraph-web/`](../pipgraph-web) — Next.js browser prototype.
+  - [`../pipgraph-obsidian/`](../pipgraph-obsidian) — Obsidian plugin (pre-implementation, becoming the primary client).
 
-## Business Logic & Methodology
+Anything that touches Neo4j or an LLM **must go through this service**. Clients that bypass it are buggy by definition.
 
-### 1. The PARA Method
-The system organizes knowledge based on the PARA methodology by Tiago Forte. Every note (Episode) is evaluated for context:
--   **Projects**: Short-term efforts with goals and deadlines.
--   **Areas**: Long-term responsibilities with standards to maintain.
--   **Resources**: Topics or themes of ongoing interest.
--   **Archives**: Inactive items from the above categories.
--   **Inbox**: The default holding area for unclassified content.
+## Current state at a glance
 
-### 2. The Processing Pipeline
-Data flows through a direct processing pipeline:
-1.  **Ingestion**: A note is received as an "Episode" (an event in time).
-2.  **Entity Extraction**: The system extracts entities (Tasks, Concepts, Persons, Technologies) from the text using LLM.
-3.  **Graph Storage**: Extracted entities are stored in Neo4j with relationships to the Episode.
-4.  **Hybrid Search**: When needed, the system can find relevant PARA entities using BM25 + vector similarity search.
+- **API**: stable enough that two clients depend on it; still under `/dev` because the contract is allowed to evolve (no `/v1` freeze yet).
+- **No workflow orchestration.** The prior LangGraph experiment was removed (archived under `.docs/DEPRECATED/`). Processing is direct: request → manager → graph.
+- **Single manager.** `PipGraphManager` is the only legitimate entry point to Neo4j. The old `EpisodicCRUD` / `PARAContainerCRUD` classes are gone; `app/crud/` retains only `EntityCRUD` and `RelationshipCRUD`, used **from inside** the manager, not from endpoints.
+- **Future work** is staged in [`.docs/.todo/`](./.docs/.todo) (retro vault import, cascade summary, oversaturation detection, `:Entity:Task`, alias/archetype layer). Each item is a design note, not an implementation — consult before inventing a parallel approach.
 
-## Key Features
+## The live contract: `/api/v1/dev`
 
-### Natural Language Search
-The system converts natural language questions (e.g., "What tasks did we discuss regarding the API migration last week?") into formal graph queries (Cypher), allowing users to interrogate their knowledge base without learning query languages.
+All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). The table below is a **snapshot** — re-check the file before relying on any specific row.
 
-### No-Cache Policy (Episodic Memory)
-The "Episodic" nodes (the notes) do not store context permanently in their own properties. Context is derived dynamically by traversing relationships (`:IS_PART_OF`) in the graph. This ensures that if a Project is renamed or moved, the historical notes linked to it remain valid without needing bulk updates.
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/dev/process-note` | Create Episodic + run full LLM extraction pipeline (entities, edges, summaries). |
+| POST | `/dev/episode` | Create Episodic only (no LLM). Auto-generates name if absent. Lightweight ingestion. |
+| GET | `/dev/episodic?note_path=…` | Fetch one Episodic by `name` (path-like). |
+| GET | `/dev/episodic/list?limit=…` | List all Episodics (debug/inspection). |
+| GET | `/dev/episodic/unlinked?limit=…` | Episodics without any `MENTIONS` edge — i.e. the triage inbox. |
+| GET | `/dev/episodics/by-entity?entity_uuid=…&limit=…` | Episodics that `MENTIONS` a given entity. |
+| POST | `/dev/process-existing-episode` | Run extraction on an already-linked Episodic (updates summaries, adds new mentions only). |
+| POST | `/dev/para-entity` | Create a PARA entity (`:Entity:Project|Area|Resource|Archive`) without LLM. |
+| GET | `/dev/para-entity/list?limit=…&para_type=…&<prop>=…` | List PARA entities. Extra query params become property filters. |
+| POST | `/dev/link-entity-episode` | Create `MENTIONS` edge (Episodic → Entity). Idempotent (`MERGE`). |
+| POST | `/dev/link-para-nodes` | Create `BELONGS_TO` edge (Entity → Entity) for hierarchy. Idempotent. |
+| POST | `/dev/make-suggestions` | Hybrid search (BM25 + vector + MMR) returning ranked PARA entities for an Episodic. |
+| GET | `/dev/para-tree` | Hierarchical PARA tree built from `BELONGS_TO` edges. |
+| DELETE | `/dev/node/{node_uuid}` | Delete an Episodic or Entity with `DETACH DELETE`. Auto-detects type. Irreversible. |
 
-## Data Layer Architecture
+**OpenAPI** is served at `http://localhost:8000/docs` when the server is running — use it as the cross-check, not this table.
 
-### CRUD Operations via PipGraphManager
+### Conventions across the surface
 
-**All database operations** are performed through `PipGraphManager` (located in `app/services/graphiti/pipgraph_manager.py`). This is the **single source of truth** for Neo4j CRUD operations.
+- Responses follow `{success: bool, …payload…, error: str|None}` — endpoints return HTTP 200 even on validation failure, with `success=false` and `error` populated. Clients must check `success`.
+- Identifiers are **UUIDs** for nodes/edges, and **path-like `name`** for Episodics.
+- `MENTIONS` and `BELONGS_TO` use `MERGE` — calling a link endpoint twice is safe.
 
-**Key Principles:**
-- **Async-first**: All methods are asynchronous
-- **Graphiti integration**: Returns Graphiti node objects (EpisodicNode, EntityNode)
-- **UUID-based**: Uses UUIDs as primary identifiers
-- **Type-safe**: Leverages Pydantic models from Graphiti
+## Layered architecture
 
-### PipGraphManager Methods
-
-**Episodic Operations:**
-```python
-# Retrieve
-episodic = await manager.get_episodic_by_name("path/to/note.md")
-episodics = await manager.list_episodics(limit=100)
-
-# Modify
-success = await manager.update_episodic_timestamp(uuid, valid_at)
-success = await manager.delete_episodic(uuid)
-
-# Create (full processing pipeline)
-result = await manager.process_note(name, content, ...)
-# Or lightweight creation
-episode = await manager.create_episode(name, content, ...)
+```
+HTTP request
+   │
+   ▼
+app/api/endpoints/dev.py        ← thin: Pydantic validate → call manager → wrap response
+   │
+   ▼
+app/services/graphiti/
+   pipgraph_manager.py          ← all business logic, all Graphiti orchestration
+   setup_graphiti.py            ← Graphiti singleton + Cloud.ru/Qwen patches
+   patched_client.py
+   name_generator.py            ← LLM-based episode-name generation
+   para_tree.py                 ← BELONGS_TO tree builder
+   │
+   ▼
+app/crud/                       ← atomic Cypher helpers, called *only* from the manager
+   entity_crud.py
+   relationship_crud.py
+   │
+   ▼
+Neo4j (bolt://…)
 ```
 
-**Entity Operations:**
-```python
-# Retrieve
-entity = await manager.get_para_entity_by_uuid(uuid)
-entity = await manager.get_para_entity_by_name("Project Alpha", para_type="Project")
-entities = await manager.list_para_entities(limit=100, para_types=["project", "area"])
+**Rules of the road:**
 
-# Create
-entity = await manager.create_para_entity(para_type="Project", name="Website Redesign", summary="...")
-inbox = await manager.ensure_inbox_exists()
+- Endpoints never write Cypher. They call a manager method.
+- The manager never returns raw `neo4j` driver objects to endpoints — it returns Graphiti node objects (`EpisodicNode`, `EntityNode`) or domain types from `app/models/`.
+- `app/crud/` helpers are private to the service layer. New endpoints don't import them directly.
 
-# Link
-edge = await manager.link_entity_to_episode(episodic_uuid, entity_uuid)
+## `PipGraphManager` — the single entry point
+
+Defined in [`app/services/graphiti/pipgraph_manager.py`](./app/services/graphiti/pipgraph_manager.py). All methods are async. Methods grouped by purpose (line numbers drift — grep before quoting):
+
+**Episodic lifecycle**
+- `process_note(name, episode_body, …)` — full LLM pipeline (extract nodes → resolve → edges → bulk save).
+- `create_episode(content, …, name=None)` — lightweight ingestion, no LLM (except optional name generation).
+- `process_existing_episode(episodic_uuid, …)` — re-run extraction on an Episodic already linked to a PARA entity.
+- `get_episodic_by_name(name)`, `list_episodics(limit)`, `list_unlinked_episodics(limit)`, `get_episodics_by_entity_uuid(uuid, limit)`.
+- `update_episodic_timestamp(uuid, valid_at)`, `delete_episodic(uuid)`, `delete_node(uuid)` (type-agnostic).
+
+**PARA entity lifecycle**
+- `create_para_entity(para_type, name, summary, …)` — labels become `:Entity:Project|Area|Resource|Archive`.
+- `get_para_entity_by_uuid(uuid)`, `get_para_entity_by_name(name, para_type=…)`, `list_para_entities(limit, para_types, property_filters)`.
+- `ensure_inbox_exists()` — idempotent Inbox singleton.
+
+**Relationships**
+- `link_entity_to_episode(episodic_uuid, entity_uuid)` — `MENTIONS`.
+- `link_para_nodes(source, target)` — `BELONGS_TO`.
+
+**Discovery**
+- `make_suggestions(episodic_uuid, limit, min_score)` — hybrid search ranking PARA entities for a note.
+
+If a new endpoint needs a database operation that doesn't exist yet, **add a method to `PipGraphManager` first** — do not write Cypher in the endpoint.
+
+## Data model (Neo4j)
+
+```
+(:Episodic {uuid, name, content, created_at, valid_at, source, source_description, group_id})
+
+(:Entity:Project)   ┐
+(:Entity:Area)      │ {uuid, name, summary, name_embedding, attributes, created_at}
+(:Entity:Resource)  │
+(:Entity:Archive)   ┘
+
+(:Episodic)-[:MENTIONS]->(:Entity)         ← only edge allowed from Episodic (Graphiti constraint)
+(:Entity)-[:BELONGS_TO]->(:Entity)         ← PARA hierarchy
+(:Entity)-[:RELATES_TO]->(:Entity)         ← LLM-extracted semantic relations
 ```
 
-**Legacy CRUD Classes (REMOVED):**
-- ~~`EpisodicCRUD`~~ - Removed, use `PipGraphManager`
-- ~~`PARAContainerCRUD`~~ - Removed, use `PipGraphManager`
-- `RelationshipCRUD` - Core CRUD for relationship management
-- `EntityCRUD` - Core CRUD for entity queries
+Schemas are owned by Graphiti and the manager. **Never `CREATE` a node from a raw Cypher call** — go through `PipGraphManager` so labels, embeddings, and `created_at` stay consistent.
 
-### Schema Consistency
+## Configuration
 
-All nodes created by `PipGraphManager` use **Graphiti schema**:
-- **Episodic**: `:Episodic {uuid, name, content, created_at, valid_at, ...}`
-- **PARA Entities**: `:Entity:Project`, `:Entity:Area`, `:Entity:Resource`, `:Entity:Archive`
-  - Properties: `uuid`, `name`, `summary`, `name_embedding`, `attributes`, `created_at`
-- **Relationships**: `:MENTIONS` (Episodic → Entity), `:RELATES_TO` (Entity → Entity)
+`config/settings.py` exposes a global `settings` object (pydantic-settings). Read via:
 
-**Never create nodes manually** - always use PipGraphManager to ensure schema consistency.
+```python
+from config.settings import settings
+settings.NEO4J_URI, settings.CLOUDRU_API_KEY, …
+```
 
-## Documentation Structure
-For technical implementation details, refer to the codebase:
--   **Architecture & Navigation**: Folder structure, layers, and key components.
--   **Coding Standards**: Testing, configuration, and patterns.
+Required `.env` keys (see [`.docs/CONFIGURATION.md`](./.docs/CONFIGURATION.md) for the full list and provider notes):
+
+```bash
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=…
+
+CLOUDRU_API_KEY=…                # or OPENROUTER_API_KEY, depending on provider
+CLOUDRU_BASE_URL=https://…/v1
+```
+
+Startup (`app/api/main.py:lifespan`) actively verifies both Neo4j and the LLM provider — the server refuses to come up if either is unreachable.
+
+## Running locally
+
+```bash
+cd backend/
+uv venv && source .venv/bin/activate
+uv pip install -r requirements.txt
+cp .env.example .env   # then fill in keys
+
+uvicorn app.api.main:app --reload
+# API:  http://localhost:8000
+# Docs: http://localhost:8000/docs
+```
+
+CORS is preconfigured for `localhost:3000` / `:3001` so the web client works out of the box. The Obsidian plugin runs in-process inside Obsidian and is not subject to CORS.
+
+## Testing
+
+```bash
+pytest -m unit            # fast, no external services
+pytest -m integration     # requires live Neo4j + LLM provider
+pytest -m "not slow"      # skip LLM-heavy paths
+```
+
+Full conventions, fixtures and markers: [`.docs/TESTING.md`](./.docs/TESTING.md).
+
+Tests are laid out by integration level under `tests/{unit,integration,e2e,api}/`. Adding a new endpoint or manager method without at least a unit test is a regression.
+
+## Documentation layout
+
+```
+backend/
+├── README.md                 ← project narrative (in Russian) — philosophy, "what is this"
+├── CLAUDE.md                 ← you are here (direction, API surface, layering)
+├── ISSUES.md                 ← rolling notes on known issues
+└── .docs/                    ← gitignored personal/working docs
+    ├── CONFIGURATION.md      ← full .env reference, provider notes
+    ├── TESTING.md            ← test strategy, fixtures, markers
+    ├── about_graphiti/       ← background on Graphiti integration patterns
+    ├── custom_entities/      ← notes on PARA entity-type customisation
+    ├── neo4j_verification_queries.md
+    ├── new_claude_and_skills/
+    ├── DONES/                ← historical "what landed" notes
+    ├── DEPRECATED/           ← prior LangGraph workflow design (kept for context)
+    └── .todo/                ← *future* features — read before designing anything new
+```
+
+The `.docs/` tree is **not under version control** (see root `.gitignore`). Anything that must be shared (architecture decisions, API contracts) belongs in `README.md` or in a PR description, not here.
+
+## Working principles
+
+1. **The manager is the API.** All graph operations route through `PipGraphManager`. New CRUD logic goes there.
+2. **The endpoint layer stays thin.** Endpoints validate input, call one manager method, wrap the result in the response schema. No business logic, no Cypher.
+3. **The contract is the file, not this doc.** `dev.py` is authoritative for routes and shapes. This file points to it; OpenAPI at `/docs` is the live mirror.
+4. **Non-destructive towards the user's notes.** The backend reads note bodies but only writes to its own database. Anything that writes back to a note's body is out of scope; frontmatter writes are the client's job (see [`../pipgraph-obsidian/CLAUDE.md`](../pipgraph-obsidian/CLAUDE.md)).
+5. **Two clients, same contract.** When changing an endpoint, check both [`../pipgraph-web/src/lib/api.ts`](../pipgraph-web/src/lib/api.ts) and [`../pipgraph-obsidian/src/backend/PipGraphClient.ts`](../pipgraph-obsidian/src/backend/PipGraphClient.ts) before merging — and update the Obsidian plugin's [`.docs/overview/api-surface.md`](../pipgraph-obsidian/.docs/overview/api-surface.md) snapshot if the change is material.
+6. **Read `.docs/.todo/` before designing.** Many "obvious" missing features (retro vault import, cascade summary, `:Entity:Task`, oversaturation, aliases) already have design notes. Extend them; don't fork them.
+7. **Iterate the `/dev` surface freely; rename with notice.** The `dev` prefix is a deliberate signal that the contract is mutable. When you rename a path, fix both clients and the Obsidian overview snapshot in the same PR.
+
+## Where to look next
+
+- **Implementing an endpoint** → [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py) + [`app/api/schemas/dev.py`](./app/api/schemas/dev.py).
+- **Implementing graph logic** → [`app/services/graphiti/pipgraph_manager.py`](./app/services/graphiti/pipgraph_manager.py).
+- **Designing a future capability** → check [`.docs/.todo/`](./.docs/.todo) first.
+- **Understanding the consumers** → [`../pipgraph-obsidian/.docs/overview/`](../pipgraph-obsidian/.docs/overview) maps every endpoint to its plugin/web usage and flags gaps.
+- **Configuration / secrets** → [`.docs/CONFIGURATION.md`](./.docs/CONFIGURATION.md).
+- **Tests** → [`.docs/TESTING.md`](./.docs/TESTING.md).
+- **Monorepo overview** → [`../CLAUDE.md`](../CLAUDE.md).
+
+---
+
+**For Claude Code working in this directory:** Do not duplicate `pipgraph_manager.py` logic in endpoints. Do not write Cypher in endpoints. Do not invent new endpoints for capabilities that already have a `.docs/.todo/` design — propose extending the existing note instead. When in doubt about a route's exact shape, consult `dev.py` (or `/docs`), not this snapshot.

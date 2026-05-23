@@ -82,15 +82,6 @@ from graphiti_core.utils.maintenance.node_operations import (
     extract_nodes,
     resolve_extracted_nodes,
 )
-from graphiti_core.utils.ontology_utils.entity_types_utils import validate_entity_types
-
-# Import PARA configuration
-from config.para_config import (
-    PARA_ENTITY_TYPES,
-    PARA_EDGE_TYPES,
-    PARA_EDGE_TYPE_MAP,
-)
-
 # Import name generator for automatic episode naming
 from app.services.graphiti.name_generator import generate_episode_name
 
@@ -217,26 +208,6 @@ class PipGraphManager:
         try:
             start = time()
             now = utc_now()
-
-            # Dont use custom PARA types on this stage
-
-            # Apply PARA defaults if use_para_entities is True and custom types not provided
-            # if use_para_entities:
-            #     if entity_types is None:
-            #         entity_types = PARA_ENTITY_TYPES
-            #         logger.info("Using default PARA entity types (Project, Area, Resource, Archive)")
-
-            #     if edge_types is None:
-            #         edge_types = PARA_EDGE_TYPES
-            #         logger.info("Using default PARA edge types (ContributesTo, SpawnedFrom, UsesResource)")
-
-            #     if edge_type_map is None:
-            #         edge_type_map = PARA_EDGE_TYPE_MAP
-            #         logger.info("Using default PARA edge type map")
-
-            # validate_entity_types(entity_types)
-
-            # validate_excluded_entity_types(excluded_entity_types, entity_types)
 
             validate_group_id(group_id)
             # if group_id is None, use the default group id by the provider
