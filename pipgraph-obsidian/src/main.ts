@@ -6,12 +6,15 @@ import {
   hasNonDefaultValues,
 } from "./settings/PipGraphSettings";
 import { PipGraphSettingTab } from "./settings/PipGraphSettingTab";
+import { PipGraphClient } from "./backend";
 
 export default class PipGraphPlugin extends Plugin {
   settings!: PipGraphSettings;
+  client!: PipGraphClient;
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    this.client = new PipGraphClient(this.settings);
 
     this.registerView(
       TRIAGE_VIEW_TYPE,
@@ -47,6 +50,8 @@ export default class PipGraphPlugin extends Plugin {
       this.settings.initialized = true;
     }
     await this.saveData(this.settings);
+    // Rebuild the client so a new backendUrl / apiKey takes effect immediately.
+    this.client = new PipGraphClient(this.settings);
     this.notifyTriageViews();
   }
 
