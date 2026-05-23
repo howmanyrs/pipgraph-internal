@@ -1,303 +1,174 @@
-# CLAUDE.md
+# CLAUDE.md — PipGraph monorepo
 
-Quick reference for Claude Code when working with the PipGraph monorepo.
+Orientation for Claude Code at the repo root. Component-specific guidance lives in each subdirectory's own `CLAUDE.md`; read this file for *where to start* and *who depends on whom*.
 
-## Project Overview
+## What PipGraph is
 
-PipGraph is an intelligent knowledge graph system that transforms unstructured Markdown notes (Obsidian) into a structured graph database (Neo4j) using LLM. It implements the PARA methodology (Projects, Areas, Resources, Archives).
+A "second brain" pipeline that ingests Markdown notes (typically an Obsidian vault), extracts entities with an LLM, and stores everything in Neo4j on the PARA model (Projects / Areas / Resources / Archives) — without ever rewriting the body of the user's notes.
 
-**Key Features:**
-- Non-destructive note processing (only YAML frontmatter modified)
-- LLM-powered entity extraction
-- REST API for all operations
-- Human-in-the-loop workflow
+The architecture is **backend-centric**: one FastAPI service owns Neo4j and the LLM; every other component is a thin client over its HTTP surface.
 
-## Monorepo Structure
+## Monorepo layout
 
 ```
 pipgraph/
-├── backend/              # Python FastAPI backend (main component)
-│   ├── app/             # Source code
-│   │   ├── api/         # REST endpoints (API layer)
-│   │   ├── services/    # Business logic (Service layer)
-│   │   └── crud/        # Neo4j operations (Data layer)
-│   ├── tests/           # Unit/Integration/E2E tests
-│   ├── docs/            # Detailed documentation
-│   ├── CLAUDE.md        # Backend quick reference
-│   └── README.md        # Backend developer guide
+├── backend/              ← FastAPI service (Python, uv, Neo4j, Graphiti). Single source of truth.
+│   ├── app/api/          ← REST endpoints (/api/v1/dev/*)
+│   ├── app/services/     ← PipGraphManager + Graphiti integration
+│   ├── app/crud/         ← Atomic Neo4j helpers (private to services)
+│   ├── tests/            ← unit / integration / e2e / api
+│   ├── .docs/            ← gitignored working docs (CONFIGURATION.md, TESTING.md, .todo/, …)
+│   ├── CLAUDE.md         ← backend direction & API table
+│   └── README.md         ← Russian narrative
 │
-├── pipgraph-web/        # Next.js web interface (NEW)
-│   ├── src/             # React components, pages, hooks
-│   │   ├── app/         # Next.js App Router
-│   │   ├── components/  # React components (shadcn/ui)
-│   │   ├── lib/         # Utilities
-│   │   └── hooks/       # Custom React hooks
-│   ├── CLAUDE.md        # Web UI quick reference
-│   └── package.json     # npm dependencies
+├── pipgraph-web/         ← Next.js 16 browser client (React 19, TanStack Query, shadcn/ui)
+│   ├── src/lib/api.ts    ← backend API wrapper
+│   └── CLAUDE.md
 │
-├── obsidian-plugin/     # TypeScript Obsidian plugin (in dev)
-├── CLAUDE.md            # This file
-└── README.md            # Full architecture (Russian)
+├── pipgraph-obsidian/    ← Obsidian plugin (TypeScript, pre-implementation, becoming primary client)
+│   ├── src/backend/PipGraphClient.ts
+│   ├── .docs/{suggestions,plans,overview,extra}/   ← gitignored design + roadmap
+│   └── CLAUDE.md
+│
+├── pipgraph-cli/         ← Terminal client (Python, rich) — workflow + interactive modes
+│   └── CLAUDE.md
+│
+├── run-backend.sh / stop-backend.sh / start-web-dev.sh / run-cli.sh
+├── CLAUDE.md             ← this file
+└── README.md             ← full architecture overview (Russian)
 ```
 
-## Technology Stack
+Notes:
+- `pipgraph-obsidian/` is being built **iteratively** (see its `CLAUDE.md` and `.docs/plans/`); treat its code as provisional unless marked otherwise.
+- Helper scripts at the root start/stop services without `cd`-ing into each subdirectory.
+
+## Where to start, by task
+
+| If you're working on… | Read first |
+|---|---|
+| A backend endpoint or graph operation | [`backend/CLAUDE.md`](backend/CLAUDE.md) + [`backend/app/api/endpoints/dev.py`](backend/app/api/endpoints/dev.py) |
+| A web-UI feature | [`pipgraph-web/CLAUDE.md`](pipgraph-web/CLAUDE.md) |
+| An Obsidian plugin feature | [`pipgraph-obsidian/CLAUDE.md`](pipgraph-obsidian/CLAUDE.md) + `pipgraph-obsidian/.docs/plans/` |
+| The CLI | [`pipgraph-cli/CLAUDE.md`](pipgraph-cli/CLAUDE.md) |
+| Designing a *future* backend capability | [`backend/.docs/.todo/`](backend/.docs/.todo) — extend an existing note rather than forking it |
+
+## Quick start
 
 ### Backend
-- **Python 3.12+**, FastAPI, Uvicorn
-- **Neo4j** graph database
-- **Graphiti** for LLM integration
-- **uv** for package management
-- **pytest** for testing
-
-### Frontend (pipgraph-web)
-- **Next.js 16.1.1** (App Router, React 19, TypeScript)
-- **Tailwind CSS v4** + **shadcn/ui** (New York style)
-- **TanStack Query v5** (server state management)
-- **React Hook Form + Zod** (form validation)
-- **react-markdown** (content rendering)
-
-### Frontend (obsidian-plugin)
-- TypeScript, Svelte (in development)
-
-## Quick Start
-
-### Backend Development
-
 ```bash
 cd backend/
 uv venv && source .venv/bin/activate
 uv pip install -r requirements.txt
-
-# Configure .env file
-cp .env.example .env
-# Edit: OPENROUTER_API_KEY, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
+cp .env.example .env   # fill NEO4J_*, CLOUDRU_* (or OPENROUTER_*) keys
 
 uvicorn app.api.main:app --reload
-# Server: http://localhost:8000
-# Docs: http://localhost:8000/docs
+# API: http://localhost:8000   Docs: http://localhost:8000/docs
 ```
+Or, from the repo root: `./run-backend.sh` (and `./stop-backend.sh` to kill it).
 
-📖 **Detailed guide**: [backend/CLAUDE.md](backend/CLAUDE.md)
+Startup actively verifies Neo4j and the LLM provider — the server refuses to come up if either is unreachable.
 
-### Web UI Development
-
+### Web UI
 ```bash
 cd pipgraph-web/
 npm install
+npm run dev   # http://localhost:3000
+```
+Or `./start-web-dev.sh` from the root. Optional: `NEXT_PUBLIC_API_URL=http://localhost:8000` in `.env.local`.
 
-# Optional: configure .env.local
-# NEXT_PUBLIC_API_URL=http://localhost:8000
+### Obsidian plugin
+Build + deploy into a vault via `pipgraph-obsidian/deploy-to-vault.sh`. See its README/CLAUDE.md.
 
-npm run dev
-# Web UI: http://localhost:3000
+### CLI
+`./run-cli.sh` from the root, or `pipgraph -w` from inside an activated `pipgraph-cli` venv.
+
+## Backend API surface
+
+All routes live under `/api/v1/dev`. The `dev` prefix is a deliberate signal that the contract is allowed to evolve — when you rename a path, fix every client in the same PR.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/dev/process-note` | Create Episodic + full LLM extraction pipeline |
+| POST | `/dev/episode` | Lightweight Episodic creation (no LLM) |
+| GET | `/dev/episodic?note_path=…` | Get one Episodic by `name` |
+| GET | `/dev/episodic/list` | List all Episodics |
+| GET | `/dev/episodic/unlinked` | Episodics with no `MENTIONS` edge (triage inbox) |
+| GET | `/dev/episodics/by-entity?entity_uuid=…` | Episodics that mention a given entity |
+| POST | `/dev/process-existing-episode` | Re-run extraction on an already-linked Episodic |
+| POST | `/dev/para-entity` | Create a PARA entity |
+| GET | `/dev/para-entity/list` | List PARA entities (filterable by type and properties) |
+| POST | `/dev/link-entity-episode` | `MENTIONS` edge (Episodic → Entity), idempotent |
+| POST | `/dev/link-para-nodes` | `BELONGS_TO` edge (Entity → Entity), idempotent |
+| POST | `/dev/make-suggestions` | Hybrid search ranking PARA entities for a note |
+| GET | `/dev/para-tree` | Hierarchical PARA tree from `BELONGS_TO` |
+| DELETE | `/dev/node/{node_uuid}` | Detach-delete an Episodic or Entity |
+
+Authoritative source: [`backend/app/api/endpoints/dev.py`](backend/app/api/endpoints/dev.py) and live OpenAPI at `/docs`. Responses follow `{success, …payload…, error}` — clients must check `success` (endpoints return 200 even on validation errors).
+
+## Data model (Neo4j)
+
+```cypher
+(:Episodic {uuid, name, content, created_at, valid_at, source, source_description, group_id})
+
+(:Entity:Project)   ┐
+(:Entity:Area)      │ {uuid, name, summary, name_embedding, attributes, created_at}
+(:Entity:Resource)  │
+(:Entity:Archive)   ┘
+
+(:Episodic)-[:MENTIONS]->(:Entity)        // only edge type allowed from Episodic
+(:Entity)-[:BELONGS_TO]->(:Entity)        // PARA hierarchy
+(:Entity)-[:RELATES_TO]->(:Entity)        // LLM-extracted semantic relations
 ```
 
-📖 **Detailed guide**: [pipgraph-web/CLAUDE.md](pipgraph-web/CLAUDE.md)
+**Never create nodes via raw Cypher.** Go through `PipGraphManager` (see [`backend/CLAUDE.md`](backend/CLAUDE.md)) so labels, embeddings, and `created_at` stay consistent.
 
-## Backend Architecture
+## Cross-cutting principles
 
-**Layered design**: API → Services → CRUD → Database
-
-```
-API Layer (app/api/)
-  ↓ Pydantic validation
-Service Layer (app/services/)
-  ↓ PipGraphManager (single source of truth)
-CRUD Layer (app/crud/)
-  ↓ Cypher queries
-Neo4j Database
-```
-
-### Key Backend Endpoints
-
-All functionality via `/api/v1/dev`:
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| POST | `/dev/process-note` | Full LLM pipeline |
-| GET | `/dev/episodic` | Get episodic by UUID/name |
-| GET | `/dev/episodics` | List all episodics |
-| POST | `/dev/create-episode` | Lightweight episodic |
-| POST | `/dev/para-entity` | Create PARA entity |
-| GET | `/dev/para-entities` | List PARA entities |
-| POST | `/dev/link-entity-episode` | Link entity to episode |
-| POST | `/dev/make-suggestions` | Hybrid search |
-
-**Full list**: `backend/app/api/endpoints/dev.py`
-
-## Frontend Architecture (pipgraph-web)
-
-**Client-Server Pattern**: React components → TanStack Query → Backend REST API
-
-### Key Patterns
-
-**TanStack Query** for all API calls:
-```typescript
-// Always use useQuery/useMutation
-const { data, isLoading } = useQuery({
-  queryKey: ['episodics'],
-  queryFn: async () => {
-    const res = await fetch(`${API_BASE}/api/v1/dev/episodics`);
-    return res.json();
-  },
-});
-```
-
-**shadcn/ui via MCP Server**:
-- Use MCP tools to fetch component source: `mcp__shadcn-ui-mcp__get_component`
-- Save to `src/components/ui/{component-name}.tsx`
-- Import and use: `import { Button } from '@/components/ui/button'`
-
-**Zod + React Hook Form** for validation:
-```typescript
-const schema = z.object({
-  name: z.string().min(1),
-  content: z.string(),
-});
-type FormData = z.infer<typeof schema>;
-```
+1. **Backend is the single source of truth.** No client talks to Neo4j or an LLM directly. Ever.
+2. **Layered backend.** API → `PipGraphManager` → CRUD → Neo4j. Endpoints stay thin; Cypher never appears in an endpoint.
+3. **Non-destructive.** The body of a user's note is never modified. Metadata writes go to YAML frontmatter (client's job) or to the graph (backend's job).
+4. **Two-plus consumers, one contract.** When changing `dev.py`, also update `pipgraph-web/src/lib/api.ts`, `pipgraph-obsidian/src/backend/PipGraphClient.ts`, and the plugin's `.docs/overview/api-surface.md` snapshot.
+5. **Human-in-the-loop.** The system suggests; the user decides. Don't add silent auto-classification.
+6. **Build only what's asked.** No speculative abstractions, no "while we're here" refactors.
 
 ## Configuration
 
-### Backend (.env)
+Backend `.env` (full reference: [`backend/.docs/CONFIGURATION.md`](backend/.docs/CONFIGURATION.md)):
 ```bash
-OPENROUTER_API_KEY=sk-or-v1-...
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_password
+NEO4J_PASSWORD=...
+CLOUDRU_API_KEY=...               # or OPENROUTER_API_KEY, depending on provider
+CLOUDRU_BASE_URL=https://.../v1
 ```
 
-See [backend/docs/CONFIGURATION.md](backend/docs/CONFIGURATION.md)
-
-### Frontend (.env.local)
+Web `.env.local`:
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
 ## Testing
 
-### Backend
 ```bash
+# Backend
 cd backend/
-pytest -m unit           # Fast unit tests
-pytest -m integration    # Requires Neo4j, OpenRouter
-pytest -m "not slow"     # Exclude LLM calls
+pytest -m unit            # fast, no external services
+pytest -m integration     # requires Neo4j + LLM
+pytest -m "not slow"      # skip LLM-heavy paths
 ```
+Full conventions: [`backend/.docs/TESTING.md`](backend/.docs/TESTING.md).
 
-See [backend/docs/TESTING.md](backend/docs/TESTING.md)
-
-### Frontend
 ```bash
+# Web
 cd pipgraph-web/
-npm run lint             # ESLint check
-npm run build            # Production build test
+npm run lint
+npm run build
 ```
 
-## Documentation Structure
+## Where to look next
 
-### Component-Specific Docs
-- **[backend/CLAUDE.md](backend/CLAUDE.md)** — Backend quick reference (Python, FastAPI, Neo4j)
-- **[pipgraph-web/CLAUDE.md](pipgraph-web/CLAUDE.md)** — Web UI quick reference (Next.js, TanStack Query, shadcn/ui)
-
-### Backend Deep Dive (backend/docs/)
-- **[CONFIGURATION.md](backend/docs/CONFIGURATION.md)** — Environment setup, .env variables
-- **[TESTING.md](backend/docs/TESTING.md)** — Test strategy, fixtures, markers
-
-### Root Documentation
-- **[README.md](README.md)** — Full architecture overview (Russian, comprehensive)
-- **[CLAUDE.md](CLAUDE.md)** — This file (quick reference for AI)
-
-## Key Principles
-
-1. **Separation of Concerns**: Backend (Python) handles all logic, frontends (Web/Obsidian) are thin clients
-2. **REST API First**: All features exposed via stateless HTTP endpoints
-3. **Type Safety**: Pydantic (backend) + Zod (frontend) for validation
-4. **Single Source of Truth**: PipGraphManager for all database operations
-5. **Human-in-the-Loop**: System suggests, user decides
-6. **Minimize Over-Engineering**: Build only what's requested, no extra features
-
-## Development Workflow
-
-### When Working on Backend
-1. Read [backend/CLAUDE.md](backend/CLAUDE.md) for detailed guidance
-2. Use PipGraphManager for all database operations
-3. Follow layered architecture: API → Services → CRUD
-4. Write tests: `pytest -m unit` before committing
-
-### When Working on Web UI
-1. Read [pipgraph-web/CLAUDE.md](pipgraph-web/CLAUDE.md) for detailed guidance
-2. Use TanStack Query for all API calls
-3. Use shadcn/ui MCP tools for components
-4. Always use Zod for form validation
-5. Keep it simple: avoid over-engineering
-
-### When Working on Integration
-1. Ensure backend is running: `cd backend && uvicorn app.api.main:app --reload`
-2. Ensure Neo4j is running: check `bolt://localhost:7687`
-3. Check API docs: http://localhost:8000/docs
-4. Test endpoints with curl/Postman before UI integration
-
-## Data Model (Neo4j)
-
-**Episodic** (note):
-```cypher
-(:Episodic {uuid, name, content, created_at, valid_at})
-```
-
-**PARA Entity**:
-```cypher
-(:Entity:Project|:Area|:Resource|:Archive {
-  uuid, name, summary, name_embedding, attributes, created_at
-})
-```
-
-**Relationships**:
-- `(:Episodic)-[:MENTIONS]->(:Entity)` — episode mentions entity
-- `(:Entity)-[:RELATES_TO]->(:Entity)` — entity-to-entity relation
-
-## Common Tasks
-
-### Add New Backend Endpoint
-1. Create Pydantic schema in `app/api/schemas/`
-2. Add endpoint in `app/api/endpoints/`
-3. Implement logic in `app/services/`
-4. Write tests in `tests/`
-
-### Add New Web UI Component
-1. Fetch shadcn component via MCP: `mcp__shadcn-ui-mcp__get_component`
-2. Save to `src/components/ui/{name}.tsx`
-3. Create feature component in `src/components/`
-4. Integrate with TanStack Query for API calls
-
-### Process a Note
-```bash
-# Backend must be running
-curl -X POST http://localhost:8000/api/v1/dev/process-note \
-  -H "Content-Type: application/json" \
-  -d '{"name": "test.md", "episode_body": "My note content"}'
-```
-
-## Current Status
-
-### ✅ Ready
-- Backend REST API (`/api/v1/dev`)
-- PipGraphManager (database operations)
-- Entity extraction (LLM)
-- Hybrid search (BM25 + vector)
-- pipgraph-web basic structure
-
-### 🚧 In Development
-- pipgraph-web UI components
-- Obsidian plugin integration
-
-### 📋 Planned
-- Real-time sync with Obsidian
-- Graph visualizations
-- Multi-user support
-
----
-
-**For more details:**
-- Backend specifics → [backend/CLAUDE.md](backend/CLAUDE.md)
-- Web UI specifics → [pipgraph-web/CLAUDE.md](pipgraph-web/CLAUDE.md)
-- Full architecture → [README.md](README.md)
+- **Backend** → [`backend/CLAUDE.md`](backend/CLAUDE.md) (live API table, manager methods, layering rules)
+- **Web client** → [`pipgraph-web/CLAUDE.md`](pipgraph-web/CLAUDE.md)
+- **Obsidian plugin** → [`pipgraph-obsidian/CLAUDE.md`](pipgraph-obsidian/CLAUDE.md) + `.docs/plans/` (modular roadmap) and `.docs/overview/` (per-endpoint plugin coverage)
+- **CLI** → [`pipgraph-cli/CLAUDE.md`](pipgraph-cli/CLAUDE.md)
+- **Full architecture (Russian)** → [`README.md`](README.md)

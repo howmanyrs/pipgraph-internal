@@ -6,8 +6,9 @@
 # --- Зависимости ---
 # Игнорируем папки с зависимостями, так как они устанавливаются менеджерами пакетов.
 /backend/.venv/
-/obsidian-plugin/node_modules/
-/web-prototype/node_modules/
+/pipgraph-obsidian/node_modules/
+/pipgraph-web/node_modules/
+/pipgraph-cli/.venv/
 
 # --- Python ---
 # Игнорируем кэш и временные файлы, создаваемые Python.
@@ -21,10 +22,9 @@ __pycache__/
 
 # --- JavaScript / TypeScript / Frontend ---
 # Игнорируем логи, временные файлы и папки сборки.
-/obsidian-plugin/dist/
-/web-prototype/dist/
-/web-prototype/.svelte-kit/ # Для SvelteKit
-/web-prototype/.vite/ # Для Vite
+/pipgraph-web/.next/
+/pipgraph-web/out/
+/pipgraph-obsidian/main.js
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
