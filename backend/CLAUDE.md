@@ -162,15 +162,13 @@ CORS is preconfigured for `localhost:3000` / `:3001` so the web client works out
 
 ## Testing
 
-```bash
-pytest -m unit            # fast, no external services
-pytest -m integration     # requires live Neo4j + LLM provider
-pytest -m "not slow"      # skip LLM-heavy paths
-```
+**There is no automated test suite.** All verification is manual:
 
-Full conventions, fixtures and markers: [`.docs/TESTING.md`](./.docs/TESTING.md).
+- Start the server (`./run-backend.sh` from the repo root, or `uvicorn app.api.main:app --reload`).
+- Hit endpoints via Swagger UI at `http://localhost:8000/docs` or `curl`.
+- Inspect graph state in Neo4j Browser at `http://localhost:7474`. Useful Cypher snippets live in [`.docs/neo4j_verification_queries.md`](./.docs/neo4j_verification_queries.md).
 
-Tests are laid out by integration level under `tests/{unit,integration,e2e,api}/`. Adding a new endpoint or manager method without at least a unit test is a regression.
+Startup itself is a smoke test: the server refuses to come up if Neo4j or the LLM provider is unreachable (see `app/api/main.py:lifespan`).
 
 ## Documentation layout
 
@@ -181,7 +179,6 @@ backend/
 ├── ISSUES.md                 ← rolling notes on known issues
 └── .docs/                    ← gitignored personal/working docs
     ├── CONFIGURATION.md      ← full .env reference, provider notes
-    ├── TESTING.md            ← test strategy, fixtures, markers
     ├── about_graphiti/       ← background on Graphiti integration patterns
     ├── custom_entities/      ← notes on PARA entity-type customisation
     ├── neo4j_verification_queries.md
@@ -210,7 +207,7 @@ The `.docs/` tree is **not under version control** (see root `.gitignore`). Anyt
 - **Designing a future capability** → check [`.docs/.todo/`](./.docs/.todo) first.
 - **Understanding the consumers** → [`../pipgraph-obsidian/.docs/overview/`](../pipgraph-obsidian/.docs/overview) maps every endpoint to its plugin/web usage and flags gaps.
 - **Configuration / secrets** → [`.docs/CONFIGURATION.md`](./.docs/CONFIGURATION.md).
-- **Tests** → [`.docs/TESTING.md`](./.docs/TESTING.md).
+- **Manual verification queries** → [`.docs/neo4j_verification_queries.md`](./.docs/neo4j_verification_queries.md).
 - **Monorepo overview** → [`../CLAUDE.md`](../CLAUDE.md).
 
 ---

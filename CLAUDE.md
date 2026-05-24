@@ -16,8 +16,7 @@ pipgraph/
 │   ├── app/api/          ← REST endpoints (/api/v1/dev/*)
 │   ├── app/services/     ← PipGraphManager + Graphiti integration
 │   ├── app/crud/         ← Atomic Neo4j helpers (private to services)
-│   ├── tests/            ← unit / integration / e2e / api
-│   ├── .docs/            ← gitignored working docs (CONFIGURATION.md, TESTING.md, .todo/, …)
+│   ├── .docs/            ← gitignored working docs (CONFIGURATION.md, .todo/, …)
 │   ├── CLAUDE.md         ← backend direction & API table
 │   └── README.md         ← Russian narrative
 │
@@ -86,24 +85,9 @@ Build + deploy into a vault via `pipgraph-obsidian/deploy-to-vault.sh`. See its 
 
 All routes live under `/api/v1/dev`. The `dev` prefix is a deliberate signal that the contract is allowed to evolve — when you rename a path, fix every client in the same PR.
 
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/dev/process-note` | Create Episodic + full LLM extraction pipeline |
-| POST | `/dev/episode` | Lightweight Episodic creation (no LLM) |
-| GET | `/dev/episodic?note_path=…` | Get one Episodic by `name` |
-| GET | `/dev/episodic/list` | List all Episodics |
-| GET | `/dev/episodic/unlinked` | Episodics with no `MENTIONS` edge (triage inbox) |
-| GET | `/dev/episodics/by-entity?entity_uuid=…` | Episodics that mention a given entity |
-| POST | `/dev/process-existing-episode` | Re-run extraction on an already-linked Episodic |
-| POST | `/dev/para-entity` | Create a PARA entity |
-| GET | `/dev/para-entity/list` | List PARA entities (filterable by type and properties) |
-| POST | `/dev/link-entity-episode` | `MENTIONS` edge (Episodic → Entity), idempotent |
-| POST | `/dev/link-para-nodes` | `BELONGS_TO` edge (Entity → Entity), idempotent |
-| POST | `/dev/make-suggestions` | Hybrid search ranking PARA entities for a note |
-| GET | `/dev/para-tree` | Hierarchical PARA tree from `BELONGS_TO` |
-| DELETE | `/dev/node/{node_uuid}` | Detach-delete an Episodic or Entity |
+The endpoint table is maintained in **[`backend/CLAUDE.md`](backend/CLAUDE.md#the-live-contract-apiv1dev)** (and the live OpenAPI at `http://localhost:8000/docs`). Don't duplicate it here — keep one source of truth.
 
-Authoritative source: [`backend/app/api/endpoints/dev.py`](backend/app/api/endpoints/dev.py) and live OpenAPI at `/docs`. Responses follow `{success, …payload…, error}` — clients must check `success` (endpoints return 200 even on validation errors).
+Response convention: `{success, …payload…, error}` — endpoints return HTTP 200 even on validation errors, so clients must check `success`.
 
 ## Data model (Neo4j)
 
@@ -115,12 +99,21 @@ Authoritative source: [`backend/app/api/endpoints/dev.py`](backend/app/api/endpo
 (:Entity:Resource)  │
 (:Entity:Archive)   ┘
 
-(:Episodic)-[:MENTIONS]->(:Entity)        // only edge type allowed from Episodic
-(:Entity)-[:BELONGS_TO]->(:Entity)        // PARA hierarchy
-(:Entity)-[:RELATES_TO]->(:Entity)        // LLM-extracted semantic relations
+(:Episodic)-[:MENTIONS]->(:Entity)        // who creates: POST /dev/link-entity-episode (manual, idempotent MERGE)
+                                          //              POST /dev/process-note  (auto, via Graphiti build_episodic_edges)
+                                          //              POST /dev/process-existing-episode (auto, only for NEW entities)
+                                          // the only edge type allowed *from* an Episodic (Graphiti constraint)
+
+(:Entity)-[:BELONGS_TO]->(:Entity)        // who creates: POST /dev/link-para-nodes (manual, idempotent MERGE)
+                                          // PARA hierarchy: Project→Area, Resource→Area, Area→Archive
+
+(:Entity)-[:RELATES_TO]->(:Entity)        // who creates: POST /dev/process-note (auto, via Graphiti extract_edges + resolve_extracted_edges)
+                                          // LLM-extracted semantic relations between entities; never created manually
 ```
 
-**Never create nodes via raw Cypher.** Go through `PipGraphManager` (see [`backend/CLAUDE.md`](backend/CLAUDE.md)) so labels, embeddings, and `created_at` stay consistent.
+There is no live `:SUGGESTS` / `:IS_PART_OF` flow despite legacy code in `backend/app/crud/relationship_crud.py` — that module is dead (imported in `__init__.py` only, called by nothing). Treat the three edges above as the full set.
+
+**Never create nodes or edges via raw Cypher.** Go through `PipGraphManager` (see [`backend/CLAUDE.md`](backend/CLAUDE.md)) so labels, embeddings, `created_at` and edge UUIDs stay consistent.
 
 ## Cross-cutting principles
 
@@ -149,21 +142,12 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ## Testing
 
-```bash
-# Backend
-cd backend/
-pytest -m unit            # fast, no external services
-pytest -m integration     # requires Neo4j + LLM
-pytest -m "not slow"      # skip LLM-heavy paths
-```
-Full conventions: [`backend/.docs/TESTING.md`](backend/.docs/TESTING.md).
+**There is no automated test suite — everything is verified manually.** No pytest scaffold, no `pytest.ini`, no fixtures. If you reach for `pytest -m …` out of habit, stop: there is nothing to run.
 
-```bash
-# Web
-cd pipgraph-web/
-npm run lint
-npm run build
-```
+How features are actually verified today:
+- **Backend** — start `./run-backend.sh`, hit endpoints via `http://localhost:8000/docs` (Swagger UI) or `curl`, and inspect the result in Neo4j Browser (`http://localhost:7474`). Useful Cypher snippets live in [`backend/.docs/neo4j_verification_queries.md`](backend/.docs/neo4j_verification_queries.md). The server's `lifespan` startup check doubles as a smoke test — it refuses to come up if Neo4j or the LLM provider is unreachable.
+- **Web** — `npm run lint && npm run build` in `pipgraph-web/`, then click through the feature in `npm run dev`.
+- **Obsidian plugin** — deploy into a test vault via `pipgraph-obsidian/deploy-to-vault.sh` and exercise commands manually.
 
 ## Where to look next
 
