@@ -95,6 +95,18 @@ The routine:
 
 See [`./.docs/plans/README.md`](./.docs/plans/README.md) for the full conventions (status vocabulary, file index, working principles).
 
+### Session orientation — `JOURNAL.md`
+
+A short rolling digest at [`./JOURNAL.md`](./JOURNAL.md) carries **session-level** context: what was worked on recently, what's currently open, links to artefacts. It is **not a tracker** (module-level state still lives in `.docs/plans/`) and it is **not a plan** — it's a 30-second answer to «что было недавно, что висит».
+
+Routine:
+
+- **Session start:** read `Now`, `Open questions`, and the top `Recent sessions` entry. That's the context.
+- **Session end:** update `Now` + `Open questions` to current truth, prepend one new entry to `Recent sessions` (≤10 lines, with links to artefacts).
+- **Size discipline:** `Recent sessions` ≤ 5 entries. Older work gets compressed to a one-liner in `Archive` or dropped if fully captured by a plan/questionnaire.
+
+`JOURNAL.md` is local-only; do not link to it from code or PRs.
+
 ## Where to look next
 
 - [`.docs/suggestions/`](./.docs/suggestions) — open research questions, options under consideration, and recommendations. **Start here when planning any feature.**
