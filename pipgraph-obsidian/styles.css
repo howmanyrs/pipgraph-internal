@@ -26,3 +26,30 @@
 .pipgraph-settings__warning p {
   margin: 0 0 var(--size-2-2) 0;
 }
+
+.pipgraph-new-inbox-modal__textarea {
+  width: 100%;
+  min-height: 12em;
+  resize: vertical;
+  font-family: var(--font-text);
+  font-size: var(--font-ui-medium);
+  padding: var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.pipgraph-new-inbox-modal__error {
+  margin-top: var(--size-2-2);
+  min-height: 1.2em;
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
+}
+
+.pipgraph-new-inbox-modal__buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-2-2);
+  margin-top: var(--size-4-2);
+}

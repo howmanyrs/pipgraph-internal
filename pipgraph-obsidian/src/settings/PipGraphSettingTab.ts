@@ -9,7 +9,12 @@ import {
 import type PipGraphPlugin from "../main";
 import { FolderSuggest } from "./FolderSuggest";
 
-type StringKey = "backendUrl" | "apiKey" | "rootFolder";
+type StringKey =
+  | "backendUrl"
+  | "apiKey"
+  | "rootFolder"
+  | "inboxRelativePath"
+  | "draftsRelativePath";
 
 export class PipGraphSettingTab extends PluginSettingTab {
   private warningEl: HTMLDivElement | null = null;
@@ -69,6 +74,30 @@ export class PipGraphSettingTab extends PluginSettingTab {
       cls: "pipgraph-settings__warning",
     });
     this.refreshWarning();
+
+    new Setting(containerEl)
+      .setName("Inbox folder name")
+      .setDesc(
+        "Subfolder under the root where new notes land. New notes here are sent to the backend as Episodics when auto-ingest is on.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder(DEFAULT_PLACEHOLDER.inboxRelativePath)
+          .setValue(this.plugin.settings.inboxRelativePath)
+          .onChange(this.makeSaver("inboxRelativePath")),
+      );
+
+    new Setting(containerEl)
+      .setName("Drafts subfolder name")
+      .setDesc(
+        "Subfolder inside Inbox for raw drafts. Use the 'Process current draft' command to ingest them.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder(DEFAULT_PLACEHOLDER.draftsRelativePath)
+          .setValue(this.plugin.settings.draftsRelativePath)
+          .onChange(this.makeSaver("draftsRelativePath")),
+      );
   }
 
   private makeSaver(key: StringKey): (value: string) => void {
@@ -135,4 +164,6 @@ const DEFAULT_PLACEHOLDER: Record<StringKey, string> = {
   backendUrl: "http://localhost:8000",
   apiKey: "",
   rootFolder: "PipGraph",
+  inboxRelativePath: "Inbox",
+  draftsRelativePath: "drafts",
 };
