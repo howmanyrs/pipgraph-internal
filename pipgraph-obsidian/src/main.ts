@@ -7,6 +7,7 @@ import {
 } from "./settings/PipGraphSettings";
 import { PipGraphSettingTab } from "./settings/PipGraphSettingTab";
 import { PipGraphClient } from "./backend";
+import { registerCommands } from "./commands/register";
 
 export default class PipGraphPlugin extends Plugin {
   settings!: PipGraphSettings;
@@ -27,13 +28,7 @@ export default class PipGraphPlugin extends Plugin {
       void this.activateTriagePanel();
     });
 
-    this.addCommand({
-      id: "open-triage-panel",
-      name: "Open triage panel",
-      callback: () => {
-        void this.activateTriagePanel();
-      },
-    });
+    registerCommands(this);
   }
 
   onunload(): void {
@@ -64,7 +59,7 @@ export default class PipGraphPlugin extends Plugin {
     });
   }
 
-  private async activateTriagePanel(): Promise<void> {
+  async activateTriagePanel(): Promise<void> {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(TRIAGE_VIEW_TYPE);
 
