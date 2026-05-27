@@ -13,8 +13,10 @@ class Settings(BaseSettings):
     # Cloud.ru LLM Configuration
     CLOUDRU_API_KEY: str
     CLOUDRU_BASE_URL: str = "https://foundation-models.api.cloud.ru/v1"
-    CLOUDRU_MAIN_MODEL: str = "Qwen/Qwen3-235B-A22B-Instruct-2507"
-    CLOUDRU_SMALL_MODEL: str = "t-tech/T-lite-it-1.0"
+    # CLOUDRU_MAIN_MODEL: str = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+    CLOUDRU_MAIN_MODEL: str = "Qwen/Qwen3.6-35B-A3B"
+    # CLOUDRU_SMALL_MODEL: str = "t-tech/T-lite-it-1.0"
+    CLOUDRU_SMALL_MODEL: str = "Qwen/Qwen3.6-35B-A3B"
     CLOUDRU_EMBEDDING_MODEL: str = "Qwen/Qwen3-Embedding-0.6B"
 
     # OpenRouter LLM Configuration
