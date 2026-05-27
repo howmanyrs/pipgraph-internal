@@ -185,8 +185,16 @@ backend/
     ├── new_claude_and_skills/
     ├── DONES/                ← historical "what landed" notes
     ├── DEPRECATED/           ← prior LangGraph workflow design (kept for context)
+    ├── EXPERIMENTAL_*.md     ← parked ideas — do NOT implement; framing-only
     └── .todo/                ← *future* features — read before designing anything new
 ```
+
+### Parked ideas (do not implement)
+
+Если ловишь себя на дизайне фичи, которая «концептуально расширяет» одну из заметок ниже — **остановись и прочитай её**. Эти идеи отложены сознательно; их преждевременная имплементация была бы over-engineering'ом текущего этапа.
+
+- [`./.docs/EXPERIMENTAL_multi_classification_views.md`](./.docs/EXPERIMENTAL_multi_classification_views.md) — заметка одновременно в нескольких классификационных «срезах» / папках. Сейчас инвариант: один Episodic = один `file_path`. Visual multi-presence решается на стороне плагина (ghost-rows), не backend'а.
+- [`./.docs/EXPERIMENTAL_ambient_intelligence_layer.md`](./.docs/EXPERIMENTAL_ambient_intelligence_layer.md) — founding vision PipGraph'а как «reflection surface»: pattern detection, trend tracking, gap detection, self-deception, active reminders, Facts vs TODOs distinction. Сейчас фокус — базовый triage flow; analytical layer накладывается на накопленный граф позже, когда есть данные.
 
 The `.docs/` tree is **not under version control** (see root `.gitignore`). Anything that must be shared (architecture decisions, API contracts) belongs in `README.md` or in a PR description, not here.
 
