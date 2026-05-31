@@ -105,6 +105,7 @@ export interface ParaEntity {
   para_type: string;
   created_at?: string;
   summary?: string;
+  file_path?: string | null; // client-side filesystem binding; web does not use it, kept for contract parity
   attributes: Record<string, unknown>;
 }
 

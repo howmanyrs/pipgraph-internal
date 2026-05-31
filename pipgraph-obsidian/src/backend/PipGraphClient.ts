@@ -122,6 +122,10 @@ export class PipGraphClient {
   async listParaEntities(opts: {
     limit?: number;
     paraTypes?: ParaType[];
+    // Resolve folder → entity: filters via the backend's generic property_filters
+    // (`?file_path=<path>` → `n.file_path = …`). This is the read-step in the
+    // resolve-then-act pattern; mutations stay UUID-addressed.
+    filePath?: string;
   } = {}): Promise<ParaEntity[]> {
     const env = await this.request<ListParaEntitiesEnvelope>({
       method: "GET",
@@ -133,6 +137,7 @@ export class PipGraphClient {
         // Backend uses repeated `para_type` query params; URLSearchParams
         // handles arrays natively via the helper below.
         para_type: opts.paraTypes,
+        file_path: opts.filePath,
       },
       timeoutMs: TIMEOUT_READ_MS,
     });

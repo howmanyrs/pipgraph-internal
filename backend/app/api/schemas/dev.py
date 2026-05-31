@@ -384,6 +384,7 @@ class ParaEntityProperty(BaseModel):
     para_type: str = Field(..., description="PARA type (Project, Area, Resource, Archive)")
     created_at: Optional[datetime] = Field(None, description="Entity creation timestamp")
     summary: Optional[str] = Field(None, description="Entity description/summary")
+    file_path: Optional[str] = Field(None, description="Client-side filesystem binding (vault folder mirroring this entity); read-projection only, not an identity")
     attributes: dict = Field(default_factory=dict, description="Custom attributes (status, priority, etc.)")
 
 
@@ -407,6 +408,7 @@ class ListParaEntitiesResponse(BaseModel):
                             "para_type": "Project",
                             "created_at": "2024-01-15T10:00:00Z",
                             "summary": "Complete redesign of company website",
+                            "file_path": "Projects/website-redesign",
                             "attributes": {"status": "active", "priority": "high"}
                         }
                     ],
