@@ -121,6 +121,30 @@ Routine:
 
 `JOURNAL.md` is local-only; do not link to it from code or PRs.
 
+## Source map & local build
+
+Where things live in the code (entry points, not an exhaustive index — modules churn; treat this as orientation):
+
+```
+src/
+├── main.ts                       # Plugin entry — onload/onunload, ribbon, view registration, wiring
+├── commands/register.ts          # Every command-palette command (incl. the not-yet-implemented stubs)
+├── modals/NewInboxNoteModal.ts   # Capture modal behind "New inbox note"
+├── settings/                     # Settings tab, settings model + path helpers, folder autosuggest
+├── backend/                      # Typed HTTP client over the backend (PipGraphClient, transport, errors, types)
+├── folder-mirror/                # Folder ↔ entity mirror (FolderMirror) + file-explorer decoration
+└── views/TriagePanelView.ts      # Right-sidebar triage panel (placeholder content today)
+manifest.json                     # Obsidian plugin metadata (id `pipgraph`, desktop-only)
+esbuild.config.mjs                # Build pipeline (dev watch / prod minify)
+styles.css                        # Panel / modal / decoration styling
+```
+
+Local build & deploy:
+
+- `npm install`, then `npm run dev` (esbuild watches `src/` → `main.js`) or `npm run build` (minified bundle).
+- Deploy into a test vault with [`deploy-to-vault.sh`](./deploy-to-vault.sh), or symlink this directory into `<vault>/.obsidian/plugins/pipgraph`.
+- Reload Obsidian (`Ctrl+R` / `Cmd+R`) after each rebuild to pick up the new bundle.
+
 ## Where to look next
 
 - [`.docs/suggestions/`](./.docs/suggestions) — open research questions, options under consideration, and recommendations. **Start here when planning any feature.**
