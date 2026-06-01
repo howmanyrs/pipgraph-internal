@@ -101,6 +101,15 @@ export interface LinkEntityEpisodeInput {
   created_at?: string; // ISO datetime
 }
 
+// `LinkParaNodesRequest` in schemas/dev.py.
+// Creates (source)-[:BELONGS_TO]->(target), i.e. source is the child,
+// target is the parent in the PARA hierarchy.
+export interface LinkParaNodesInput {
+  source_entity_uuid: string;
+  target_entity_uuid: string;
+  created_at?: string; // ISO datetime
+}
+
 // `MakeSuggestionsRequest` in schemas/dev.py
 export interface MakeSuggestionsInput {
   episodic_uuid: string;
@@ -140,6 +149,28 @@ export interface LinkEntityEpisodeResult {
   episodic_uuid: string;
   entity_uuid: string;
   created_at?: string;
+}
+
+// `LinkParaNodesResponse` minus envelope
+export interface LinkParaNodesResult {
+  edge_uuid: string;
+  source_entity_uuid: string;
+  target_entity_uuid: string;
+  created_at?: string;
+}
+
+// `DeleteNodeResponse` minus envelope
+export interface DeleteNodeResult {
+  node_uuid: string;
+  node_type: string;
+}
+
+// `DeleteParaEntityResponse` minus envelope.
+// Cascade delete: the entity plus every Episodic whose only MENTIONS edge
+// pointed at it.
+export interface DeleteParaEntityResult {
+  entity_uuid: string;
+  deleted_episodics_count: number;
 }
 
 // ============================================================================
@@ -192,6 +223,23 @@ export interface LinkEntityEpisodeEnvelope extends Envelope {
   episodic_uuid?: string | null;
   entity_uuid?: string | null;
   created_at?: string | null;
+}
+
+export interface LinkParaNodesEnvelope extends Envelope {
+  edge_uuid?: string | null;
+  source_entity_uuid?: string | null;
+  target_entity_uuid?: string | null;
+  created_at?: string | null;
+}
+
+export interface DeleteNodeEnvelope extends Envelope {
+  node_uuid?: string | null;
+  node_type?: string | null;
+}
+
+export interface DeleteParaEntityEnvelope extends Envelope {
+  entity_uuid?: string | null;
+  deleted_episodics_count?: number | null;
 }
 
 export interface ProcessNoteEnvelope extends Envelope {

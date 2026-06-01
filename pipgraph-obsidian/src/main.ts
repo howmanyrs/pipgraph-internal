@@ -8,10 +8,12 @@ import {
 import { PipGraphSettingTab } from "./settings/PipGraphSettingTab";
 import { PipGraphClient } from "./backend";
 import { registerCommands } from "./commands/register";
+import { FolderMirror } from "./folder-mirror/FolderMirror";
 
 export default class PipGraphPlugin extends Plugin {
   settings!: PipGraphSettings;
   client!: PipGraphClient;
+  folderMirror!: FolderMirror;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -29,10 +31,14 @@ export default class PipGraphPlugin extends Plugin {
     });
 
     registerCommands(this);
+
+    this.folderMirror = new FolderMirror(this);
+    this.folderMirror.start();
   }
 
   onunload(): void {
     this.app.workspace.detachLeavesOfType(TRIAGE_VIEW_TYPE);
+    this.folderMirror?.stop();
   }
 
   async loadSettings(): Promise<void> {

@@ -33,12 +33,19 @@ import type {
   CreateParaEntityEnvelope,
   CreateParaEntityInput,
   CreateParaEntityResult,
+  DeleteNodeEnvelope,
+  DeleteNodeResult,
+  DeleteParaEntityEnvelope,
+  DeleteParaEntityResult,
   Envelope,
   EpisodicNode,
   GetEpisodicEnvelope,
   LinkEntityEpisodeEnvelope,
   LinkEntityEpisodeInput,
   LinkEntityEpisodeResult,
+  LinkParaNodesEnvelope,
+  LinkParaNodesInput,
+  LinkParaNodesResult,
   ListEpisodicEnvelope,
   ListParaEntitiesEnvelope,
   MakeSuggestionsEnvelope,
@@ -228,6 +235,35 @@ export class PipGraphClient {
     };
   }
 
+  /**
+   * Create a BELONGS_TO edge between two PARA entities.
+   * Direction: (source)-[:BELONGS_TO]->(target) — source is the child,
+   * target is the parent. Idempotent on the backend (MERGE).
+   */
+  async linkParaNodes(
+    input: LinkParaNodesInput,
+  ): Promise<LinkParaNodesResult> {
+    const env = await this.request<LinkParaNodesEnvelope>({
+      method: "POST",
+      path: `/link-para-nodes`,
+      body: input,
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    if (!env.edge_uuid || !env.source_entity_uuid || !env.target_entity_uuid) {
+      throw new PipGraphApiError({
+        kind: "parse",
+        message: "linkParaNodes succeeded but response missing fields",
+        body: JSON.stringify(env),
+      });
+    }
+    return {
+      edge_uuid: env.edge_uuid,
+      source_entity_uuid: env.source_entity_uuid,
+      target_entity_uuid: env.target_entity_uuid,
+      created_at: env.created_at ?? undefined,
+    };
+  }
+
   async processNote(input: ProcessNoteInput): Promise<ProcessNoteResult> {
     const env = await this.request<ProcessNoteEnvelope>({
       method: "POST",
@@ -240,6 +276,50 @@ export class PipGraphClient {
       nodes_count: env.nodes_count,
       edges_count: env.edges_count,
     };
+  }
+
+  /**
+   * Delete a PARA entity and cascade-delete its orphaned Episodics — every
+   * Episodic whose ONLY MENTIONS edge pointed at this entity. Episodics that
+   * mention other entities survive (they just lose this one edge).
+   *
+   * Backs the folder-mirror delete flow. This is a hard delete; a bi-temporal
+   * soft-invalidation model is the conceptual successor (tracked separately).
+   * Throws PipGraphApiError(kind:'http') if the entity is not found.
+   */
+  async deleteParaEntityCascade(
+    entityUuid: string,
+  ): Promise<DeleteParaEntityResult> {
+    const env = await this.request<DeleteParaEntityEnvelope>({
+      method: "DELETE",
+      path: `/para-entity/${encodeURIComponent(entityUuid)}`,
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    return {
+      entity_uuid: env.entity_uuid ?? entityUuid,
+      deleted_episodics_count: env.deleted_episodics_count ?? 0,
+    };
+  }
+
+  /**
+   * Hard-delete any node (Episodic or Entity) by UUID via DETACH DELETE.
+   * Type-agnostic primitive — mainly for manual/debug cleanup. For folder
+   * deletion use deleteParaEntityCascade (orphan-aware).
+   */
+  async deleteNode(nodeUuid: string): Promise<DeleteNodeResult> {
+    const env = await this.request<DeleteNodeEnvelope>({
+      method: "DELETE",
+      path: `/node/${encodeURIComponent(nodeUuid)}`,
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    if (!env.node_uuid || !env.node_type) {
+      throw new PipGraphApiError({
+        kind: "parse",
+        message: "deleteNode succeeded but response missing fields",
+        body: JSON.stringify(env),
+      });
+    }
+    return { node_uuid: env.node_uuid, node_type: env.node_type };
   }
 
   // --------------------------------------------------------------------------

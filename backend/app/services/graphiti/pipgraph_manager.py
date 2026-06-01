@@ -1519,6 +1519,79 @@ class PipGraphManager:
                 logger.warning(f"[delete_node] Node not found: uuid={node_uuid}")
                 return False, None
 
+    async def delete_para_entity_cascade(
+        self, entity_uuid: str
+    ) -> tuple[bool, int]:
+        """
+        Delete a PARA Entity and cascade-delete its "orphaned" Episodics.
+
+        Deletes the Entity node (with DETACH DELETE, so its MENTIONS and
+        BELONGS_TO edges go too) and, in addition, deletes every Episodic
+        whose *only* MENTIONS edge pointed at this Entity. Episodics that
+        also mention another Entity survive — they merely lose this one edge.
+
+        This mirrors the folder-mirror semantics: removing a PARA folder
+        removes the notes that existed solely under it, while notes that were
+        cross-referenced elsewhere stay.
+
+        NOTE: This is a hard delete, intended for the folder-mirror flow and
+        manual/debug cleanup. A bi-temporal soft-invalidation model (Graphiti
+        `expired_at`/`invalid_at`) is the conceptual successor and is tracked
+        separately — do not assume this is the final deletion semantics.
+
+        Args:
+            entity_uuid: UUID of the PARA Entity to delete.
+
+        Returns:
+            Tuple of (success, deleted_episodics_count).
+            - success: True if the entity existed and was deleted, False if
+              no Entity with that UUID was found.
+            - deleted_episodics_count: number of orphaned Episodics removed.
+        """
+        # Guard: only proceed if the node exists and is an Entity.
+        check_query = """
+        MATCH (e:Entity {uuid: $uuid})
+        RETURN count(e) AS found
+        """
+
+        # Delete Episodics whose sole MENTIONS edge targets this Entity.
+        # count(m) = 1 means the only entity it mentions is the one we delete.
+        orphan_query = """
+        MATCH (ep:Episodic)-[:MENTIONS]->(:Entity {uuid: $uuid})
+        OPTIONAL MATCH (ep)-[m:MENTIONS]->(:Entity)
+        WITH ep, count(m) AS mention_count
+        WHERE mention_count = 1
+        DETACH DELETE ep
+        RETURN count(ep) AS deleted_episodics
+        """
+
+        # Delete the entity itself; DETACH DELETE removes remaining MENTIONS
+        # (from surviving multi-mention Episodics) and BELONGS_TO edges.
+        delete_query = """
+        MATCH (e:Entity {uuid: $uuid})
+        DETACH DELETE e
+        RETURN count(e) AS deleted_count
+        """
+
+        async with self.driver.session() as session:
+            check = await (await session.run(check_query, uuid=entity_uuid)).single()
+            if not check or check["found"] == 0:
+                logger.warning(
+                    f"[delete_para_entity_cascade] Entity not found: uuid={entity_uuid}"
+                )
+                return False, 0
+
+            orphan = await (await session.run(orphan_query, uuid=entity_uuid)).single()
+            deleted_episodics = orphan["deleted_episodics"] if orphan else 0
+
+            await session.run(delete_query, uuid=entity_uuid)
+
+        logger.info(
+            f"[delete_para_entity_cascade] Deleted entity {entity_uuid} "
+            f"and {deleted_episodics} orphaned episodic(s)"
+        )
+        return True, deleted_episodics
+
     # ============================================================================
     # Entity CRUD Methods
     # ============================================================================

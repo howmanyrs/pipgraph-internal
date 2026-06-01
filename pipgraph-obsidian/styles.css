@@ -53,3 +53,12 @@
   gap: var(--size-2-2);
   margin-top: var(--size-4-2);
 }
+
+/* Folder-entity marker: the folder mirrors a PARA node with no summary yet
+   ("describes nothing"). A muted hollow dot after the folder name. */
+.nav-folder-title.pipgraph-empty-summary .nav-folder-title-content::after {
+  content: "○";
+  margin-left: var(--size-2-2);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
