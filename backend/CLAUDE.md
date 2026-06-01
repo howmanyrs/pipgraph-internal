@@ -41,6 +41,7 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 | POST | `/dev/make-suggestions` | Hybrid search (BM25 + vector + MMR) returning ranked PARA entities for an Episodic. |
 | GET | `/dev/para-tree` | Hierarchical PARA tree built from `BELONGS_TO` edges. |
 | DELETE | `/dev/node/{node_uuid}` | Delete an Episodic or Entity with `DETACH DELETE`. Auto-detects type. Irreversible. |
+| DELETE | `/dev/para-entity/{entity_uuid}` | Delete a PARA entity **and cascade-delete its orphaned Episodics** (those whose only `MENTIONS` pointed at it). Backs the Obsidian folder-mirror delete. Irreversible hard delete; bi-temporal soft-invalidation is the deferred successor. |
 
 **OpenAPI** is served at `http://localhost:8001/docs` when the server is running — use it as the cross-check, not this table.
 

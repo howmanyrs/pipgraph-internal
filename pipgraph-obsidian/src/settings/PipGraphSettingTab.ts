@@ -98,6 +98,22 @@ export class PipGraphSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.draftsRelativePath)
           .onChange(this.makeSaver("draftsRelativePath")),
       );
+
+    new Setting(containerEl)
+      .setName("Auto-mirror folders to backend")
+      .setDesc(
+        'When on, every folder under the root (except Inbox and freshly-created "Untitled" folders) is mirrored to a PARA entity automatically — on creation, rename, and plugin load. When off, mirror a folder explicitly via right-click → "PipGraph: Sync folder to backend".',
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.autoMirrorFolders)
+          .onChange(async (value) => {
+            this.plugin.settings.autoMirrorFolders = value;
+            await this.plugin.saveSettings();
+            // Flipping it on should pick up existing folders right away.
+            if (value) void this.plugin.folderMirror?.reconcile();
+          }),
+      );
   }
 
   private makeSaver(key: StringKey): (value: string) => void {

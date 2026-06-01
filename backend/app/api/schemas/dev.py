@@ -627,6 +627,30 @@ class DeleteNodeResponse(BaseModel):
     }
 
 
+class DeleteParaEntityResponse(BaseModel):
+    """Response from cascade deletion of a PARA Entity."""
+
+    success: bool = Field(..., description="Whether the entity was found and deleted")
+    entity_uuid: Optional[str] = Field(None, description="UUID of the deleted entity")
+    deleted_episodics_count: int = Field(
+        0, description="Number of orphaned Episodics deleted along with the entity"
+    )
+    error: Optional[str] = Field(None, description="Error message if deletion failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "entity_uuid": "660e8400-e29b-41d4-a716-446655440111",
+                    "deleted_episodics_count": 3,
+                    "error": None,
+                }
+            ]
+        }
+    }
+
+
 class GetParaTreeResponse(BaseModel):
     """Response from getting PARA tree structure."""
 

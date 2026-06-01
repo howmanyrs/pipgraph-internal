@@ -33,6 +33,7 @@ from app.api.schemas.dev import (
     ParaSuggestion,
     ListUnlinkedEpisodicResponse,
     DeleteNodeResponse,
+    DeleteParaEntityResponse,
     GetParaTreeResponse,
 )
 from app.services.graphiti import get_graphiti, PipGraphManager
@@ -1099,6 +1100,69 @@ async def delete_node(node_uuid: str) -> DeleteNodeResponse:
             success=False,
             node_uuid=None,
             node_type=None,
+            error=str(e),
+        )
+
+
+@router.delete("/para-entity/{entity_uuid}", response_model=DeleteParaEntityResponse)
+async def delete_para_entity(entity_uuid: str) -> DeleteParaEntityResponse:
+    """
+    Delete a PARA Entity and cascade-delete its orphaned Episodics.
+
+    Removes the Entity node (DETACH DELETE — MENTIONS and BELONGS_TO edges go
+    with it) plus every Episodic whose *only* MENTIONS edge pointed at this
+    Entity. Episodics that also mention another Entity survive, losing just
+    this one edge.
+
+    This backs the Obsidian folder-mirror flow (deleting a PARA folder removes
+    notes that lived solely under it) and manual/debug cleanup.
+
+    WARNING: Irreversible hard delete. A bi-temporal soft-invalidation model is
+    the conceptual successor and is tracked separately.
+
+    Path Parameters:
+    - entity_uuid: UUID of the PARA Entity to delete.
+
+    Example:
+        DELETE /api/v1/dev/para-entity/660e8400-e29b-41d4-a716-446655440111
+
+    Returns:
+        DeleteParaEntityResponse with deletion status and orphan count.
+    """
+    try:
+        logger.info(f"[delete_para_entity] Cascade-deleting entity: {entity_uuid}")
+
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        success, deleted_episodics = await manager.delete_para_entity_cascade(entity_uuid)
+
+        if success:
+            logger.info(
+                f"[delete_para_entity] Deleted entity {entity_uuid} "
+                f"+ {deleted_episodics} orphaned episodic(s)"
+            )
+            return DeleteParaEntityResponse(
+                success=True,
+                entity_uuid=entity_uuid,
+                deleted_episodics_count=deleted_episodics,
+                error=None,
+            )
+        else:
+            logger.warning(f"[delete_para_entity] Entity not found: {entity_uuid}")
+            return DeleteParaEntityResponse(
+                success=False,
+                entity_uuid=None,
+                deleted_episodics_count=0,
+                error=f"Entity not found: {entity_uuid}",
+            )
+
+    except Exception as e:
+        logger.error(f"[delete_para_entity] Error: {e}", exc_info=True)
+        return DeleteParaEntityResponse(
+            success=False,
+            entity_uuid=None,
+            deleted_episodics_count=0,
             error=str(e),
         )
 
