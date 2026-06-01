@@ -1026,6 +1026,9 @@ class PipGraphManager:
                         "para_type": record["para_type"],
                         "created_at": self._serialize_datetime(record["created_at"]),
                         "summary": record["summary"],
+                        # file_path is a scalar in attributes (see PipGraphEntityNode);
+                        # surface it as a top-level read-projection field (R1).
+                        "file_path": all_props.get("file_path"),
                         "attributes": attributes
                     }
                     entities.append(entity)

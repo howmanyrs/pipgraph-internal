@@ -27,6 +27,10 @@ export interface ParaEntity {
   para_type: ParaType;
   created_at?: string | null;
   summary?: string | null;
+  // Client-side filesystem binding (vault folder mirroring this entity).
+  // Read-projection only — NOT identity (use `uuid`). Resolve folder→entity via
+  // listParaEntities({ filePath }). Also duplicated inside `attributes`.
+  file_path?: string | null;
   attributes: Record<string, unknown>;
 }
 
@@ -43,6 +47,8 @@ export interface EpisodicNode {
   content?: string | null;
   source_description?: string | null;
   group_id?: string | null;
+  // Path to the source note; persisted top-level on the Episodic node.
+  file_path?: string | null;
 }
 
 // `ParaSuggestion` in schemas/dev.py

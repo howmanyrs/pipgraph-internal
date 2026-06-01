@@ -174,6 +174,17 @@ class PipGraphEntityNode(EntityNode):
         description="PARA type: 'Project', 'Area', 'Resource', or 'Archive'"
     )
 
+    file_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Client-side filesystem binding (e.g. the vault folder that mirrors "
+            "this entity). NOT identity (that is `uuid`), NOT structure (that is "
+            "the BELONGS_TO hierarchy). The engine's algorithms never read it; it "
+            "is an input/output for file-based clients only. Stored as a scalar in "
+            "`attributes`, no UNIQUE constraint."
+        )
+    )
+
     @field_validator('para_type')
     @classmethod
     def validate_para_type(cls, v: Optional[str]) -> Optional[str]:
@@ -201,6 +212,10 @@ class PipGraphEntityNode(EntityNode):
         # Merge para_type into attributes for storage
         if self.para_type:
             self.attributes['para_type'] = self.para_type
+
+        # Merge file_path into attributes for storage (same pattern as para_type)
+        if self.file_path:
+            self.attributes['file_path'] = self.file_path
 
         # Base EntityNode.save() will expand attributes into Neo4j properties
         return await super().save(driver)
@@ -234,6 +249,9 @@ class PipGraphEntityNode(EntityNode):
             if para_labels:
                 para_type = list(para_labels)[0]
 
+        # Extract file_path from attributes (symmetric to para_type)
+        file_path = base_node.attributes.get('file_path')
+
         return cls(
             uuid=base_node.uuid,
             name=base_node.name,
@@ -244,4 +262,5 @@ class PipGraphEntityNode(EntityNode):
             summary=base_node.summary,
             attributes=base_node.attributes,
             para_type=para_type,
+            file_path=file_path,
         )

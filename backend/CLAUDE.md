@@ -42,7 +42,7 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 | GET | `/dev/para-tree` | Hierarchical PARA tree built from `BELONGS_TO` edges. |
 | DELETE | `/dev/node/{node_uuid}` | Delete an Episodic or Entity with `DETACH DELETE`. Auto-detects type. Irreversible. |
 
-**OpenAPI** is served at `http://localhost:8000/docs` when the server is running — use it as the cross-check, not this table.
+**OpenAPI** is served at `http://localhost:8001/docs` when the server is running — use it as the cross-check, not this table.
 
 ### Conventions across the surface
 
@@ -154,8 +154,8 @@ uv pip install -r requirements.txt
 cp .env.example .env   # then fill in keys
 
 uvicorn app.api.main:app --reload
-# API:  http://localhost:8000
-# Docs: http://localhost:8000/docs
+# API:  http://localhost:8001
+# Docs: http://localhost:8001/docs
 ```
 
 CORS is preconfigured for `localhost:3000` / `:3001` so the web client works out of the box. The Obsidian plugin runs in-process inside Obsidian and is not subject to CORS.
@@ -165,7 +165,7 @@ CORS is preconfigured for `localhost:3000` / `:3001` so the web client works out
 **There is no automated test suite.** All verification is manual:
 
 - Start the server (`./run-backend.sh` from the repo root, or `uvicorn app.api.main:app --reload`).
-- Hit endpoints via Swagger UI at `http://localhost:8000/docs` or `curl`.
+- Hit endpoints via Swagger UI at `http://localhost:8001/docs` or `curl`.
 - Inspect graph state in Neo4j Browser at `http://localhost:7474`. Useful Cypher snippets live in [`.docs/neo4j_verification_queries.md`](./.docs/neo4j_verification_queries.md).
 
 Startup itself is a smoke test: the server refuses to come up if Neo4j or the LLM provider is unreachable (see `app/api/main.py:lifespan`).
