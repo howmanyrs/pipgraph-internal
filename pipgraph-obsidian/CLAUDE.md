@@ -89,6 +89,16 @@ The plugin will need to interact with three distinct surfaces; each has its own 
 
 Implementation is organised into modules under [`.docs/plans/`](./.docs/plans). Each module file is the **single source of truth** for its own status and progress; each questionnaire under [`.docs/plans/questions/`](./.docs/plans/questions) is the single source of truth for its own decisions. **Do not create a separate tracker file** — state belongs next to context.
 
+### The plan describes the present, not its own history
+
+Keep the plan **maximally fresh**: a reader should learn *what is true now*, never have to reconstruct what the plan used to say.
+
+- **Module files (`Mxx-…md`), [`00-roadmap.md`](./.docs/plans/00-roadmap.md), and `overview/` snapshots hold current truth only.** When reality changes, rewrite the affected text *in place* — no revision banners, no «раньше X, теперь Y», no superseded descriptions left lying around. Outdated or no-longer-relevant decisions are *removed*, not annotated.
+- **One exception: the `## Decisions` tables in questionnaires.** They are the deliberate, append-only record of *why* a choice was made — that rationale stays even when the surrounding prose is trimmed.
+- **Research clusters (`to-research/`, …) may carry the messiness of iteration while live.** Once a cluster's conclusion is promoted into a module, the cluster moves to [`archive/`](./.docs/plans/archive) and stops influencing anything — neither through stale forks/deviations explored during the research, nor by being cited from a live module. Deviations tried out while researching must not leak back into the plan after archival.
+
+The same discipline applies to [`JOURNAL.md`](./JOURNAL.md): it carries only *live* context — resolved questions and superseded sessions are dropped or compressed, not kept around struck-through.
+
 The routine:
 
 - **Starting a module:** flip its `Status:` line in `Mxx-…md` and the matching row in [`00-roadmap.md`](./.docs/plans/00-roadmap.md) status board. Record the branch name in the same edit.
