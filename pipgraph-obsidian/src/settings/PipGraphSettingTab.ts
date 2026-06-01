@@ -177,7 +177,7 @@ export class PipGraphSettingTab extends PluginSettingTab {
 }
 
 const DEFAULT_PLACEHOLDER: Record<StringKey, string> = {
-  backendUrl: "http://localhost:8000",
+  backendUrl: "http://localhost:8001",
   apiKey: "",
   rootFolder: "PipGraph",
   inboxRelativePath: "Inbox",

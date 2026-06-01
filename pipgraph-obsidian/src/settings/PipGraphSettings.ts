@@ -13,7 +13,7 @@ export interface PipGraphSettings {
 }
 
 export const DEFAULT_SETTINGS: PipGraphSettings = {
-  backendUrl: "http://localhost:8000",
+  backendUrl: "http://localhost:8001",
   apiKey: "",
   rootFolder: "PipGraph",
   inboxRelativePath: "Inbox",

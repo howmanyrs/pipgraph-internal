@@ -1,12 +1,12 @@
 # PipGraph Obsidian Plugin — Direction & Environment
 
-> **Status: pre-implementation.** This document describes *where this component sits*, *what it is meant to do*, and *what is known about the surrounding environment*. Concrete technical decisions (APIs, libraries, UI patterns, file layouts) are intentionally **not** captured here — they live, evolving, under [`.docs/suggestions/`](./.docs/suggestions).
+> **Status: iterative build, still early.** A working plugin skeleton has shipped into a test vault — settings, a typed backend client, inbox-capture commands, and a vault↔graph folder mirror — while the triage panel at the heart of the design is still taking shape. This file describes *where this component sits*, *what it is for*, and *what surrounds it* — the slow-changing frame. Concrete, churning decisions (APIs, UI patterns, file layouts) live under [`.docs/suggestions/`](./.docs/suggestions) (design) and [`.docs/plans/`](./.docs/plans) (how it ships); *what actually stands week-to-week* lives there and in [`JOURNAL.md`](./JOURNAL.md), not here.
 
 ## What this is
 
 `pipgraph-obsidian` is the **Obsidian plugin** in the PipGraph monorepo. It is a thin client over the PipGraph backend (see [`../backend`](../backend)) — analogous in role to [`../pipgraph-web`](../pipgraph-web), but embedded inside the user's Obsidian vault rather than delivered through a browser.
 
-The plugin is being built **iteratively**. Expect frequent direction changes, throwaway prototypes, and research-driven course corrections. Treat any code as provisional until clearly marked otherwise.
+The plugin is built **iteratively**: real code now exists and runs, but expect frequent direction changes, throwaway prototypes, and research-driven course corrections. Treat any module as provisional unless its plan file marks it shipped.
 
 ## Why Obsidian, and what role does it play
 
@@ -16,7 +16,7 @@ Obsidian is the user's **native authoring environment** for notes. The plugin do
 - **Tags, links, frontmatter** — notes get *enriched* (tags, links to PARA entities, embeddings) but the body of the note stays untouched. The backend already follows a non-destructive policy; the plugin must respect it.
 - **Native editor, search, graph, hotkeys, mobile clients** — all of these are reused as-is.
 
-PipGraph's plugin contributes **one missing capability**: a dedicated panel that helps the user **triage their inbox of unprocessed notes** using LLM-suggested placements. This is the centre of the design problem.
+PipGraph's plugin contributes the capabilities Obsidian lacks: chiefly a dedicated panel that helps the user **triage their inbox of unprocessed notes** using LLM-suggested placements — the centre of the design problem — and, around it, keeping the PARA folder structure and the graph in sync. See [What exists today](#what-exists-today-and-where-its-heading) for the current silhouette.
 
 ## The core design problem (the hard part)
 
@@ -30,14 +30,22 @@ There is an additional, more subtle subproblem:
 
 This requires some kind of visual "tentative / pending review" indicator on the file-explorer entry itself. Whether that is feasible — and how — is a research question. See [`.docs/suggestions/`](./.docs/suggestions).
 
+## What exists today, and where it's heading
+
+A deliberately coarse silhouette — the precise, churning detail is in [`.docs/plans/`](./.docs/plans) and [`JOURNAL.md`](./JOURNAL.md), which evolve faster than this file should:
+
+- **Shipped, exercised in a vault:** a typed HTTP client over the backend; a settings tab (backend URL, PARA root folder, inbox/drafts subfolders); inbox-capture commands (quick-capture modal, draft note, process-a-draft); and a **folder ↔ entity mirror** — PARA folders under the root are reflected as graph entities, the filesystem hierarchy becomes `BELONGS_TO`, and deleting a folder cascades to its orphaned notes. Folders with no summary get a small file-explorer marker.
+- **In flight / next:** the **triage panel** (confirm / correct / reject suggested placements — the centre of the design, currently a skeleton view), file-explorer decorations that distinguish *human-placed* from *suggested* notes, and pulling backend state down into the vault. A few backend gaps the plugin has surfaced (e.g. editing an entity's name / summary / path) are catalogued, not yet built.
+
+These lists move constantly — read this as a frame, not a status board. The plan files are the source of truth for what is actually done; this section only orients you.
+
 ## Where this plugin sits in the monorepo
 
 ```
 pipgraph/
 ├── backend/           # FastAPI service — single source of truth for graph state
 ├── pipgraph-web/      # Next.js web client (rapid prototyping UI)
-├── pipgraph-obsidian/ # ← this plugin (in-vault UI for triage + enrichment)
-└── obsidian-plugin/   # ← earlier exploratory plugin (legacy / reference only)
+└── pipgraph-obsidian/ # ← this plugin (in-vault UI for triage + enrichment)
 ```
 
 Important: the plugin is a **client of the backend REST API** — it must not talk to Neo4j directly, must not embed LLM logic, and must not duplicate `PipGraphManager` responsibilities. Everything that touches the graph goes through `backend/app/api/endpoints/dev.py`.
@@ -64,13 +72,9 @@ The plugin will need to interact with three distinct surfaces; each has its own 
 
 ### 3. The PipGraph backend
 
-- HTTP service, default `http://localhost:8000`, prefix `/api/v1/dev`.
-- All graph state (Episodics, PARA Entities, relationships) lives there.
-- Key relevant endpoints today (subject to change, always re-check `backend/app/api/endpoints/dev.py`):
-  - `POST /dev/process-note`, `POST /dev/episode` — ingest a note.
-  - `GET /dev/episodic/unlinked` — candidates for triage.
-  - `POST /dev/make-suggestions` — get suggested PARA targets for a note.
-  - `POST /dev/link-entity-episode`, `POST /dev/link-para-nodes` — apply user decisions.
+- HTTP service under the prefix `/api/v1/dev`; the plugin's settings point at it (local by default). The canonical port, the full endpoint table, and the data model live in [`../backend/CLAUDE.md`](../backend/CLAUDE.md) — not duplicated here.
+- All graph state (Episodics, PARA entities, relationships) lives there; the plugin never touches Neo4j or an LLM directly.
+- For the plugin's *own* view — which endpoints it already wraps, and the gaps it still needs — see [`.docs/overview/api-surface.md`](./.docs/overview/api-surface.md) and [`.docs/overview/future-methods.md`](./.docs/overview/future-methods.md). The authoritative contract is always [`dev.py`](../backend/app/api/endpoints/dev.py) / the live OpenAPI.
 
 ## Working principles for this directory
 
@@ -103,7 +107,7 @@ Routine:
 
 - **Session start:** read `Now`, `Open questions`, and the top `Recent sessions` entry. That's the context.
 - **Session end:** update `Now` + `Open questions` to current truth, prepend one new entry to `Recent sessions` (≤10 lines, with links to artefacts).
-- **Size discipline:** `Recent sessions` ≤ 5 entries. Older work gets compressed to a one-liner in `Archive` or dropped if fully captured by a plan/questionnaire.
+- **Size discipline:** `Recent sessions` ≤ 10 entries. Older work gets compressed to a one-liner in `Archive` or dropped if fully captured by a plan/questionnaire.
 
 `JOURNAL.md` is local-only; do not link to it from code or PRs.
 

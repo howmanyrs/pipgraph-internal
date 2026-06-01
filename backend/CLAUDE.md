@@ -19,6 +19,7 @@ Anything that touches Neo4j or an LLM **must go through this service**. Clients 
 - **API**: stable enough that two clients depend on it; still under `/dev` because the contract is allowed to evolve (no `/v1` freeze yet).
 - **No workflow orchestration.** The prior LangGraph experiment was removed (archived under `.docs/DEPRECATED/`). Processing is direct: request → manager → graph.
 - **Single manager.** `PipGraphManager` is the only legitimate entry point to Neo4j. The old `EpisodicCRUD` / `PARAContainerCRUD` classes are gone; `app/crud/` retains only `EntityCRUD` and `RelationshipCRUD`, used **from inside** the manager, not from endpoints.
+- **Client-driven evolution.** The Obsidian plugin is now the contract's main driver: recent additions (`file_path` persistence on entities, the cascade-delete endpoint below) landed to serve its folder↔graph mirror. The *next* gaps it needs are catalogued — not yet built — in [`../pipgraph-obsidian/.docs/overview/future-methods.md`](../pipgraph-obsidian/.docs/overview/future-methods.md); skim it before adding an endpoint so you extend the backlog rather than fork it.
 - **Future work** is staged in [`.docs/.todo/`](./.docs/.todo) (retro vault import, cascade summary, oversaturation detection, `:Entity:Task`, alias/archetype layer). Each item is a design note, not an implementation — consult before inventing a parallel approach.
 
 ## The live contract: `/api/v1/dev`
