@@ -54,6 +54,149 @@
   margin-top: var(--size-4-2);
 }
 
+/* ---- Panel: tab bar -------------------------------------------------- */
+
+.pipgraph-panel__tabs {
+  display: flex;
+  gap: var(--size-2-1);
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: var(--size-4-2);
+}
+
+.pipgraph-panel__tab {
+  flex: 1;
+  padding: var(--size-2-2) var(--size-2-3);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  box-shadow: none;
+}
+
+.pipgraph-panel__tab.is-active {
+  color: var(--text-normal);
+  border-bottom-color: var(--text-accent);
+}
+
+.pipgraph-panel__placeholder {
+  color: var(--text-muted);
+  padding: var(--size-4-2);
+}
+
+.pipgraph-panel__hint {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  padding: 0 var(--size-4-2);
+}
+
+/* ---- Inbox tab ------------------------------------------------------- */
+
+.pipgraph-inbox-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-2-2);
+  padding: var(--size-2-2) var(--size-2-3);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.pipgraph-inbox-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.pipgraph-inbox-row__title {
+  color: var(--text-normal);
+}
+
+.pipgraph-inbox-row__path {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+/* ---- Entity Inspector tab -------------------------------------------- */
+
+.pipgraph-inspector-card {
+  padding: var(--size-2-2);
+}
+
+.pipgraph-inspector-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  margin-bottom: var(--size-4-2);
+}
+
+.pipgraph-inspector-card__name {
+  font-weight: var(--font-bold);
+  color: var(--text-normal);
+}
+
+.pipgraph-inspector-card__type {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 0 var(--size-2-2);
+}
+
+.pipgraph-inspector-card__field {
+  display: flex;
+  gap: var(--size-2-2);
+  margin-bottom: var(--size-2-2);
+  font-size: var(--font-ui-small);
+}
+
+.pipgraph-inspector-card__field-label {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin: var(--size-4-2) 0 var(--size-2-1);
+}
+
+.pipgraph-inspector-card__field-value {
+  color: var(--text-normal);
+  word-break: break-all;
+}
+
+.pipgraph-inspector-card__summary {
+  width: 100%;
+  min-height: 6em;
+  resize: vertical;
+  font-family: var(--font-text);
+  font-size: var(--font-ui-small);
+  padding: var(--size-2-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.pipgraph-inspector-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--size-2-2);
+}
+
+.pipgraph-episodic-row {
+  display: flex;
+  gap: var(--size-2-2);
+  align-items: baseline;
+  padding: var(--size-2-1) 0;
+  font-size: var(--font-ui-small);
+}
+
+.pipgraph-episodic-row__date {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+}
+
+.pipgraph-episodic-row__name {
+  color: var(--text-normal);
+}
+
 /* Folder-entity marker: the folder mirrors a PARA node with no summary yet
    ("describes nothing"). A muted hollow dot after the folder name. */
 .nav-folder-title.pipgraph-empty-summary .nav-folder-title-content::after {

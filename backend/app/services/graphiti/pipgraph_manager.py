@@ -546,6 +546,96 @@ class PipGraphManager:
 
         return entity
 
+    async def update_para_entity(
+        self,
+        uuid: str,
+        *,
+        summary: str | None = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Update mutable fields of an existing PARA Entity in place.
+
+        Patches only the fields passed (others stay untouched) while preserving
+        the entity's UUID and all its MENTIONS / BELONGS_TO / RELATES_TO edges —
+        unlike delete+recreate, which would drop them.
+
+        Currently only ``summary`` is supported. It is the field the Obsidian
+        inspector edits and the field BM25 fulltext search reads in
+        ``make_suggestions``; updating the Neo4j property is enough for the
+        fulltext index to pick it up. ``name_embedding`` is intentionally NOT
+        recomputed — it is derived from ``name``, which this method does not
+        change. Editing ``name`` / ``file_path`` is the remaining S8 work and is
+        not handled here yet.
+
+        Args:
+            uuid: UUID of the PARA Entity to update.
+            summary: New summary text. ``None`` = leave unchanged.
+
+        Returns:
+            Dict with the updated entity (same shape as ``list_para_entities``
+            items), or ``None`` if no Entity with that UUID exists.
+        """
+        # Build the SET clause from the fields actually provided.
+        set_clauses = []
+        params: Dict[str, Any] = {"uuid": uuid}
+        if summary is not None:
+            set_clauses.append("n.summary = $summary")
+            params["summary"] = summary
+
+        if set_clauses:
+            mutate_query = f"""
+            MATCH (n:Entity {{uuid: $uuid}})
+            SET {', '.join(set_clauses)}
+            RETURN count(n) AS matched
+            """
+        else:
+            # No-op patch — still verify the entity exists so the caller can
+            # distinguish "found, nothing to change" from "not found".
+            mutate_query = """
+            MATCH (n:Entity {uuid: $uuid})
+            RETURN count(n) AS matched
+            """
+
+        projection_query = """
+        MATCH (n:Entity {uuid: $uuid})
+        RETURN
+            n.uuid as uuid,
+            n.name as name,
+            [label IN labels(n) WHERE label <> 'Entity'][0] as para_type,
+            n.created_at as created_at,
+            n.summary as summary,
+            properties(n) as all_properties
+        LIMIT 1
+        """
+
+        async with self.driver.session() as session:
+            matched = await (await session.run(mutate_query, **params)).single()
+            if not matched or matched["matched"] == 0:
+                logger.warning(f"[update_para_entity] Entity not found: uuid={uuid}")
+                return None
+
+            record = await (await session.run(projection_query, uuid=uuid)).single()
+
+        all_props = dict(record["all_properties"])
+        system_fields = {"uuid", "name", "created_at", "summary", "name_embedding", "group_id", "labels"}
+        attributes = {k: v for k, v in all_props.items() if k not in system_fields}
+
+        logger.info(
+            f"[update_para_entity] Updated entity {uuid} "
+            f"(summary={'set' if summary is not None else 'unchanged'})"
+        )
+
+        return {
+            "uuid": record["uuid"],
+            "name": record["name"],
+            "para_type": record["para_type"],
+            "created_at": self._serialize_datetime(record["created_at"]),
+            "summary": record["summary"],
+            # file_path is a scalar in attributes; surface it top-level (R1).
+            "file_path": all_props.get("file_path"),
+            "attributes": attributes,
+        }
+
     async def link_entity_to_episode(
         self,
         episodic_uuid: str,

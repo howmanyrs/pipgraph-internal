@@ -56,6 +56,8 @@ import type {
   ProcessNoteEnvelope,
   ProcessNoteInput,
   ProcessNoteResult,
+  UpdateParaEntityEnvelope,
+  UpdateParaEntityInput,
 } from "./types";
 
 const API_PREFIX = "/api/v1/dev";
@@ -151,6 +153,24 @@ export class PipGraphClient {
     return env.entities;
   }
 
+  /**
+   * Episodics that MENTIONS a given PARA entity — "what's inside this folder".
+   * Newest first, capped by `limit`. Used by the inspector to show recent
+   * notes filed under a folder-entity.
+   */
+  async getEpisodicsByEntity(
+    entityUuid: string,
+    limit = 50,
+  ): Promise<EpisodicNode[]> {
+    const env = await this.request<ListEpisodicEnvelope>({
+      method: "GET",
+      path: `/episodics/by-entity`,
+      query: { entity_uuid: entityUuid, limit },
+      timeoutMs: TIMEOUT_READ_MS,
+    });
+    return env.episodics;
+  }
+
   async makeSuggestions(input: MakeSuggestionsInput): Promise<ParaSuggestion[]> {
     const env = await this.request<MakeSuggestionsEnvelope>({
       method: "POST",
@@ -209,6 +229,31 @@ export class PipGraphClient {
       name: env.name,
       created_at: env.created_at ?? undefined,
     };
+  }
+
+  /**
+   * Patch mutable fields of an existing PARA entity in place, keeping its UUID
+   * and edges. Only `summary` is supported for now (S8 partial). Returns the
+   * updated entity. Throws PipGraphApiError(kind:'http') if not found.
+   */
+  async updateParaEntity(
+    entityUuid: string,
+    patch: UpdateParaEntityInput,
+  ): Promise<ParaEntity> {
+    const env = await this.request<UpdateParaEntityEnvelope>({
+      method: "PATCH",
+      path: `/para-entity/${encodeURIComponent(entityUuid)}`,
+      body: patch,
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    if (!env.entity) {
+      throw new PipGraphApiError({
+        kind: "parse",
+        message: "updateParaEntity succeeded but response missing entity",
+        body: JSON.stringify(env),
+      });
+    }
+    return env.entity;
   }
 
   async linkEntityToEpisode(

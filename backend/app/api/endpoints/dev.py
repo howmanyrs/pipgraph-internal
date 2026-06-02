@@ -26,6 +26,8 @@ from app.api.schemas.dev import (
     LinkParaNodesResponse,
     ParaEntityProperty,
     ListParaEntitiesResponse,
+    UpdateParaEntityRequest,
+    UpdateParaEntityResponse,
     ProcessExistingEpisodeRequest,
     ProcessExistingEpisodeResponse,
     MakeSuggestionsRequest,
@@ -844,6 +846,68 @@ async def list_para_entities(
             entities=[],
             count=0,
             error=str(e)
+        )
+
+
+@router.patch("/para-entity/{entity_uuid}", response_model=UpdateParaEntityResponse)
+async def update_para_entity(
+    entity_uuid: str, request: UpdateParaEntityRequest
+) -> UpdateParaEntityResponse:
+    """
+    Update mutable fields of an existing PARA Entity in place.
+
+    Patches the entity identified by UUID, preserving all its edges (MENTIONS,
+    BELONGS_TO, RELATES_TO) — unlike delete+recreate, which would drop them.
+
+    Currently only ``summary`` is editable (S8 partial). The summary feeds the
+    BM25 fulltext index used by /make-suggestions, so editing it directly
+    affects which new notes get matched to this entity. The name embedding is
+    not recomputed (it derives from ``name``, which is not editable here yet).
+
+    Backs the Obsidian inspector's editable-summary field.
+
+    Path Parameters:
+    - entity_uuid: UUID of the PARA Entity to update.
+
+    Example:
+        PATCH /api/v1/dev/para-entity/660e8400-e29b-41d4-a716-446655440111
+        { "summary": "Maintenance domain covering fitness, sleep, and nutrition." }
+
+    Returns:
+        UpdateParaEntityResponse with the updated entity, or an error.
+    """
+    try:
+        logger.info(f"[update_para_entity] Updating entity: {entity_uuid}")
+
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        updated = await manager.update_para_entity(
+            entity_uuid,
+            summary=request.summary,
+        )
+
+        if updated is None:
+            logger.warning(f"[update_para_entity] Entity not found: {entity_uuid}")
+            return UpdateParaEntityResponse(
+                success=False,
+                entity=None,
+                error=f"Entity not found: {entity_uuid}",
+            )
+
+        logger.info(f"[update_para_entity] Success: updated entity {entity_uuid}")
+        return UpdateParaEntityResponse(
+            success=True,
+            entity=ParaEntityProperty(**updated),
+            error=None,
+        )
+
+    except Exception as e:
+        logger.error(f"[update_para_entity] Error: {e}", exc_info=True)
+        return UpdateParaEntityResponse(
+            success=False,
+            entity=None,
+            error=str(e),
         )
 
 

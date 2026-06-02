@@ -36,6 +36,7 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 | GET | `/dev/episodics/by-entity?entity_uuid=…&limit=…` | Episodics that `MENTIONS` a given entity. |
 | POST | `/dev/process-existing-episode` | Run extraction on an already-linked Episodic (updates summaries, adds new mentions only). |
 | POST | `/dev/para-entity` | Create a PARA entity (`:Entity:Project|Area|Resource|Archive`) without LLM. |
+| PATCH | `/dev/para-entity/{entity_uuid}` | Update a PARA entity in place, keeping UUID + edges. **Only `summary` editable today** (S8 partial; `name`/`file_path` pending). Summary feeds the `make-suggestions` BM25 index; `name_embedding` is not recomputed. |
 | GET | `/dev/para-entity/list?limit=…&para_type=…&<prop>=…` | List PARA entities. Extra query params become property filters. |
 | POST | `/dev/link-entity-episode` | Create `MENTIONS` edge (Episodic → Entity). Idempotent (`MERGE`). |
 | POST | `/dev/link-para-nodes` | Create `BELONGS_TO` edge (Entity → Entity) for hierarchy. Idempotent. |
@@ -96,6 +97,7 @@ Defined in [`app/services/graphiti/pipgraph_manager.py`](./app/services/graphiti
 
 **PARA entity lifecycle**
 - `create_para_entity(para_type, name, summary, …)` — labels become `:Entity:Project|Area|Resource|Archive`.
+- `update_para_entity(uuid, *, summary=…)` — patch in place, preserving edges. Summary-only for now (S8 partial); does not recompute `name_embedding`.
 - `get_para_entity_by_uuid(uuid)`, `get_para_entity_by_name(name, para_type=…)`, `list_para_entities(limit, para_types, property_filters)`.
 - `ensure_inbox_exists()` — idempotent Inbox singleton.
 

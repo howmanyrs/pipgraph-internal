@@ -420,6 +420,59 @@ class ListParaEntitiesResponse(BaseModel):
     }
 
 
+class UpdateParaEntityRequest(BaseModel):
+    """Request to update mutable fields of an existing PARA entity.
+
+    Only ``summary`` is editable for now (S8 partial); ``name`` / ``file_path``
+    are not handled yet. Fields left ``None`` are unchanged.
+    """
+
+    summary: Optional[str] = Field(
+        None,
+        description="New summary text. None = leave unchanged."
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "summary": "Maintenance domain covering fitness, sleep, and nutrition."
+                }
+            ]
+        }
+    }
+
+
+class UpdateParaEntityResponse(BaseModel):
+    """Response from updating a PARA entity. Returns the updated entity."""
+
+    success: bool = Field(..., description="Whether the entity was found and updated")
+    entity: Optional["ParaEntityProperty"] = Field(
+        None, description="The updated PARA entity (None if not found)"
+    )
+    error: Optional[str] = Field(None, description="Error message if the update failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "entity": {
+                        "uuid": "660e8400-e29b-41d4-a716-446655440111",
+                        "name": "Health",
+                        "para_type": "Area",
+                        "created_at": "2024-01-15T10:00:00Z",
+                        "summary": "Maintenance domain covering fitness, sleep, and nutrition.",
+                        "file_path": "PipGraph/Areas/Health",
+                        "attributes": {}
+                    },
+                    "error": None
+                }
+            ]
+        }
+    }
+
+
 class ProcessExistingEpisodeRequest(BaseModel):
     """Request to process an existing Episodic node with entity extraction.
 

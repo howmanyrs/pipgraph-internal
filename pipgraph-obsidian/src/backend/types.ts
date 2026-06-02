@@ -117,6 +117,13 @@ export interface MakeSuggestionsInput {
   min_score?: number; // 0.0..1.0, default 0.0
 }
 
+// `UpdateParaEntityRequest` in schemas/dev.py.
+// Only `summary` is editable for now (S8 partial); name/file_path are not
+// handled yet. Fields left undefined are unchanged.
+export interface UpdateParaEntityInput {
+  summary?: string;
+}
+
 // ============================================================================
 // Result payloads (what client returns, AFTER envelope unwrapping)
 // ============================================================================
@@ -197,6 +204,11 @@ export interface GetEpisodicEnvelope extends Envelope {
 export interface ListParaEntitiesEnvelope extends Envelope {
   entities: ParaEntity[];
   count: number;
+}
+
+// `UpdateParaEntityResponse` in schemas/dev.py — returns the updated entity.
+export interface UpdateParaEntityEnvelope extends Envelope {
+  entity?: ParaEntity | null;
 }
 
 export interface MakeSuggestionsEnvelope extends Envelope {
