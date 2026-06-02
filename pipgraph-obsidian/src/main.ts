@@ -4,6 +4,7 @@ import {
   DEFAULT_SETTINGS,
   PipGraphSettings,
   hasNonDefaultValues,
+  isManagedFolderPath,
 } from "./settings/PipGraphSettings";
 import { PipGraphSettingTab } from "./settings/PipGraphSettingTab";
 import { PipGraphClient } from "./backend";
@@ -14,6 +15,8 @@ export default class PipGraphPlugin extends Plugin {
   settings!: PipGraphSettings;
   client!: PipGraphClient;
   folderMirror!: FolderMirror;
+  /** Folder last clicked in the explorer; the inspector tab reflects it. */
+  lastInspectedFolderPath: string | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -34,6 +37,41 @@ export default class PipGraphPlugin extends Plugin {
 
     this.folderMirror = new FolderMirror(this);
     this.folderMirror.start();
+
+    this.registerFolderClickInspector();
+  }
+
+  /**
+   * Follow folder clicks in the file-explorer so the Entity Inspector tab
+   * reflects the clicked folder. Uses the explorer's DOM (`.nav-folder-title`,
+   * an unofficial-but-stable hook, same surface folderDecoration relies on)
+   * because Obsidian fires no public event for folder selection.
+   *
+   * Deliberately non-intrusive: it only updates the inspector's *data*. It does
+   * not open the panel, reveal its leaf, or switch the active tab — clicking a
+   * folder must not yank the user out of whatever they were doing.
+   */
+  private registerFolderClickInspector(): void {
+    this.registerDomEvent(document, "click", (evt) => {
+      const target = evt.target as HTMLElement | null;
+      const titleEl = target?.closest?.(
+        ".nav-folder-title[data-path]",
+      ) as HTMLElement | null;
+      if (!titleEl) return;
+      const path = titleEl.getAttribute("data-path");
+      if (!path || !isManagedFolderPath(this.settings, path)) return;
+      this.inspectFolderInPanel(path);
+    });
+  }
+
+  private inspectFolderInPanel(path: string): void {
+    this.lastInspectedFolderPath = path;
+    this.app.workspace.getLeavesOfType(TRIAGE_VIEW_TYPE).forEach((leaf) => {
+      const view = leaf.view;
+      if (view instanceof TriagePanelView) {
+        view.setInspectedFolder(path);
+      }
+    });
   }
 
   onunload(): void {

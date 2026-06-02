@@ -23,4 +23,5 @@ export type {
   ParaType,
   ProcessNoteInput,
   ProcessNoteResult,
+  UpdateParaEntityInput,
 } from "./types";

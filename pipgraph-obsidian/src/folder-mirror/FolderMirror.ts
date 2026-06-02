@@ -374,7 +374,11 @@ export class FolderMirror {
   // Decorations
   // --------------------------------------------------------------------------
 
-  private async refreshDecorations(): Promise<void> {
+  /**
+   * Re-pull entities and re-apply the empty-summary markers. Public so the
+   * inspector can clear a folder's marker right after its summary is saved.
+   */
+  async refreshDecorations(): Promise<void> {
     try {
       const entities = await this.client.listParaEntities({ limit: 1000 });
       this.applyDecorations(entities);
