@@ -871,8 +871,12 @@ class PipGraphManager:
             start = time()
             now = utc_now()
 
-            # ШАГ 1: Получить существующий Episodic
-            episode = await EpisodicNode.get_by_uuid(self.driver, episodic_uuid)
+            # ШАГ 1: Получить существующий Episodic.
+            # Load as PipGraphEpisodicNode (full properties) so file_path /
+            # frontmatter / content_hash are kept in memory — the base
+            # EpisodicNode.get_by_uuid projection omits them, and we need them to
+            # re-apply after the bulk save (see ШАГ 10).
+            episode = await self.get_episodic_by_uuid(episodic_uuid)
             if not episode:
                 raise ValueError(f"Episodic not found: {episodic_uuid}")
 
@@ -989,6 +993,15 @@ class PipGraphManager:
             await add_nodes_and_edges_bulk(
                 self.driver, [episode], episodic_edges, hydrated_nodes, entity_edges, self.embedder
             )
+
+            # add_nodes_and_edges_bulk saves the Episodic with a fixed
+            # `SET n = {standard fields}` (Graphiti's bulk query), which REPLACES
+            # the node's properties and wipes PipGraph extras (file_path,
+            # frontmatter, content_hash). Re-apply them via the PipGraph save
+            # override (`SET e += {extras}`) so they survive the round-trip.
+            # (Entity extras are carried by the bulk path itself — they live in
+            # `attributes` — so only the Episodic needs this.)
+            await episode.save(self.driver)
 
             communities = []
             community_edges = []
@@ -1177,30 +1190,33 @@ class PipGraphManager:
         Returns:
             List[PipGraphEntityNode]: Список PARA Entity (Project, Area, Resource, Archive)
         """
-        from graphiti_core.helpers import parse_db_date
         from app.models.nodes import PipGraphEntityNode
 
+        # Step 1: find the UUIDs of PARA entities linked via MENTIONS.
         query = """
         MATCH (ep:Episodic {uuid: $uuid})-[:MENTIONS]->(e:Entity)
         WHERE e:Project OR e:Area OR e:Resource OR e:Archive
-        RETURN e
+        RETURN e.uuid AS uuid
         """
 
-        entities = []
+        uuids: List[str] = []
         async with self.driver.session() as session:
             result = await session.run(query, uuid=episodic_uuid)
             async for record in result:
-                node_data = dict(record["e"])
-                # Parse datetime fields from Neo4j format
-                if "created_at" in node_data and node_data["created_at"] is not None:
-                    node_data["created_at"] = parse_db_date(node_data["created_at"])
-                # Remove name_embedding from dict if present (will be loaded separately if needed)
-                node_data.pop("name_embedding", None)
+                uuids.append(record["uuid"])
 
-                # Create base EntityNode first, then convert to PipGraphEntityNode
-                base_entity = EntityNode(**node_data)
-                entity = PipGraphEntityNode.from_base(base_entity)
-                entities.append(entity)
+        if not uuids:
+            logger.info(f"Found 0 PARA entities linked to Episodic {episodic_uuid}")
+            return []
+
+        # Step 2: hydrate through Graphiti's loader. It maps the flat Neo4j
+        # properties (file_path, para_type, …) back into `attributes` via
+        # get_entity_node_from_record. A manual EntityNode(**dict(node)) would
+        # silently drop those non-base fields, leaving `attributes` empty — and a
+        # later bulk `SET n = node` would then wipe file_path/para_type from the
+        # graph. Loading properly keeps them, so the bulk re-save preserves them.
+        base_entities = await EntityNode.get_by_uuids(self.driver, uuids)
+        entities = [PipGraphEntityNode.from_base(e) for e in base_entities]
 
         logger.info(f"Found {len(entities)} PARA entities linked to Episodic {episodic_uuid}")
         return entities
@@ -1286,6 +1302,53 @@ class PipGraphManager:
             else:
                 logger.warning(f"[get_episodic_by_name] Not found: {name}")
                 return None
+
+    async def get_episodic_by_uuid(self, uuid: str) -> Optional["PipGraphEpisodicNode"]:
+        """
+        Retrieve an Episodic node by its UUID, preserving PipGraph fields.
+
+        Reads the full node properties (not the base Graphiti projection, which
+        omits file_path/frontmatter/content_hash) and reconstructs a
+        PipGraphEpisodicNode. Use this instead of EpisodicNode.get_by_uuid when
+        the custom fields must survive a subsequent save.
+
+        Args:
+            uuid: Episodic node UUID
+
+        Returns:
+            PipGraphEpisodicNode object or None if not found
+        """
+        from graphiti_core.helpers import parse_db_date
+        from app.models.nodes import PipGraphEpisodicNode
+
+        query = """
+        MATCH (e:Episodic {uuid: $uuid})
+        RETURN e
+        """
+
+        async with self.driver.session() as session:
+            result = await session.run(query, uuid=uuid)
+            record = await result.single()
+
+            if not record:
+                logger.warning(f"[get_episodic_by_uuid] Not found: {uuid}")
+                return None
+
+            node_data = dict(record["e"])
+
+            # Parse datetime fields
+            if "created_at" in node_data and node_data["created_at"]:
+                node_data["created_at"] = parse_db_date(node_data["created_at"])
+            if "valid_at" in node_data and node_data["valid_at"]:
+                node_data["valid_at"] = parse_db_date(node_data["valid_at"])
+
+            # Parse PipGraph-specific fields (frontmatter stored as JSON string)
+            if "frontmatter" in node_data and node_data["frontmatter"]:
+                node_data["frontmatter"] = json.loads(node_data["frontmatter"])
+
+            episodic = PipGraphEpisodicNode(**node_data)
+            logger.info(f"[get_episodic_by_uuid] Found: {uuid} (file_path={episodic.file_path})")
+            return episodic
 
     async def list_episodics(self, limit: int = 100) -> List["PipGraphEpisodicNode"]:
         """
