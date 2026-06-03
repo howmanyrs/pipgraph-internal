@@ -56,6 +56,37 @@
 
 /* ---- Panel: tab bar -------------------------------------------------- */
 
+/* ---- Dev strip ------------------------------------------------------- */
+
+.pipgraph-panel__devstrip {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  margin-bottom: var(--size-2-3);
+}
+
+.pipgraph-devstrip__status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--background-modifier-border);
+  flex: 0 0 auto;
+}
+
+.pipgraph-devstrip__status.is-online {
+  background: var(--color-green);
+}
+
+.pipgraph-devstrip__status.is-offline {
+  background: var(--color-red);
+}
+
+.pipgraph-devstrip__btn {
+  padding: var(--size-2-1) var(--size-2-3);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
 .pipgraph-panel__tabs {
   display: flex;
   gap: var(--size-2-1);
@@ -204,4 +235,12 @@
   margin-left: var(--size-2-2);
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
+}
+
+/* Drop target while dragging an Inbox note onto a PARA folder (DragToPlace). */
+.nav-folder-title.pipgraph-drop-target {
+  outline: 2px solid var(--text-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
 }

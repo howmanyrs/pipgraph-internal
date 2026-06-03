@@ -29,6 +29,7 @@ PipGraph Manager - Core Note Processing Wrapper
 
 import json
 import logging
+import posixpath
 from datetime import datetime
 from time import time
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
@@ -96,6 +97,20 @@ class AddEpisodeResults(BaseModel):
     edges: list[EntityEdge]
     communities: list[CommunityNode]
     community_edges: list[CommunityEdge]
+
+
+class CrossFolderFilePathError(Exception):
+    """Raised by ``update_episodic_file_path`` when a patch would move an
+    Episodic's ``file_path`` to a *different* folder.
+
+    The narrow ``PATCH /episodic/{uuid}`` is a pure binding-setter — it does not
+    touch ``MENTIONS`` edges. A cross-folder move is a *placement* change and
+    belongs to the move+link operation (cluster decision E7), which sets
+    ``file_path`` and ``MENTIONS`` together. Letting the bare setter silently
+    move the path would leave the graph's placement out of sync, so the guard
+    rejects it as an expected refusal (caller → ``200 {success:false}``), not a
+    bug. See episodic-linking cluster decision E6.
+    """
 
 
 class PipGraphManager:
@@ -1534,39 +1549,65 @@ class PipGraphManager:
         suffixes); the UUID and all MENTIONS edges are preserved. No embeddings
         or fulltext indexes depend on this field, so nothing is recomputed.
 
+        **Transition-guard (cluster decision E6).** This is a pure binding-setter
+        that never touches ``MENTIONS``, so it only permits transitions that keep
+        the placement folder stable:
+
+        - ``current`` empty → allow (first-bind; the capture flow).
+        - ``new is None`` or ``new == current`` → no-op.
+        - same parent folder (POSIX ``dirname`` equal) → allow (pure rename).
+        - **different parent folder → reject** with :class:`CrossFolderFilePathError`.
+
+        A cross-folder change is a *placement* change (it should also re-point
+        ``MENTIONS``); that belongs to the move+link operation (E7), not here.
+
         Args:
             episodic_uuid: UUID of the Episodic to update.
-            file_path: New file path. ``None`` = leave unchanged.
+            file_path: New vault-relative POSIX path. ``None`` = leave unchanged.
 
         Returns:
             The updated PipGraphEpisodicNode, or ``None`` if no Episodic with
             that UUID exists.
+
+        Raises:
+            CrossFolderFilePathError: the patch would move ``file_path`` to a
+                different folder (caller should surface ``200 {success:false}``).
         """
         from graphiti_core.helpers import parse_db_date
         from app.models.nodes import PipGraphEpisodicNode
 
-        if file_path is not None:
-            mutate_query = """
-            MATCH (e:Episodic {uuid: $uuid})
-            SET e.file_path = $file_path
-            RETURN e
-            """
-            params = {"uuid": episodic_uuid, "file_path": file_path}
-        else:
-            # No-op patch — still verify the Episodic exists so the caller can
-            # distinguish "found, nothing to change" from "not found".
-            mutate_query = """
-            MATCH (e:Episodic {uuid: $uuid})
-            RETURN e
-            """
-            params = {"uuid": episodic_uuid}
-
+        # Read current state first so we can guard the transition before writing.
         async with self.driver.session() as session:
-            record = await (await session.run(mutate_query, **params)).single()
+            record = await (
+                await session.run(
+                    "MATCH (e:Episodic {uuid: $uuid}) RETURN e",
+                    uuid=episodic_uuid,
+                )
+            ).single()
 
-        if not record:
-            logger.warning(f"[update_episodic_file_path] Not found: uuid={episodic_uuid}")
-            return None
+            if not record:
+                logger.warning(f"[update_episodic_file_path] Not found: uuid={episodic_uuid}")
+                return None
+
+            current = record["e"].get("file_path")
+
+            # Decide whether this is an allowed write. Anything that resolves to
+            # "no change needed" short-circuits to a no-op (existence confirmed).
+            will_write = file_path is not None and file_path != current
+            if will_write:
+                self._guard_file_path_transition(current, file_path)
+
+                record = await (
+                    await session.run(
+                        """
+                        MATCH (e:Episodic {uuid: $uuid})
+                        SET e.file_path = $file_path
+                        RETURN e
+                        """,
+                        uuid=episodic_uuid,
+                        file_path=file_path,
+                    )
+                ).single()
 
         node_data = dict(record["e"])
 
@@ -1581,10 +1622,128 @@ class PipGraphManager:
             node_data["frontmatter"] = json.loads(node_data["frontmatter"])
 
         logger.info(
-            f"[update_episodic_file_path] Updated uuid={episodic_uuid} "
-            f"(file_path={'set' if file_path is not None else 'unchanged'})"
+            f"[update_episodic_file_path] uuid={episodic_uuid} "
+            f"(file_path={'set' if will_write else 'unchanged'})"
         )
         return PipGraphEpisodicNode(**node_data)
+
+    async def place_episode(
+        self,
+        episodic_uuid: str,
+        entity_uuid: str,
+        file_path: str,
+        created_at: datetime | None = None,
+    ) -> Optional[tuple["PipGraphEpisodicNode", str]]:
+        """
+        Place an Episodic into a PARA folder-entity in one act: set its
+        ``file_path`` to the new (possibly cross-folder) location **and** MERGE
+        the ``MENTIONS`` edge to the entity.
+
+        This is the move+link operation (cluster decision E7). It deliberately
+        does **not** route through ``update_episodic_file_path`` — that narrow
+        setter rejects cross-folder moves (guard E6) precisely because changing
+        the folder is a *placement* change that must also (re)point ``MENTIONS``.
+        Here we do both, so the cross-folder ``SET`` is correct rather than a
+        silent desync. The physical file move is the client's job (the backend
+        has no vault access).
+
+        Idempotent on the **(episode, entity) pair**: ``SET`` is deterministic
+        and the ``MENTIONS`` edge is MERGEd on the *relationship pattern* (not on
+        a fresh edge uuid), so re-placing the same note matches the existing edge
+        instead of duplicating it. NB: this is why we do **not** use
+        ``EpisodicEdge.save()`` here — Graphiti's ``EPISODIC_EDGE_SAVE`` MERGEs on
+        ``{uuid: $uuid}`` with a uuid generated per call, which would mint a new
+        edge on every repeat. The pair carries at most one ``MENTIONS``.
+
+        Args:
+            episodic_uuid: UUID of the Episodic being placed.
+            entity_uuid: UUID of the PARA Entity (folder) it is filed under.
+            file_path: New vault-relative POSIX path inside the entity's folder.
+            created_at: Optional ``MENTIONS`` timestamp (defaults to now).
+
+        Returns:
+            ``(updated PipGraphEpisodicNode, edge_uuid)`` on success, or ``None``
+            if no Episodic with that UUID exists.
+
+        Raises:
+            ValueError: if the Entity does not exist.
+        """
+        from uuid import uuid4
+        from graphiti_core.nodes import EntityNode
+        from graphiti_core.helpers import parse_db_date
+        from graphiti_core.utils.datetime_utils import utc_now
+        from app.models.nodes import PipGraphEpisodicNode
+
+        now = created_at or utc_now()
+
+        # Validate the entity up front so we can return a clear "Entity not
+        # found" rather than a silent empty result, and to borrow its group_id.
+        entity = await EntityNode.get_by_uuid(self.driver, entity_uuid)
+        if not entity:
+            raise ValueError(f"Entity not found: {entity_uuid}")
+
+        # SET file_path (cross-folder allowed — this IS the relink) + MERGE the
+        # MENTIONS edge on the pattern (idempotent) in one statement.
+        query = """
+        MATCH (e:Episodic {uuid: $episodic_uuid})
+        SET e.file_path = $file_path
+        WITH e
+        MATCH (n:Entity {uuid: $entity_uuid})
+        MERGE (e)-[r:MENTIONS]->(n)
+        ON CREATE SET r.uuid = $edge_uuid, r.group_id = $group_id, r.created_at = $created_at
+        RETURN e AS episode, r.uuid AS edge_uuid
+        """
+        async with self.driver.session() as session:
+            record = await (
+                await session.run(
+                    query,
+                    episodic_uuid=episodic_uuid,
+                    entity_uuid=entity_uuid,
+                    file_path=file_path,
+                    edge_uuid=str(uuid4()),
+                    group_id=entity.group_id,
+                    created_at=now,
+                )
+            ).single()
+
+        if not record:
+            logger.warning(f"[place_episode] Episodic not found: {episodic_uuid}")
+            return None
+
+        edge_uuid = record["edge_uuid"]
+        logger.info(
+            f"[place_episode] Placed {episodic_uuid} -> {entity.name} "
+            f"(file_path={file_path}, edge={edge_uuid})"
+        )
+
+        node_data = dict(record["episode"])
+        if node_data.get("created_at"):
+            node_data["created_at"] = parse_db_date(node_data["created_at"])
+        if node_data.get("valid_at"):
+            node_data["valid_at"] = parse_db_date(node_data["valid_at"])
+        if node_data.get("frontmatter"):
+            node_data["frontmatter"] = json.loads(node_data["frontmatter"])
+
+        return PipGraphEpisodicNode(**node_data), edge_uuid
+
+    @staticmethod
+    def _guard_file_path_transition(current: str | None, new: str) -> None:
+        """Enforce the E6 transition-guard for ``file_path`` patches.
+
+        Allows first-bind (no current path) and same-folder renames; rejects a
+        move to a different parent folder with :class:`CrossFolderFilePathError`.
+        Paths are compared as vault-relative POSIX paths. Callers must only
+        invoke this when an actual write is pending (``new != current``).
+        """
+        if not current:
+            return  # first-bind — capture flow
+
+        if posixpath.dirname(current) != posixpath.dirname(new):
+            raise CrossFolderFilePathError(
+                f"Refusing cross-folder file_path move ({current!r} → {new!r}): "
+                "changing the placement folder must go through the move+link "
+                "operation, not the narrow PATCH (cluster decision E6)."
+            )
 
     async def delete_episodic(self, episodic_uuid: str) -> bool:
         """

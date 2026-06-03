@@ -132,6 +132,24 @@ export interface UpdateEpisodicInput {
   file_path?: string;
 }
 
+// `PlaceEpisodeRequest` in schemas/dev.py.
+// Move+link in one act (E7): set the Episodic's `file_path` to its new
+// (cross-folder) location AND MERGE the MENTIONS edge to the entity. Used by
+// drag-from-Inbox-to-folder. The physical file move is the client's job; we
+// pass the real post-move path here.
+export interface PlaceEpisodeInput {
+  episodic_uuid: string;
+  entity_uuid: string;
+  file_path: string;
+}
+
+// `ProcessExistingEpisodeRequest` in schemas/dev.py.
+// Re-run LLM extraction over an already-linked Episodic (≥1 MENTIONS).
+export interface ProcessExistingEpisodeInput {
+  episodic_uuid: string;
+  update_communities?: boolean;
+}
+
 // ============================================================================
 // Result payloads (what client returns, AFTER envelope unwrapping)
 // ============================================================================
@@ -172,6 +190,22 @@ export interface LinkParaNodesResult {
   source_entity_uuid: string;
   target_entity_uuid: string;
   created_at?: string;
+}
+
+// `PlaceEpisodeResponse` minus envelope
+export interface PlaceEpisodeResult {
+  episodic: EpisodicNode;
+  entity_uuid: string;
+  edge_uuid?: string;
+}
+
+// `ProcessExistingEpisodeResponse` minus envelope
+export interface ProcessExistingEpisodeResult {
+  episode_uuid?: string;
+  nodes_count: number;
+  edges_count: number;
+  episodic_edges_count: number;
+  para_entities_updated: string[];
 }
 
 // `DeleteNodeResponse` minus envelope
@@ -222,6 +256,22 @@ export interface UpdateParaEntityEnvelope extends Envelope {
 // `UpdateEpisodicResponse` in schemas/dev.py — returns the updated episodic.
 export interface UpdateEpisodicEnvelope extends Envelope {
   episodic?: EpisodicNode | null;
+}
+
+// `PlaceEpisodeResponse` in schemas/dev.py.
+export interface PlaceEpisodeEnvelope extends Envelope {
+  episodic?: EpisodicNode | null;
+  entity_uuid?: string | null;
+  edge_uuid?: string | null;
+}
+
+// `ProcessExistingEpisodeResponse` in schemas/dev.py.
+export interface ProcessExistingEpisodeEnvelope extends Envelope {
+  episode_uuid?: string | null;
+  nodes_count: number;
+  edges_count: number;
+  episodic_edges_count: number;
+  para_entities_updated: string[];
 }
 
 export interface MakeSuggestionsEnvelope extends Envelope {

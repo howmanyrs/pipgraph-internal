@@ -30,6 +30,8 @@ from app.api.schemas.dev import (
     UpdateParaEntityResponse,
     UpdateEpisodicRequest,
     UpdateEpisodicResponse,
+    PlaceEpisodeRequest,
+    PlaceEpisodeResponse,
     ProcessExistingEpisodeRequest,
     ProcessExistingEpisodeResponse,
     MakeSuggestionsRequest,
@@ -40,7 +42,7 @@ from app.api.schemas.dev import (
     DeleteParaEntityResponse,
     GetParaTreeResponse,
 )
-from app.services.graphiti import get_graphiti, PipGraphManager
+from app.services.graphiti import get_graphiti, PipGraphManager, CrossFolderFilePathError
 from app.services.graphiti.para_tree import PARATreeBuilder
 
 logger = logging.getLogger(__name__)
@@ -350,6 +352,12 @@ async def update_episodic(
     creating the file (resolve-then-act). Nothing is recomputed — no embedding or
     fulltext index depends on this field.
 
+    Transition-guard (E6): this is a pure binding-setter that never touches
+    ``MENTIONS``, so it only allows first-bind and same-folder renames. A
+    cross-folder move is a placement change (it must re-point ``MENTIONS``) and
+    is rejected with ``200 {success:false}`` — use the move+link operation
+    instead.
+
     Path Parameters:
     - episodic_uuid: UUID of the Episodic to update.
 
@@ -396,6 +404,16 @@ async def update_episodic(
             success=True,
             episodic=episodic_dict,
             error=None,
+        )
+
+    except CrossFolderFilePathError as e:
+        # Expected refusal (guard E6), not a bug — no stacktrace. A cross-folder
+        # move must go through the move+link operation, which re-points MENTIONS.
+        logger.warning(f"[update_episodic] Rejected cross-folder move: {e}")
+        return UpdateEpisodicResponse(
+            success=False,
+            episodic=None,
+            error=str(e),
         )
 
     except Exception as e:
@@ -754,6 +772,103 @@ async def link_entity_to_episode(request: LinkEntityEpisodeRequest) -> LinkEntit
             episodic_uuid=None,
             entity_uuid=None,
             created_at=None,
+            error=str(e),
+        )
+
+
+@router.post("/place-episode", response_model=PlaceEpisodeResponse)
+async def place_episode(request: PlaceEpisodeRequest) -> PlaceEpisodeResponse:
+    """
+    Place an Episodic into a PARA folder-entity: move+link in one act (E7).
+
+    Sets the Episodic's ``file_path`` to its new (cross-folder) location **and**
+    MERGEs the ``MENTIONS`` edge to the entity. This is the operation behind the
+    plugin's drag-from-Inbox-to-folder gesture.
+
+    Why not the narrow ``PATCH /episodic/{uuid}``: that setter rejects
+    cross-folder moves (guard E6) because changing the folder is a placement
+    change that must also (re)point ``MENTIONS``. This endpoint does both, so
+    the cross-folder ``file_path`` is intended, not a desync.
+
+    Idempotent (``MERGE`` edge + deterministic ``SET``) — re-placing the same
+    note is safe. The **physical file move is the client's job** (the backend
+    has no vault access); the client passes the real post-move path here.
+
+    Example:
+        POST /api/v1/dev/place-episode
+        {
+            "episodic_uuid": "550e8400-...",
+            "entity_uuid": "660e8400-...",
+            "file_path": "Areas/Health/Meeting notes.md"
+        }
+
+    Returns:
+        PlaceEpisodeResponse with the updated episodic + edge UUID, or an error.
+    """
+    try:
+        logger.info(
+            f"[place_episode] Placing {request.episodic_uuid} -> "
+            f"{request.entity_uuid} at {request.file_path}"
+        )
+
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        result = await manager.place_episode(
+            episodic_uuid=request.episodic_uuid,
+            entity_uuid=request.entity_uuid,
+            file_path=request.file_path,
+        )
+
+        if result is None:
+            logger.warning(f"[place_episode] Episodic not found: {request.episodic_uuid}")
+            return PlaceEpisodeResponse(
+                success=False,
+                episodic=None,
+                entity_uuid=None,
+                edge_uuid=None,
+                error=f"Episodic not found: {request.episodic_uuid}",
+            )
+
+        updated, edge_uuid = result
+        episodic_dict = {
+            "uuid": updated.uuid,
+            "name": updated.name,
+            "file_path": updated.file_path,
+            "created_at": updated.created_at.isoformat() if updated.created_at else None,
+            "valid_at": updated.valid_at.isoformat() if updated.valid_at else None,
+            "source": updated.source.value if updated.source else None,
+            "content": updated.content,
+            "source_description": updated.source_description,
+            "group_id": updated.group_id,
+        }
+
+        logger.info(f"[place_episode] Success: placed {request.episodic_uuid}")
+        return PlaceEpisodeResponse(
+            success=True,
+            episodic=episodic_dict,
+            entity_uuid=request.entity_uuid,
+            edge_uuid=edge_uuid,
+            error=None,
+        )
+
+    except ValueError as e:
+        # Entity not found — expected validation failure, no stacktrace.
+        logger.warning(f"[place_episode] Validation error: {e}")
+        return PlaceEpisodeResponse(
+            success=False,
+            episodic=None,
+            entity_uuid=None,
+            edge_uuid=None,
+            error=str(e),
+        )
+    except Exception as e:
+        logger.error(f"[place_episode] Error: {e}", exc_info=True)
+        return PlaceEpisodeResponse(
+            success=False,
+            episodic=None,
+            entity_uuid=None,
+            edge_uuid=None,
             error=str(e),
         )
 

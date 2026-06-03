@@ -7,6 +7,7 @@ import {
 } from "obsidian";
 import type PipGraphPlugin from "../main";
 import { getInboxPath } from "../settings/PipGraphSettings";
+import { PIPGRAPH_DRAG_MIME } from "../drag/DragToPlace";
 import { PipGraphApiError, type EpisodicNode, type ParaEntity } from "../backend";
 
 export const TRIAGE_VIEW_TYPE = "pipgraph-triage-panel";
@@ -102,9 +103,116 @@ export class TriagePanelView extends ItemView {
       return;
     }
 
+    this.renderDevStrip(root);
     this.renderTabBar(root);
     this.panelContentEl = root.createDiv({ cls: "pipgraph-panel__content" });
     void this.renderContent();
+  }
+
+  // --------------------------------------------------------------------------
+  // Dev strip (Ping / Refresh / Process selected) — manual backend levers.
+  // --------------------------------------------------------------------------
+
+  private renderDevStrip(root: HTMLElement): void {
+    const strip = root.createDiv({ cls: "pipgraph-panel__devstrip" });
+
+    const status = strip.createSpan({ cls: "pipgraph-devstrip__status" });
+
+    const pingBtn = strip.createEl("button", {
+      text: "Ping",
+      cls: "pipgraph-devstrip__btn",
+    });
+    pingBtn.addEventListener("click", () => void this.runPing(status, pingBtn));
+
+    const refreshBtn = strip.createEl("button", {
+      text: "Refresh",
+      cls: "pipgraph-devstrip__btn",
+    });
+    refreshBtn.addEventListener("click", () => void this.renderContent());
+
+    const processBtn = strip.createEl("button", {
+      text: "Process selected",
+      cls: "pipgraph-devstrip__btn",
+    });
+    processBtn.addEventListener("click", () => void this.processSelected(processBtn));
+
+    // Colour the status dot on first paint.
+    void this.runPing(status, pingBtn);
+  }
+
+  private async runPing(
+    dot: HTMLElement,
+    btn: HTMLButtonElement,
+  ): Promise<void> {
+    btn.disabled = true;
+    dot.removeClass("is-online", "is-offline");
+    try {
+      await this.plugin.client.ping();
+      dot.addClass("is-online");
+      dot.setAttr("aria-label", "Backend reachable");
+    } catch {
+      dot.addClass("is-offline");
+      dot.setAttr("aria-label", "Backend unreachable");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /**
+   * Run `process-existing-episode` (LLM) on the active editor note. Placed notes
+   * leave the Inbox tab, so the active file — not the inbox list — is the
+   * selection source. Validated at click time (resolve → must be linked) rather
+   * than pre-disabling the button, which would need a network probe on every
+   * active-leaf change.
+   */
+  private async processSelected(btn: HTMLButtonElement): Promise<void> {
+    const file = this.plugin.app.workspace.getActiveFile();
+    if (!file || file.extension !== "md") {
+      new Notice("Open the note you want to process first.");
+      return;
+    }
+
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.setText("Processing…");
+    try {
+      const episode = await this.plugin.client.resolveEpisodicByPath(file.path);
+      if (!episode) {
+        new Notice("This note isn't in PipGraph yet.");
+        return;
+      }
+      // process-existing-episode requires ≥1 MENTIONS — reject unlinked notes
+      // with a clear next step rather than a backend precondition error.
+      const unlinked = await this.plugin.client.listUnlinkedEpisodics();
+      if (unlinked.some((e) => e.uuid === episode.uuid)) {
+        new Notice(
+          "Place this note in a folder first (drag it onto one), then process.",
+        );
+        return;
+      }
+      const result = await this.plugin.client.processExistingEpisode({
+        episodic_uuid: episode.uuid,
+      });
+      const summaries = result.para_entities_updated.length;
+      new Notice(
+        `Processed: ${result.nodes_count} entities, ${result.edges_count} relations` +
+          (summaries ? `, ${summaries} summary updated.` : "."),
+      );
+    } catch (err) {
+      new Notice(`Process failed: ${this.describeError(err)}`);
+    } finally {
+      btn.disabled = false;
+      if (original !== null) btn.setText(original);
+    }
+  }
+
+  private describeError(err: unknown): string {
+    if (err instanceof PipGraphApiError) {
+      if (err.kind === "network") return "backend unreachable";
+      if (err.kind === "timeout") return "backend timed out";
+      return err.message;
+    }
+    return err instanceof Error ? err.message : String(err);
   }
 
   private renderTabBar(root: HTMLElement): void {
@@ -175,6 +283,13 @@ export class TriagePanelView extends ItemView {
       }
       row.addEventListener("click", () => {
         void this.plugin.app.workspace.getLeaf(false).openFile(file);
+      });
+      // Drag onto a PARA folder to move+link (DragToPlace handles the drop).
+      row.draggable = true;
+      row.addEventListener("dragstart", (ev) => {
+        ev.dataTransfer?.setData(PIPGRAPH_DRAG_MIME, file.path);
+        ev.dataTransfer?.setData("text/plain", file.path);
+        if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
       });
     }
   }

@@ -34,12 +34,13 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 | GET | `/dev/episodic/list?limit=…` | List all Episodics (debug/inspection). |
 | GET | `/dev/episodic/unlinked?limit=…` | Episodics without any `MENTIONS` edge — i.e. the triage inbox. |
 | GET | `/dev/episodics/by-entity?entity_uuid=…&limit=…` | Episodics that `MENTIONS` a given entity. |
-| PATCH | `/dev/episodic/{episodic_uuid}` | Update an Episodic in place, keeping UUID + edges. **Only `file_path` editable** (Episodic mirror of S1). No embeddings/indexes recomputed. All Episodic read endpoints now return `file_path` top-level. |
+| PATCH | `/dev/episodic/{episodic_uuid}` | Update an Episodic in place, keeping UUID + edges. **Only `file_path` editable** (Episodic mirror of S1). No embeddings/indexes recomputed. **Transition-guard (E6):** first-bind + same-folder rename allowed; **cross-folder move rejected** → `200 {success:false}` (placement change must go through the move+link op, which re-points `MENTIONS`). All Episodic read endpoints now return `file_path` top-level. |
 | POST | `/dev/process-existing-episode` | Run extraction on an already-linked Episodic (updates summaries, adds new mentions only). |
 | POST | `/dev/para-entity` | Create a PARA entity (`:Entity:Project|Area|Resource|Archive`) without LLM. |
 | PATCH | `/dev/para-entity/{entity_uuid}` | Update a PARA entity in place, keeping UUID + edges. **Only `summary` editable today** (S8 partial; `name`/`file_path` pending). Summary feeds the `make-suggestions` BM25 index; `name_embedding` is not recomputed. |
 | GET | `/dev/para-entity/list?limit=…&para_type=…&<prop>=…` | List PARA entities. Extra query params become property filters. |
 | POST | `/dev/link-entity-episode` | Create `MENTIONS` edge (Episodic → Entity). Idempotent (`MERGE`). |
+| POST | `/dev/place-episode` | **Move+link (E7):** set Episodic `file_path` to a new (cross-folder) location **and** `MERGE` its `MENTIONS` to an entity, in one act. Backs the plugin's drag-from-Inbox gesture. Idempotent on the (episode, entity) pair — MERGEs on the *relationship pattern*, not a fresh edge uuid. Physical file move is the client's job. |
 | POST | `/dev/link-para-nodes` | Create `BELONGS_TO` edge (Entity → Entity) for hierarchy. Idempotent. |
 | POST | `/dev/make-suggestions` | Hybrid search (BM25 + vector + MMR) returning ranked PARA entities for an Episodic. |
 | GET | `/dev/para-tree` | Hierarchical PARA tree built from `BELONGS_TO` edges. |
@@ -94,7 +95,7 @@ Defined in [`app/services/graphiti/pipgraph_manager.py`](./app/services/graphiti
 - `create_episode(content, …, name=None)` — lightweight ingestion, no LLM (except optional name generation).
 - `process_existing_episode(episodic_uuid, …)` — re-run extraction on an Episodic already linked to a PARA entity.
 - `get_episodic_by_name(name)`, `list_episodics(limit)`, `list_unlinked_episodics(limit)`, `get_episodics_by_entity_uuid(uuid, limit)`.
-- `update_episodic_timestamp(uuid, valid_at)`, `update_episodic_file_path(uuid, file_path)` (narrow patch, mirrors `update_para_entity`), `delete_episodic(uuid)`, `delete_node(uuid)` (type-agnostic).
+- `update_episodic_timestamp(uuid, valid_at)`, `update_episodic_file_path(uuid, file_path)` (narrow patch, mirrors `update_para_entity`; E6 transition-guard — raises `CrossFolderFilePathError` on a cross-folder move), `delete_episodic(uuid)`, `delete_node(uuid)` (type-agnostic).
 
 **PARA entity lifecycle**
 - `create_para_entity(para_type, name, summary, …)` — labels become `:Entity:Project|Area|Resource|Archive`.
@@ -104,6 +105,7 @@ Defined in [`app/services/graphiti/pipgraph_manager.py`](./app/services/graphiti
 
 **Relationships**
 - `link_entity_to_episode(episodic_uuid, entity_uuid)` — `MENTIONS`.
+- `place_episode(episodic_uuid, entity_uuid, file_path)` — move+link (E7): cross-folder `SET file_path` + `MERGE MENTIONS` on the pattern (idempotent on the pair). Bypasses the E6 guard by design.
 - `link_para_nodes(source, target)` — `BELONGS_TO`.
 
 **Discovery**
