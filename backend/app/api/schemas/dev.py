@@ -473,6 +473,61 @@ class UpdateParaEntityResponse(BaseModel):
     }
 
 
+class UpdateEpisodicRequest(BaseModel):
+    """Request to update mutable fields of an existing Episodic.
+
+    Narrow by design: only ``file_path`` is editable (the Episodic mirror of the
+    S1 ``file_path`` symmetry). Fields left ``None`` are unchanged.
+    """
+
+    file_path: Optional[str] = Field(
+        None,
+        description="New file path. None = leave unchanged."
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "file_path": "Inbox/Meeting notes (1).md"
+                }
+            ]
+        }
+    }
+
+
+class UpdateEpisodicResponse(BaseModel):
+    """Response from updating an Episodic. Returns the updated episodic."""
+
+    success: bool = Field(..., description="Whether the episodic was found and updated")
+    episodic: Optional[dict] = Field(
+        None, description="The updated Episodic node (None if not found)"
+    )
+    error: Optional[str] = Field(None, description="Error message if the update failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "episodic": {
+                        "uuid": "550e8400-e29b-41d4-a716-446655440000",
+                        "name": "Meeting notes",
+                        "file_path": "Inbox/Meeting notes (1).md",
+                        "created_at": "2024-01-15T10:00:00Z",
+                        "valid_at": "2024-01-15T10:00:00Z",
+                        "source": "text",
+                        "content": "...",
+                        "source_description": "obsidian",
+                        "group_id": "default"
+                    },
+                    "error": None
+                }
+            ]
+        }
+    }
+
+
 class ProcessExistingEpisodeRequest(BaseModel):
     """Request to process an existing Episodic node with entity extraction.
 

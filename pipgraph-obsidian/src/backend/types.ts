@@ -124,6 +124,14 @@ export interface UpdateParaEntityInput {
   summary?: string;
 }
 
+// `UpdateEpisodicRequest` in schemas/dev.py.
+// Narrow by design (Episodic mirror of S1): only `file_path` is editable.
+// Left undefined → unchanged. The client owns the final, collision-resolved
+// path and writes it here after creating the file (resolve-then-act, E2).
+export interface UpdateEpisodicInput {
+  file_path?: string;
+}
+
 // ============================================================================
 // Result payloads (what client returns, AFTER envelope unwrapping)
 // ============================================================================
@@ -209,6 +217,11 @@ export interface ListParaEntitiesEnvelope extends Envelope {
 // `UpdateParaEntityResponse` in schemas/dev.py — returns the updated entity.
 export interface UpdateParaEntityEnvelope extends Envelope {
   entity?: ParaEntity | null;
+}
+
+// `UpdateEpisodicResponse` in schemas/dev.py — returns the updated episodic.
+export interface UpdateEpisodicEnvelope extends Envelope {
+  episodic?: EpisodicNode | null;
 }
 
 export interface MakeSuggestionsEnvelope extends Envelope {

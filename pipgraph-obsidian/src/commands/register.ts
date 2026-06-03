@@ -133,6 +133,10 @@ async function processDraft(
     return;
   }
 
+  // Unlike the capture modal, the final path is known up front here (we abort
+  // above if the target is taken, rather than auto-resolving a suffix), so
+  // file_path is set at create time and no follow-up PATCH is needed.
+  // TODO(E3, Q3 §1.1): stamp `pipgraph.uuid` into frontmatter once writes land.
   try {
     await plugin.client.createEpisode({
       name: file.basename,

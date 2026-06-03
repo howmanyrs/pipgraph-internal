@@ -28,6 +28,8 @@ from app.api.schemas.dev import (
     ListParaEntitiesResponse,
     UpdateParaEntityRequest,
     UpdateParaEntityResponse,
+    UpdateEpisodicRequest,
+    UpdateEpisodicResponse,
     ProcessExistingEpisodeRequest,
     ProcessExistingEpisodeResponse,
     MakeSuggestionsRequest,
@@ -149,6 +151,7 @@ async def get_episodic_by_path(
             episodic_dict = {
                 "uuid": episodic.uuid,
                 "name": episodic.name,
+                "file_path": episodic.file_path,
                 "created_at": episodic.created_at.isoformat() if episodic.created_at else None,
                 "valid_at": episodic.valid_at.isoformat() if episodic.valid_at else None,
                 "source": episodic.source.value if episodic.source else None,
@@ -212,6 +215,7 @@ async def list_all_episodic(
             {
                 "uuid": ep.uuid,
                 "name": ep.name,
+                "file_path": ep.file_path,
                 "created_at": ep.created_at.isoformat() if ep.created_at else None,
                 "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
                 "source": ep.source.value if ep.source else None,
@@ -286,6 +290,7 @@ async def list_unlinked_episodic(
             {
                 "uuid": ep.uuid,
                 "name": ep.name,
+                "file_path": ep.file_path,
                 "created_at": ep.created_at.isoformat() if ep.created_at else None,
                 "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
                 "source": ep.source.value if ep.source else None,
@@ -325,6 +330,79 @@ async def list_unlinked_episodic(
             success=False,
             episodics=[],
             count=0,
+            error=str(e),
+        )
+
+
+@router.patch("/episodic/{episodic_uuid}", response_model=UpdateEpisodicResponse)
+async def update_episodic(
+    episodic_uuid: str, request: UpdateEpisodicRequest
+) -> UpdateEpisodicResponse:
+    """
+    Update mutable fields of an existing Episodic in place.
+
+    Narrow by design: only ``file_path`` is editable — the Episodic mirror of
+    the S1 ``file_path`` symmetry that landed for Entities. Patches the Episodic
+    identified by UUID, preserving its MENTIONS edges.
+
+    The client owns the final ``file_path`` (it resolves name collisions locally,
+    e.g. ``Foo.md`` → ``Foo (1).md``), so it writes the real path here after
+    creating the file (resolve-then-act). Nothing is recomputed — no embedding or
+    fulltext index depends on this field.
+
+    Path Parameters:
+    - episodic_uuid: UUID of the Episodic to update.
+
+    Example:
+        PATCH /api/v1/dev/episodic/550e8400-e29b-41d4-a716-446655440000
+        { "file_path": "Inbox/Meeting notes (1).md" }
+
+    Returns:
+        UpdateEpisodicResponse with the updated episodic, or an error.
+    """
+    try:
+        logger.info(f"[update_episodic] Updating episodic: {episodic_uuid}")
+
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        updated = await manager.update_episodic_file_path(
+            episodic_uuid,
+            file_path=request.file_path,
+        )
+
+        if updated is None:
+            logger.warning(f"[update_episodic] Episodic not found: {episodic_uuid}")
+            return UpdateEpisodicResponse(
+                success=False,
+                episodic=None,
+                error=f"Episodic not found: {episodic_uuid}",
+            )
+
+        episodic_dict = {
+            "uuid": updated.uuid,
+            "name": updated.name,
+            "file_path": updated.file_path,
+            "created_at": updated.created_at.isoformat() if updated.created_at else None,
+            "valid_at": updated.valid_at.isoformat() if updated.valid_at else None,
+            "source": updated.source.value if updated.source else None,
+            "content": updated.content,
+            "source_description": updated.source_description,
+            "group_id": updated.group_id,
+        }
+
+        logger.info(f"[update_episodic] Success: updated episodic {episodic_uuid}")
+        return UpdateEpisodicResponse(
+            success=True,
+            episodic=episodic_dict,
+            error=None,
+        )
+
+    except Exception as e:
+        logger.error(f"[update_episodic] Error: {e}", exc_info=True)
+        return UpdateEpisodicResponse(
+            success=False,
+            episodic=None,
             error=str(e),
         )
 
@@ -468,6 +546,7 @@ async def get_episodics_by_entity(
             {
                 "uuid": ep.uuid,
                 "name": ep.name,
+                "file_path": ep.file_path,
                 "created_at": ep.created_at.isoformat() if ep.created_at else None,
                 "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
                 "source": ep.source.value if ep.source else None,
