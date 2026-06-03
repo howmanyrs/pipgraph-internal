@@ -53,7 +53,7 @@ export function registerCommands(plugin: PipGraphPlugin): void {
     id: "refresh-triage",
     name: "Refresh triage queue",
     callback: () => {
-      new Notice("Refresh triage queue: not implemented yet — coming in M6.");
+      plugin.refreshTriagePanels();
     },
   });
 

@@ -10,11 +10,13 @@ import { PipGraphSettingTab } from "./settings/PipGraphSettingTab";
 import { PipGraphClient } from "./backend";
 import { registerCommands } from "./commands/register";
 import { FolderMirror } from "./folder-mirror/FolderMirror";
+import { DragToPlace } from "./drag/DragToPlace";
 
 export default class PipGraphPlugin extends Plugin {
   settings!: PipGraphSettings;
   client!: PipGraphClient;
   folderMirror!: FolderMirror;
+  dragToPlace!: DragToPlace;
   /** Folder last clicked in the explorer; the inspector tab reflects it. */
   lastInspectedFolderPath: string | null = null;
 
@@ -37,6 +39,9 @@ export default class PipGraphPlugin extends Plugin {
 
     this.folderMirror = new FolderMirror(this);
     this.folderMirror.start();
+
+    this.dragToPlace = new DragToPlace(this);
+    this.dragToPlace.start();
 
     this.registerFolderClickInspector();
   }
@@ -91,10 +96,11 @@ export default class PipGraphPlugin extends Plugin {
     await this.saveData(this.settings);
     // Rebuild the client so a new backendUrl / apiKey takes effect immediately.
     this.client = new PipGraphClient(this.settings);
-    this.notifyTriageViews();
+    this.refreshTriagePanels();
   }
 
-  private notifyTriageViews(): void {
+  /** Re-render every open triage panel (settings changed, a note was placed). */
+  refreshTriagePanels(): void {
     this.app.workspace.getLeavesOfType(TRIAGE_VIEW_TYPE).forEach((leaf) => {
       const view = leaf.view;
       if (view instanceof TriagePanelView) {

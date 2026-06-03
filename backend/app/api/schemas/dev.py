@@ -528,6 +528,69 @@ class UpdateEpisodicResponse(BaseModel):
     }
 
 
+class PlaceEpisodeRequest(BaseModel):
+    """Request to place an Episodic into a PARA folder-entity (move+link, E7).
+
+    One act: set the Episodic's ``file_path`` to the new (cross-folder) location
+    **and** MERGE the ``MENTIONS`` edge to the entity. Unlike the narrow
+    ``PATCH /episodic/{uuid}`` (which rejects cross-folder moves, guard E6), this
+    re-points placement and edge together, so a cross-folder ``file_path`` is the
+    intended behaviour here. The physical file move is the client's responsibility.
+    """
+
+    episodic_uuid: str = Field(..., description="UUID of the Episodic being placed")
+    entity_uuid: str = Field(..., description="UUID of the PARA Entity (folder) it is filed under")
+    file_path: str = Field(..., description="New vault-relative path inside the entity's folder")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "episodic_uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "entity_uuid": "660e8400-e29b-41d4-a716-446655440111",
+                    "file_path": "Areas/Health/Meeting notes.md"
+                }
+            ]
+        }
+    }
+
+
+class PlaceEpisodeResponse(BaseModel):
+    """Response from placing an Episodic (move+link). Returns the updated episodic."""
+
+    success: bool = Field(..., description="Whether the Episodic was found and placed")
+    episodic: Optional[dict] = Field(
+        None, description="The updated Episodic node (None if not found)"
+    )
+    entity_uuid: Optional[str] = Field(None, description="UUID of the entity it was linked to")
+    edge_uuid: Optional[str] = Field(None, description="UUID of the MENTIONS edge (MERGE — stable across re-placement)")
+    error: Optional[str] = Field(None, description="Error message if the placement failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "episodic": {
+                        "uuid": "550e8400-e29b-41d4-a716-446655440000",
+                        "name": "Meeting notes",
+                        "file_path": "Areas/Health/Meeting notes.md",
+                        "created_at": "2024-01-15T10:00:00Z",
+                        "valid_at": "2024-01-15T10:00:00Z",
+                        "source": "text",
+                        "content": "...",
+                        "source_description": "obsidian",
+                        "group_id": "default"
+                    },
+                    "entity_uuid": "660e8400-e29b-41d4-a716-446655440111",
+                    "edge_uuid": "770e8400-e29b-41d4-a716-446655440222",
+                    "error": None
+                }
+            ]
+        }
+    }
+
+
 class ProcessExistingEpisodeRequest(BaseModel):
     """Request to process an existing Episodic node with entity extraction.
 

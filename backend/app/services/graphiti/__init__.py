@@ -12,6 +12,7 @@ from app.services.graphiti.patched_client import CloudRuPatchedClient
 from app.services.graphiti.pipgraph_manager import (
     PipGraphManager,
     AddEpisodeResults,
+    CrossFolderFilePathError,
 )
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     # Manager
     "PipGraphManager",
     "AddEpisodeResults",
+    "CrossFolderFilePathError",
 ]

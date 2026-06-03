@@ -53,6 +53,12 @@ import type {
   ParaEntity,
   ParaSuggestion,
   ParaType,
+  PlaceEpisodeEnvelope,
+  PlaceEpisodeInput,
+  PlaceEpisodeResult,
+  ProcessExistingEpisodeEnvelope,
+  ProcessExistingEpisodeInput,
+  ProcessExistingEpisodeResult,
   ProcessNoteEnvelope,
   ProcessNoteInput,
   ProcessNoteResult,
@@ -326,6 +332,59 @@ export class PipGraphClient {
       episodic_uuid: env.episodic_uuid,
       entity_uuid: env.entity_uuid,
       created_at: env.created_at ?? undefined,
+    };
+  }
+
+  /**
+   * Place an Episodic into a PARA folder-entity: move+link in one act (E7).
+   * Sets the episode's `file_path` to its new (cross-folder) location AND
+   * MERGEs the MENTIONS edge to the entity. Idempotent on the (episode, entity)
+   * pair. The caller is responsible for the physical file move in the vault and
+   * passes the real post-move path here. Throws PipGraphApiError on failure
+   * (e.g. episode/entity not found → kind:'http').
+   */
+  async placeEpisode(input: PlaceEpisodeInput): Promise<PlaceEpisodeResult> {
+    const env = await this.request<PlaceEpisodeEnvelope>({
+      method: "POST",
+      path: `/place-episode`,
+      body: input,
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    if (!env.episodic) {
+      throw new PipGraphApiError({
+        kind: "parse",
+        message: "placeEpisode succeeded but response missing episodic",
+        body: JSON.stringify(env),
+      });
+    }
+    return {
+      episodic: env.episodic,
+      entity_uuid: env.entity_uuid ?? input.entity_uuid,
+      edge_uuid: env.edge_uuid ?? undefined,
+    };
+  }
+
+  /**
+   * Re-run LLM entity extraction over an already-linked Episodic (≥1 MENTIONS).
+   * Slow (LLM). Updates entity summaries and adds new mentions only. Behind the
+   * dev-strip "Process selected" action. Throws PipGraphApiError on failure
+   * (e.g. precondition not met → kind:'http').
+   */
+  async processExistingEpisode(
+    input: ProcessExistingEpisodeInput,
+  ): Promise<ProcessExistingEpisodeResult> {
+    const env = await this.request<ProcessExistingEpisodeEnvelope>({
+      method: "POST",
+      path: `/process-existing-episode`,
+      body: input,
+      timeoutMs: TIMEOUT_LLM_MS,
+    });
+    return {
+      episode_uuid: env.episode_uuid ?? undefined,
+      nodes_count: env.nodes_count,
+      edges_count: env.edges_count,
+      episodic_edges_count: env.episodic_edges_count,
+      para_entities_updated: env.para_entities_updated,
     };
   }
 

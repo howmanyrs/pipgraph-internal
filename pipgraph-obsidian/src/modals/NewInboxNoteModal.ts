@@ -1,6 +1,7 @@
 import { Modal, Notice, TFolder } from "obsidian";
 import type PipGraphPlugin from "../main";
 import { getInboxPath } from "../settings/PipGraphSettings";
+import { resolveUniqueFilePath } from "../vault/paths";
 import { PipGraphApiError } from "../backend";
 
 /**
@@ -100,8 +101,7 @@ export class NewInboxNoteModal extends Modal {
       const created = await this.plugin.client.createEpisode({ content });
 
       const baseName = sanitiseForFilename(created.name);
-      const fileName = await this.resolveUniqueName(inboxPath, baseName);
-      const path = `${inboxPath}/${fileName}`;
+      const path = resolveUniqueFilePath(this.plugin.app.vault, inboxPath, baseName);
 
       const file = await this.plugin.app.vault.create(path, content);
       await this.plugin.app.workspace.getLeaf(false).openFile(file);
@@ -158,20 +158,6 @@ export class NewInboxNoteModal extends Modal {
       throw new Error(`"${path}" exists but is not a folder.`);
     }
     await this.plugin.app.vault.createFolder(path);
-  }
-
-  private async resolveUniqueName(
-    folder: string,
-    baseName: string,
-  ): Promise<string> {
-    const vault = this.plugin.app.vault;
-    let candidate = `${baseName}.md`;
-    if (!vault.getAbstractFileByPath(`${folder}/${candidate}`)) return candidate;
-    for (let i = 1; i < 1000; i++) {
-      candidate = `${baseName} (${i}).md`;
-      if (!vault.getAbstractFileByPath(`${folder}/${candidate}`)) return candidate;
-    }
-    throw new Error("Could not find a free filename in the inbox.");
   }
 }
 
