@@ -1520,6 +1520,72 @@ class PipGraphManager:
                 logger.warning(f"[update_episodic_timestamp] Not found: uuid={episodic_uuid}")
                 return False
 
+    async def update_episodic_file_path(
+        self,
+        episodic_uuid: str,
+        file_path: str | None = None,
+    ) -> Optional["PipGraphEpisodicNode"]:
+        """
+        Update the file_path of an existing Episodic in place.
+
+        Narrow by design — the Episodic mirror of the S1 ``file_path`` symmetry
+        that S1 gave Entities. Patches only ``file_path`` (the client-owned
+        binding written after the file is created, including name-collision
+        suffixes); the UUID and all MENTIONS edges are preserved. No embeddings
+        or fulltext indexes depend on this field, so nothing is recomputed.
+
+        Args:
+            episodic_uuid: UUID of the Episodic to update.
+            file_path: New file path. ``None`` = leave unchanged.
+
+        Returns:
+            The updated PipGraphEpisodicNode, or ``None`` if no Episodic with
+            that UUID exists.
+        """
+        from graphiti_core.helpers import parse_db_date
+        from app.models.nodes import PipGraphEpisodicNode
+
+        if file_path is not None:
+            mutate_query = """
+            MATCH (e:Episodic {uuid: $uuid})
+            SET e.file_path = $file_path
+            RETURN e
+            """
+            params = {"uuid": episodic_uuid, "file_path": file_path}
+        else:
+            # No-op patch — still verify the Episodic exists so the caller can
+            # distinguish "found, nothing to change" from "not found".
+            mutate_query = """
+            MATCH (e:Episodic {uuid: $uuid})
+            RETURN e
+            """
+            params = {"uuid": episodic_uuid}
+
+        async with self.driver.session() as session:
+            record = await (await session.run(mutate_query, **params)).single()
+
+        if not record:
+            logger.warning(f"[update_episodic_file_path] Not found: uuid={episodic_uuid}")
+            return None
+
+        node_data = dict(record["e"])
+
+        # Parse datetime fields
+        if "created_at" in node_data and node_data["created_at"]:
+            node_data["created_at"] = parse_db_date(node_data["created_at"])
+        if "valid_at" in node_data and node_data["valid_at"]:
+            node_data["valid_at"] = parse_db_date(node_data["valid_at"])
+
+        # Parse PipGraph-specific fields
+        if "frontmatter" in node_data and node_data["frontmatter"]:
+            node_data["frontmatter"] = json.loads(node_data["frontmatter"])
+
+        logger.info(
+            f"[update_episodic_file_path] Updated uuid={episodic_uuid} "
+            f"(file_path={'set' if file_path is not None else 'unchanged'})"
+        )
+        return PipGraphEpisodicNode(**node_data)
+
     async def delete_episodic(self, episodic_uuid: str) -> bool:
         """
         Delete an Episodic node and all its relationships.

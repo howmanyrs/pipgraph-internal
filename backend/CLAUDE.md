@@ -34,6 +34,7 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 | GET | `/dev/episodic/list?limit=…` | List all Episodics (debug/inspection). |
 | GET | `/dev/episodic/unlinked?limit=…` | Episodics without any `MENTIONS` edge — i.e. the triage inbox. |
 | GET | `/dev/episodics/by-entity?entity_uuid=…&limit=…` | Episodics that `MENTIONS` a given entity. |
+| PATCH | `/dev/episodic/{episodic_uuid}` | Update an Episodic in place, keeping UUID + edges. **Only `file_path` editable** (Episodic mirror of S1). No embeddings/indexes recomputed. All Episodic read endpoints now return `file_path` top-level. |
 | POST | `/dev/process-existing-episode` | Run extraction on an already-linked Episodic (updates summaries, adds new mentions only). |
 | POST | `/dev/para-entity` | Create a PARA entity (`:Entity:Project|Area|Resource|Archive`) without LLM. |
 | PATCH | `/dev/para-entity/{entity_uuid}` | Update a PARA entity in place, keeping UUID + edges. **Only `summary` editable today** (S8 partial; `name`/`file_path` pending). Summary feeds the `make-suggestions` BM25 index; `name_embedding` is not recomputed. |
@@ -93,7 +94,7 @@ Defined in [`app/services/graphiti/pipgraph_manager.py`](./app/services/graphiti
 - `create_episode(content, …, name=None)` — lightweight ingestion, no LLM (except optional name generation).
 - `process_existing_episode(episodic_uuid, …)` — re-run extraction on an Episodic already linked to a PARA entity.
 - `get_episodic_by_name(name)`, `list_episodics(limit)`, `list_unlinked_episodics(limit)`, `get_episodics_by_entity_uuid(uuid, limit)`.
-- `update_episodic_timestamp(uuid, valid_at)`, `delete_episodic(uuid)`, `delete_node(uuid)` (type-agnostic).
+- `update_episodic_timestamp(uuid, valid_at)`, `update_episodic_file_path(uuid, file_path)` (narrow patch, mirrors `update_para_entity`), `delete_episodic(uuid)`, `delete_node(uuid)` (type-agnostic).
 
 **PARA entity lifecycle**
 - `create_para_entity(para_type, name, summary, …)` — labels become `:Entity:Project|Area|Resource|Archive`.

@@ -23,5 +23,6 @@ export type {
   ParaType,
   ProcessNoteInput,
   ProcessNoteResult,
+  UpdateEpisodicInput,
   UpdateParaEntityInput,
 } from "./types";

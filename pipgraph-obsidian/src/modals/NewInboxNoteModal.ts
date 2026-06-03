@@ -106,12 +106,32 @@ export class NewInboxNoteModal extends Modal {
       const file = await this.plugin.app.vault.create(path, content);
       await this.plugin.app.workspace.getLeaf(false).openFile(file);
 
+      // TODO(E3, Q3 §1.1): once frontmatter writes land, stamp `pipgraph.uuid`
+      // (created.uuid) into this note so resolution becomes uuid-primary.
+
       this.close();
+
+      // The backend named the episode, but *we* own the final collision-resolved
+      // path, so we write it back (resolve-then-act, E2). Best-effort: the file
+      // already exists on disk; if the PATCH fails the episode just keeps a null
+      // file_path until a later sync, so we surface a notice rather than rolling
+      // back the note the user just captured.
+      void this.syncFilePath(created.uuid, path);
     } catch (err) {
       this.isSaving = false;
       this.addButtonEl.disabled = false;
       if (originalText !== null) this.addButtonEl.setText(originalText);
       this.setError(this.describeError(err));
+    }
+  }
+
+  private async syncFilePath(uuid: string, path: string): Promise<void> {
+    try {
+      await this.plugin.client.updateEpisodic(uuid, { file_path: path });
+    } catch (err) {
+      new Notice(
+        `Note saved, but recording its path in PipGraph failed: ${this.describeError(err)}`,
+      );
     }
   }
 

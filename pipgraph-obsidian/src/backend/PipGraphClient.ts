@@ -56,6 +56,8 @@ import type {
   ProcessNoteEnvelope,
   ProcessNoteInput,
   ProcessNoteResult,
+  UpdateEpisodicEnvelope,
+  UpdateEpisodicInput,
   UpdateParaEntityEnvelope,
   UpdateParaEntityInput,
 } from "./types";
@@ -171,6 +173,26 @@ export class PipGraphClient {
     return env.episodics;
   }
 
+  /**
+   * Resolve a vault file path to its Episodic node, or null if none exists.
+   *
+   * Active (fallback) strategy: scan all episodics and match on `file_path`.
+   * Episodes captured before file_path sync landed have no `file_path` and so
+   * never match → null, which is the correct "no node for this file" answer,
+   * not an error (see step 02 acceptance criteria).
+   *
+   * Deferred (primary) strategy, Decision E3 / Q3 §1.1: read `pipgraph.uuid`
+   * from the note's frontmatter and look it up directly. Not wired here — the
+   * client has no vault access and the capture flow does not write that field
+   * yet. See src/frontmatter/readPipgraphUuid.ts for the groundwork.
+   */
+  async resolveEpisodicByPath(filePath: string): Promise<EpisodicNode | null> {
+    // `/episodic/list` is the superset of `/episodic/unlinked`, so one read
+    // covers both linked and unlinked notes.
+    const episodics = await this.listEpisodics();
+    return episodics.find((ep) => ep.file_path === filePath) ?? null;
+  }
+
   async makeSuggestions(input: MakeSuggestionsInput): Promise<ParaSuggestion[]> {
     const env = await this.request<MakeSuggestionsEnvelope>({
       method: "POST",
@@ -254,6 +276,33 @@ export class PipGraphClient {
       });
     }
     return env.entity;
+  }
+
+  /**
+   * Patch mutable fields of an existing Episodic in place, keeping its UUID and
+   * edges. Narrow by design — only `file_path` is supported (Episodic mirror of
+   * S1). The client owns the collision-resolved path and writes it here after
+   * creating the file (resolve-then-act, Decision E2). Returns the updated
+   * episodic. Throws PipGraphApiError(kind:'http') if not found.
+   */
+  async updateEpisodic(
+    episodicUuid: string,
+    patch: UpdateEpisodicInput,
+  ): Promise<EpisodicNode> {
+    const env = await this.request<UpdateEpisodicEnvelope>({
+      method: "PATCH",
+      path: `/episodic/${encodeURIComponent(episodicUuid)}`,
+      body: patch,
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    if (!env.episodic) {
+      throw new PipGraphApiError({
+        kind: "parse",
+        message: "updateEpisodic succeeded but response missing episodic",
+        body: JSON.stringify(env),
+      });
+    }
+    return env.episodic;
   }
 
   async linkEntityToEpisode(
