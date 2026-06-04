@@ -77,7 +77,7 @@ pipgraph-web/
 
 ### Base URL
 ```typescript
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 const API_PREFIX = '/api/v1/dev';
 ```
 
@@ -466,7 +466,7 @@ Create `.env.local` for local overrides:
 
 ```bash
 # .env.local
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost:8001
 ```
 
 **IMPORTANT**: All client-side env vars MUST be prefixed with `NEXT_PUBLIC_`.
@@ -492,7 +492,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
    - Use `useQuery` for data fetching with automatic caching
 
 4. **Hardcoded API URLs**: Use environment variables or the typed API client from `src/lib/api.ts`.
-   - Never hardcode `http://localhost:8000` in components
+   - Never hardcode `http://localhost:8001` in components
    - Use `NEXT_PUBLIC_API_URL` in `.env.local`
 
 5. **Skipping Zod validation**: Always validate form inputs. Backend errors are harder to debug.

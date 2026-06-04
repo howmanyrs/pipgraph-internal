@@ -7,7 +7,7 @@
 #   ./run-backend.sh [uvicorn-options]
 #
 # EXAMPLES:
-#   # Basic run (default: host=0.0.0.0, port=8000, reload=true)
+#   # Basic run (default: host=0.0.0.0, port=8001, reload=true)
 #   ./run-backend.sh
 #
 #   # Run on localhost only
@@ -29,7 +29,7 @@
 #
 # ENVIRONMENT VARIABLES:
 #   HOST    - Server host (default: 0.0.0.0)
-#   PORT    - Server port (default: 8000)
+#   PORT    - Server port (default: 8001)
 #   RELOAD  - Enable auto-reload (default: true)
 #
 # REQUIREMENTS:

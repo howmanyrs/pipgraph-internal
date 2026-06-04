@@ -34,8 +34,8 @@ This requires some kind of visual "tentative / pending review" indicator on the 
 
 A deliberately coarse silhouette — the precise, churning detail is in [`.docs/plans/`](./.docs/plans) and [`JOURNAL.md`](./JOURNAL.md), which evolve faster than this file should:
 
-- **Shipped, exercised in a vault:** a typed HTTP client over the backend; a settings tab (backend URL, PARA root folder, inbox/drafts subfolders); inbox-capture commands (quick-capture modal, draft note, process-a-draft); and a **folder ↔ entity mirror** — PARA folders under the root are reflected as graph entities, the filesystem hierarchy becomes `BELONGS_TO`, and deleting a folder cascades to its orphaned notes. Folders with no summary get a small file-explorer marker.
-- **In flight / next:** the **triage panel** (confirm / correct / reject suggested placements — the centre of the design, currently a skeleton view), file-explorer decorations that distinguish *human-placed* from *suggested* notes, and pulling backend state down into the vault. A few backend gaps the plugin has surfaced (e.g. editing an entity's name / summary / path) are catalogued, not yet built.
+- **Shipped, exercised in a vault:** a typed HTTP client over the backend; a settings tab (backend URL, PARA root folder, inbox/drafts subfolders); inbox-capture commands (quick-capture modal, draft note, process-a-draft); a **folder ↔ entity mirror** — PARA folders under the root are reflected as graph entities, the filesystem hierarchy becomes `BELONGS_TO`, and deleting a folder cascades to its orphaned notes (folders with no summary get a small file-explorer marker); a **tabbed triage panel** whose *Entity Inspector* shows a clicked folder's graph node with an editable summary; and **drag-to-place** — dragging a note from the inbox tab onto a PARA folder moves the file and links it (`MENTIONS`) in one gesture.
+- **In flight / next:** the **triage queue** at the heart of the panel — confirm / correct / reject suggested placements (still a skeleton), file-explorer decorations that distinguish *human-placed* from *suggested* notes, and pulling backend state down into the vault. A few backend gaps the plugin has surfaced (e.g. editing an entity's name / path — summary already landed) are catalogued, not yet built.
 
 These lists move constantly — read this as a frame, not a status board. The plan files are the source of truth for what is actually done; this section only orients you.
 
@@ -133,7 +133,10 @@ src/
 ├── settings/                     # Settings tab, settings model + path helpers, folder autosuggest
 ├── backend/                      # Typed HTTP client over the backend (PipGraphClient, transport, errors, types)
 ├── folder-mirror/                # Folder ↔ entity mirror (FolderMirror) + file-explorer decoration
-└── views/TriagePanelView.ts      # Right-sidebar triage panel (placeholder content today)
+├── drag/                         # Drag-to-place (DragToPlace) — inbox note → PARA folder = move + MENTIONS
+├── vault/                        # Path helpers shared by capture + drag (resolveUniqueFilePath)
+├── frontmatter/                  # Read-only pipgraph.uuid reader (uuid-primary resolve, not yet active)
+└── views/TriagePanelView.ts      # Right-sidebar triage panel (tabbed: Inbox + Entity Inspector; triage queue still a stub)
 manifest.json                     # Obsidian plugin metadata (id `pipgraph`, desktop-only)
 esbuild.config.mjs                # Build pipeline (dev watch / prod minify)
 styles.css                        # Panel / modal / decoration styling

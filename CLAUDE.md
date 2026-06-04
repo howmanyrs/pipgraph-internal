@@ -61,7 +61,7 @@ uv pip install -r requirements.txt
 cp .env.example .env   # fill NEO4J_*, CLOUDRU_* (or OPENROUTER_*) keys
 
 uvicorn app.api.main:app --reload
-# API: http://localhost:8000   Docs: http://localhost:8000/docs
+# API: http://localhost:8001   Docs: http://localhost:8001/docs
 ```
 Or, from the repo root: `./run-backend.sh` (and `./stop-backend.sh` to kill it).
 
@@ -73,7 +73,7 @@ cd pipgraph-web/
 npm install
 npm run dev   # http://localhost:3000
 ```
-Or `./start-web-dev.sh` from the root. Optional: `NEXT_PUBLIC_API_URL=http://localhost:8000` in `.env.local`.
+Or `./start-web-dev.sh` from the root. Optional: `NEXT_PUBLIC_API_URL=http://localhost:8001` in `.env.local`.
 
 ### Obsidian plugin
 Build + deploy into a vault via `pipgraph-obsidian/deploy-to-vault.sh`. See its README/CLAUDE.md.
@@ -85,7 +85,7 @@ Build + deploy into a vault via `pipgraph-obsidian/deploy-to-vault.sh`. See its 
 
 All routes live under `/api/v1/dev`. The `dev` prefix is a deliberate signal that the contract is allowed to evolve — when you rename a path, fix every client in the same PR.
 
-The endpoint table is maintained in **[`backend/CLAUDE.md`](backend/CLAUDE.md#the-live-contract-apiv1dev)** (and the live OpenAPI at `http://localhost:8000/docs`). Don't duplicate it here — keep one source of truth.
+The endpoint table is maintained in **[`backend/CLAUDE.md`](backend/CLAUDE.md#the-live-contract-apiv1dev)** (and the live OpenAPI at `http://localhost:8001/docs`). Don't duplicate it here — keep one source of truth.
 
 Response convention: `{success, …payload…, error}` — endpoints return HTTP 200 even on validation errors, so clients must check `success`.
 
@@ -100,6 +100,7 @@ Response convention: `{success, …payload…, error}` — endpoints return HTTP
 (:Entity:Archive)   ┘
 
 (:Episodic)-[:MENTIONS]->(:Entity)        // who creates: POST /dev/link-entity-episode (manual, idempotent MERGE)
+                                          //              POST /dev/place-episode  (manual move+link; MERGE on the pattern, idempotent on the pair)
                                           //              POST /dev/process-note  (auto, via Graphiti build_episodic_edges)
                                           //              POST /dev/process-existing-episode (auto, only for NEW entities)
                                           // the only edge type allowed *from* an Episodic (Graphiti constraint)
@@ -137,7 +138,7 @@ CLOUDRU_BASE_URL=https://.../v1
 
 Web `.env.local`:
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost:8001
 ```
 
 ## Testing
@@ -145,7 +146,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 **There is no automated test suite — everything is verified manually.** No pytest scaffold, no `pytest.ini`, no fixtures. If you reach for `pytest -m …` out of habit, stop: there is nothing to run.
 
 How features are actually verified today:
-- **Backend** — start `./run-backend.sh`, hit endpoints via `http://localhost:8000/docs` (Swagger UI) or `curl`, and inspect the result in Neo4j Browser (`http://localhost:7474`). Useful Cypher snippets live in [`backend/.docs/neo4j_verification_queries.md`](backend/.docs/neo4j_verification_queries.md). The server's `lifespan` startup check doubles as a smoke test — it refuses to come up if Neo4j or the LLM provider is unreachable.
+- **Backend** — start `./run-backend.sh`, hit endpoints via `http://localhost:8001/docs` (Swagger UI) or `curl`, and inspect the result in Neo4j Browser (`http://localhost:7474`). Useful Cypher snippets live in [`backend/.docs/neo4j_verification_queries.md`](backend/.docs/neo4j_verification_queries.md). The server's `lifespan` startup check doubles as a smoke test — it refuses to come up if Neo4j or the LLM provider is unreachable.
 - **Web** — `npm run lint && npm run build` in `pipgraph-web/`, then click through the feature in `npm run dev`.
 - **Obsidian plugin** — deploy into a test vault via `pipgraph-obsidian/deploy-to-vault.sh` and exercise commands manually.
 
