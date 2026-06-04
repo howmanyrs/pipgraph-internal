@@ -183,6 +183,22 @@ class CreateEpisodeRequest(BaseModel):
         None,
         description="YAML frontmatter metadata from the note"
     )
+    uuid: Optional[str] = Field(
+        None,
+        description="Optional client-supplied UUID (e.g. crypto.randomUUID()). When "
+                   "provided, the server MERGEs on it — re-posting the same UUID upserts "
+                   "the same Episodic instead of creating a duplicate (idempotent outbox "
+                   "delivery). When omitted, the server generates one."
+    )
+    generate_name: bool = Field(
+        False,
+        description="When true, generate the final name asynchronously via the job "
+                   "queue: the Episodic is created immediately with the provided `name` "
+                   "as a provisional title and status='processing'; a background job "
+                   "later overwrites `name` with an LLM-generated one and clears status. "
+                   "When false (default), behaviour is unchanged — `name` is stored as-is, "
+                   "or generated synchronously if absent."
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -207,6 +223,11 @@ class CreateEpisodeResponse(BaseModel):
     uuid: Optional[str] = Field(None, description="UUID of created episode")
     name: Optional[str] = Field(None, description="Name of the episode (auto-generated or provided)")
     created_at: Optional[datetime] = Field(None, description="Timestamp when episode was created")
+    status: Optional[str] = Field(
+        None,
+        description="Transient processing status, if any. 'processing' means an async "
+                   "naming job was enqueued (poll GET /episodic/{uuid} until it clears)."
+    )
     error: Optional[str] = Field(None, description="Error message if creation failed")
 
     model_config = {
@@ -217,6 +238,7 @@ class CreateEpisodeResponse(BaseModel):
                     "uuid": "550e8400-e29b-41d4-a716-446655440000",
                     "name": "Project Planning Meeting",
                     "created_at": "2024-01-15T10:00:00Z",
+                    "status": None,
                     "error": None
                 }
             ]

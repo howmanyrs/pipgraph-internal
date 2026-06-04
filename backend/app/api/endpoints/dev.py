@@ -154,6 +154,7 @@ async def get_episodic_by_path(
                 "uuid": episodic.uuid,
                 "name": episodic.name,
                 "file_path": episodic.file_path,
+                "status": episodic.status,
                 "created_at": episodic.created_at.isoformat() if episodic.created_at else None,
                 "valid_at": episodic.valid_at.isoformat() if episodic.valid_at else None,
                 "source": episodic.source.value if episodic.source else None,
@@ -218,6 +219,7 @@ async def list_all_episodic(
                 "uuid": ep.uuid,
                 "name": ep.name,
                 "file_path": ep.file_path,
+                "status": ep.status,
                 "created_at": ep.created_at.isoformat() if ep.created_at else None,
                 "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
                 "source": ep.source.value if ep.source else None,
@@ -293,6 +295,7 @@ async def list_unlinked_episodic(
                 "uuid": ep.uuid,
                 "name": ep.name,
                 "file_path": ep.file_path,
+                "status": ep.status,
                 "created_at": ep.created_at.isoformat() if ep.created_at else None,
                 "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
                 "source": ep.source.value if ep.source else None,
@@ -334,6 +337,57 @@ async def list_unlinked_episodic(
             count=0,
             error=str(e),
         )
+
+
+@router.get("/episodic/{episodic_uuid}", response_model=GetEpisodicResponse)
+async def get_episodic_by_uuid(episodic_uuid: str) -> GetEpisodicResponse:
+    """
+    Fetch a single Episodic by UUID — the status-polling endpoint.
+
+    Clients that created an Episodic with `generate_name=true` poll this until
+    `status` clears (the async naming job has finished and `name` is final). The
+    correlation key is the UUID, not the file path (which may be empty while the
+    note is still a pending outbox record on the client).
+
+    Example:
+        GET /api/v1/dev/episodic/550e8400-e29b-41d4-a716-446655440000
+
+    Returns:
+        GetEpisodicResponse with the episodic properties (incl. `status`) or
+        success=false if no node with that UUID exists.
+    """
+    try:
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        episodic = await manager.get_episodic_by_uuid(episodic_uuid)
+
+        if not episodic:
+            logger.warning(f"[get_episodic_by_uuid] Not found: {episodic_uuid}")
+            return GetEpisodicResponse(
+                success=False,
+                episodic=None,
+                error=f"Episodic not found: {episodic_uuid}",
+            )
+
+        episodic_dict = {
+            "uuid": episodic.uuid,
+            "name": episodic.name,
+            "file_path": episodic.file_path,
+            "status": episodic.status,
+            "created_at": episodic.created_at.isoformat() if episodic.created_at else None,
+            "valid_at": episodic.valid_at.isoformat() if episodic.valid_at else None,
+            "source": episodic.source.value if episodic.source else None,
+            "content": episodic.content,
+            "source_description": episodic.source_description,
+            "group_id": episodic.group_id,
+        }
+
+        return GetEpisodicResponse(success=True, episodic=episodic_dict, error=None)
+
+    except Exception as e:
+        logger.error(f"[get_episodic_by_uuid] Error: {e}", exc_info=True)
+        return GetEpisodicResponse(success=False, episodic=None, error=str(e))
 
 
 @router.patch("/episodic/{episodic_uuid}", response_model=UpdateEpisodicResponse)
@@ -462,7 +516,21 @@ async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse
         CreateEpisodeResponse with created episode UUID and timestamp
     """
     try:
-        name_info = f"name='{request.name}'" if request.name else "auto-generating name"
+        # When async naming is requested, the LLM call is deferred to the job
+        # queue: create the node now (status=processing) with a provisional name,
+        # and a background job overwrites the name + clears status. Otherwise keep
+        # legacy behaviour — store the given name, or generate it synchronously if
+        # absent (create_episode does this when name is None).
+        async_naming = request.generate_name
+        if async_naming:
+            # A provisional title so the node is never nameless while the job runs;
+            # passing a non-None name also keeps create_episode from generating
+            # synchronously. The job replaces it with the LLM-generated name.
+            provisional_name = request.name or "Untitled"
+            name_info = f"async naming (provisional='{provisional_name}')"
+        else:
+            provisional_name = request.name
+            name_info = f"name='{request.name}'" if request.name else "auto-generating name"
         logger.info(f"[create_episode] Creating episode: {name_info}")
 
         # Get Graphiti instance
@@ -472,24 +540,39 @@ async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse
         # Use current time if not provided
         ref_time = request.reference_time or datetime.now(timezone.utc)
 
-        # Create episode without full processing
-        # Note: positional args changed - content comes first now
+        # Create episode without full processing.
+        # `uuid` (when supplied) makes the create idempotent via MERGE; `status`
+        # marks the node processing while the naming job is in flight.
         episode = await manager.create_episode(
             content=request.content,
             source_description=request.source_description or "Obsidian note",
             reference_time=ref_time,
-            name=request.name,  # Optional - will auto-generate if None
+            name=provisional_name,  # provisional if async, else given/auto
             file_path=request.file_path,
             frontmatter=request.frontmatter,
+            uuid=request.uuid,
+            status="processing" if async_naming else None,
         )
 
-        logger.info(f"[create_episode] Success: uuid={episode.uuid}, name='{episode.name}'")
+        # Defer the LLM naming to the background worker (returns immediately).
+        if async_naming:
+            from app.services.jobs import enqueue
+            enqueue(
+                "generate_episode_name",
+                {"episodic_uuid": episode.uuid, "content": request.content},
+            )
+
+        logger.info(
+            f"[create_episode] Success: uuid={episode.uuid}, name='{episode.name}', "
+            f"status={episode.status}"
+        )
 
         return CreateEpisodeResponse(
             success=True,
             uuid=episode.uuid,
             name=episode.name,
             created_at=episode.created_at,
+            status=episode.status,
             error=None,
         )
 
@@ -499,6 +582,7 @@ async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse
             success=False,
             uuid=None,
             created_at=None,
+            status=None,
             error=str(e),
         )
 
@@ -565,6 +649,7 @@ async def get_episodics_by_entity(
                 "uuid": ep.uuid,
                 "name": ep.name,
                 "file_path": ep.file_path,
+                "status": ep.status,
                 "created_at": ep.created_at.isoformat() if ep.created_at else None,
                 "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
                 "source": ep.source.value if ep.source else None,

@@ -53,6 +53,13 @@ class PipGraphEpisodicNode(EpisodicNode):
         description="SHA-256 hash of content for duplicate detection"
     )
 
+    status: Optional[str] = Field(
+        default=None,
+        description="Transient processing status ('processing' / 'failed'). "
+                    "Absent = settled (no job in flight). Written by the job-runner "
+                    "around async work (e.g. name generation); cleared on completion."
+    )
+
     def compute_content_hash(self) -> str:
         """
         Compute SHA-256 hash of episode content.
@@ -95,6 +102,18 @@ class PipGraphEpisodicNode(EpisodicNode):
         if self.content_hash is not None:
             updates['content_hash'] = self.content_hash
 
+        # `status` is a transient flag managed by the job-runner. It must survive
+        # the bulk-save round-trip exactly like file_path/frontmatter: Graphiti's
+        # `SET n = {...}` (in super().save() and in add_nodes_and_edges_bulk) omits
+        # it, so we re-apply it here via `SET e += {...}`. This is NOT just for the
+        # capture path — queued heavy-processing (process_existing_episode, Phase 2)
+        # marks the Episodic `status="processing"` *while it runs*, and the bulk save
+        # in the middle of that same operation would otherwise wipe the flag. The
+        # re-apply in process_existing_episode (`episode.save()` after the bulk)
+        # carries this through; see that method's ШАГ 10 note.
+        if self.status is not None:
+            updates['status'] = self.status
+
         # Only run UPDATE if we have custom fields to save
         if updates:
             query = """
@@ -113,6 +132,7 @@ class PipGraphEpisodicNode(EpisodicNode):
         file_path: Optional[str] = None,
         frontmatter: Optional[dict[str, Any]] = None,
         content_hash: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> "PipGraphEpisodicNode":
         """
         Create PipGraphEpisodicNode from base EpisodicNode.
@@ -124,6 +144,7 @@ class PipGraphEpisodicNode(EpisodicNode):
             file_path: Optional path to source file
             frontmatter: Optional YAML frontmatter dict
             content_hash: Optional precomputed content hash
+            status: Optional transient processing status (job-runner flag)
 
         Returns:
             PipGraphEpisodicNode with all base fields plus PipGraph extensions
@@ -142,6 +163,7 @@ class PipGraphEpisodicNode(EpisodicNode):
             file_path=file_path,
             frontmatter=frontmatter or {},
             content_hash=content_hash,
+            status=status,
         )
 
 

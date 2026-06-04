@@ -26,3 +26,19 @@ export function resolveUniqueFilePath(
   }
   throw new Error(`Could not find a free filename in "${folder}".`);
 }
+
+/**
+ * Turn an arbitrary string (e.g. an LLM-generated episode name) into a safe
+ * Markdown filename base: strips path/illegal characters, collapses whitespace,
+ * caps length. Never returns empty — falls back to "Untitled". The caller pairs
+ * this with resolveUniqueFilePath, which appends `.md` and resolves collisions.
+ *
+ * Shared by the capture outbox (materialising into the Inbox) and any other
+ * flow that derives a filename from backend-supplied text.
+ */
+export function sanitiseForFilename(name: string): string {
+  const trimmed = name.replace(/[\\/:*?"<>|]/g, "_").trim();
+  const collapsed = trimmed.replace(/\s+/g, " ");
+  const limited = collapsed.slice(0, 100).trim();
+  return limited.length > 0 ? limited : "Untitled";
+}
