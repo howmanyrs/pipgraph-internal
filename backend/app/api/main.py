@@ -103,7 +103,17 @@ async def _verify_llm() -> None:
 async def lifespan(app: FastAPI):
     await _verify_neo4j()
     await _verify_llm()
-    yield
+    # Start the in-process job-runner (background-worker for slow LLM work, e.g.
+    # async episode naming). In-memory + single worker by design — see
+    # app/services/jobs/queue.py.
+    from app.services.jobs import start_worker, stop_worker
+    start_worker()
+    logger.info("Job-runner worker started")
+    try:
+        yield
+    finally:
+        await stop_worker()
+        logger.info("Job-runner worker stopped")
 
 
 app = FastAPI(title="PipGraph Backend", lifespan=lifespan)

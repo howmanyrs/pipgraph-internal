@@ -53,6 +53,13 @@ class PipGraphEpisodicNode(EpisodicNode):
         description="SHA-256 hash of content for duplicate detection"
     )
 
+    status: Optional[str] = Field(
+        default=None,
+        description="Transient processing status ('processing' / 'failed'). "
+                    "Absent = settled (no job in flight). Written by the job-runner "
+                    "around async work (e.g. name generation); cleared on completion."
+    )
+
     def compute_content_hash(self) -> str:
         """
         Compute SHA-256 hash of episode content.
@@ -94,6 +101,14 @@ class PipGraphEpisodicNode(EpisodicNode):
 
         if self.content_hash is not None:
             updates['content_hash'] = self.content_hash
+
+        # `status` is a transient flag managed by the job-runner. Persist it here so
+        # the capture path (.save()) sets it at create-time. NOTE: the bulk-save path
+        # (process_note / process_existing_episode) uses Graphiti's `SET n = {...}`
+        # which omits `status` — heavy processing owns its own status writes, so a
+        # wipe there is intentional, not a leak (see process-queue plan, Phase 2).
+        if self.status is not None:
+            updates['status'] = self.status
 
         # Only run UPDATE if we have custom fields to save
         if updates:

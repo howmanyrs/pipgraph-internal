@@ -18,6 +18,7 @@ Anything that touches Neo4j or an LLM **must go through this service**. Clients 
 
 - **API**: stable enough that two clients depend on it; still under `/dev` because the contract is allowed to evolve (no `/v1` freeze yet).
 - **No workflow orchestration.** The prior LangGraph experiment was removed (archived under `.docs/DEPRECATED/`). Processing is direct: request → manager → graph.
+- **In-process job-runner** (`app/services/jobs/queue.py`) — a single `asyncio.Queue` worker started in `lifespan` for slow LLM work that shouldn't block a request (currently: async episode naming via `POST /dev/episode` `generate_name=true`). Deliberately a **job-runner, not a workflow engine**: each job is a flat `{type, args}` → one manager method, no steps/branches (guard against re-growing LangGraph). In-memory + concurrency=1; status of in-flight work survives on the Episodic (`status` property), but anything still *queued* is lost on restart (server-side re-enqueue is a later phase).
 - **Single manager.** `PipGraphManager` is the only legitimate entry point to Neo4j. The old `EpisodicCRUD` / `PARAContainerCRUD` classes are gone; `app/crud/` retains only `EntityCRUD` and `RelationshipCRUD`, used **from inside** the manager, not from endpoints.
 - **Client-driven evolution.** The Obsidian plugin is now the contract's main driver: recent additions (`file_path` persistence on entities, the cascade-delete endpoint below) landed to serve its folder↔graph mirror. The *next* gaps it needs are catalogued — not yet built — in [`../pipgraph-obsidian/.docs/overview/future-methods.md`](../pipgraph-obsidian/.docs/overview/future-methods.md); skim it before adding an endpoint so you extend the backlog rather than fork it.
 - **Future work** is staged in [`.docs/.todo/`](./.docs/.todo) (retro vault import, cascade summary, oversaturation detection, `:Entity:Task`, alias/archetype layer). Each item is a design note, not an implementation — consult before inventing a parallel approach.
@@ -29,11 +30,12 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/dev/process-note` | Create Episodic + run full LLM extraction pipeline (entities, edges, summaries). |
-| POST | `/dev/episode` | Create Episodic only (no LLM). Auto-generates name if absent. Lightweight ingestion. |
+| POST | `/dev/episode` | Create Episodic only (no LLM extraction). Lightweight ingestion. Accepts a client-supplied `uuid` → server `MERGE`s on it, so re-posting the same UUID upserts (idempotent outbox delivery). Naming: `generate_name=true` defers naming to the job queue (node created immediately with provisional name + `status="processing"`; a background job overwrites `name` and clears `status`) — poll `GET /dev/episodic/{uuid}`. Without the flag: name stored as-is, or generated synchronously if absent (legacy). |
 | GET | `/dev/episodic?note_path=…` | Fetch one Episodic by `name` (path-like). |
 | GET | `/dev/episodic/list?limit=…` | List all Episodics (debug/inspection). |
 | GET | `/dev/episodic/unlinked?limit=…` | Episodics without any `MENTIONS` edge — i.e. the triage inbox. |
 | GET | `/dev/episodics/by-entity?entity_uuid=…&limit=…` | Episodics that `MENTIONS` a given entity. |
+| GET | `/dev/episodic/{episodic_uuid}` | Fetch one Episodic by UUID — the status-polling endpoint (returns `status`, `name`, `file_path`, …). Correlation key is the UUID, not `file_path`. |
 | PATCH | `/dev/episodic/{episodic_uuid}` | Update an Episodic in place, keeping UUID + edges. **Only `file_path` editable** (Episodic mirror of S1). No embeddings/indexes recomputed. **Transition-guard (E6):** first-bind + same-folder rename allowed; **cross-folder move rejected** → `200 {success:false}` (placement change must go through the move+link op, which re-points `MENTIONS`). All Episodic read endpoints now return `file_path` top-level. |
 | POST | `/dev/process-existing-episode` | Run extraction on an already-linked Episodic (updates summaries, adds new mentions only). |
 | POST | `/dev/para-entity` | Create a PARA entity (`:Entity:Project|Area|Resource|Archive`) without LLM. |
@@ -92,7 +94,8 @@ Defined in [`app/services/graphiti/pipgraph_manager.py`](./app/services/graphiti
 
 **Episodic lifecycle**
 - `process_note(name, episode_body, …)` — full LLM pipeline (extract nodes → resolve → edges → bulk save).
-- `create_episode(content, …, name=None)` — lightweight ingestion, no LLM (except optional name generation).
+- `create_episode(content, …, name=None, uuid=None, status=None)` — lightweight ingestion, no LLM (except optional sync name generation). `uuid` lets a client supply the node UUID (saved via `MERGE` → idempotent retry); `status` stamps a transient flag (e.g. `"processing"` while an async naming job is in flight).
+- `finalize_episode_name(uuid, name)` — set final `name` + clear `status` (used by the naming job). `set_episodic_status(uuid, status)` — set the transient `status` (e.g. `"failed"`).
 - `process_existing_episode(episodic_uuid, …)` — re-run extraction on an Episodic already linked to a PARA entity.
 - `get_episodic_by_name(name)`, `list_episodics(limit)`, `list_unlinked_episodics(limit)`, `get_episodics_by_entity_uuid(uuid, limit)`.
 - `update_episodic_timestamp(uuid, valid_at)`, `update_episodic_file_path(uuid, file_path)` (narrow patch, mirrors `update_para_entity`; E6 transition-guard — raises `CrossFolderFilePathError` on a cross-folder move), `delete_episodic(uuid)`, `delete_node(uuid)` (type-agnostic).
@@ -116,7 +119,8 @@ If a new endpoint needs a database operation that doesn't exist yet, **add a met
 ## Data model (Neo4j)
 
 ```
-(:Episodic {uuid, name, content, created_at, valid_at, source, source_description, group_id})
+(:Episodic {uuid, name, content, created_at, valid_at, source, source_description, group_id, file_path?, frontmatter?, status?})
+  // status: transient job flag ("processing"/"failed"); absent = settled. Managed by the job-runner.
 
 (:Entity:Project)   ┐
 (:Entity:Area)      │ {uuid, name, summary, name_embedding, attributes, created_at}
