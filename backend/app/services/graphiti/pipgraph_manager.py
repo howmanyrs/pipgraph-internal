@@ -1011,8 +1011,11 @@ class PipGraphManager:
             # add_nodes_and_edges_bulk saves the Episodic with a fixed
             # `SET n = {standard fields}` (Graphiti's bulk query), which REPLACES
             # the node's properties and wipes PipGraph extras (file_path,
-            # frontmatter, content_hash). Re-apply them via the PipGraph save
-            # override (`SET e += {extras}`) so they survive the round-trip.
+            # frontmatter, content_hash, status). Re-apply them via the PipGraph
+            # save override (`SET e += {extras}`) so they survive the round-trip.
+            # `status` matters here specifically: once this op is queued (Phase 2),
+            # the job marks the Episodic status="processing" while it runs, and this
+            # save is what carries that flag past the bulk wipe (see nodes.py save()).
             # (Entity extras are carried by the bulk path itself — they live in
             # `attributes` — so only the Episodic needs this.)
             await episode.save(self.driver)

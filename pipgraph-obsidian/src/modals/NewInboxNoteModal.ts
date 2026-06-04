@@ -1,17 +1,18 @@
-import { Modal, Notice, TFolder } from "obsidian";
+import { Modal } from "obsidian";
 import type PipGraphPlugin from "../main";
-import { getInboxPath } from "../settings/PipGraphSettings";
-import { resolveUniqueFilePath } from "../vault/paths";
 import { PipGraphApiError } from "../backend";
 
 /**
  * Capture-flow modal for `pipgraph:new-inbox-note`.
  *
- * Flow: user types/pastes → Add → backend creates Episodic (auto-names it) →
- * we write the file under <inbox>/<sanitized-name>.md → open it.
+ * Flow: user types/pastes → Add → the note is handed to the durable capture
+ * outbox and the modal closes immediately, so the user can capture the next one
+ * without waiting on the backend. The outbox writes a hidden pending record,
+ * creates the Episodic, waits for its async LLM name, then materialises the file
+ * into the Inbox in the background (see CaptureOutbox).
  *
- * Backend is the source of truth here: if the create call fails we never
- * touch disk, so we don't leave an orphan note.
+ * The modal only reports failures of the *durable write* — if that succeeds the
+ * note is safe even if later delivery is retried after a restart.
  */
 export class NewInboxNoteModal extends Modal {
   private readonly plugin: PipGraphPlugin;
@@ -90,48 +91,21 @@ export class NewInboxNoteModal extends Modal {
 
     this.isSaving = true;
     this.addButtonEl.disabled = true;
-    const originalText = this.addButtonEl.textContent;
     this.addButtonEl.setText("Saving…");
     this.setError(null);
 
     try {
-      const inboxPath = getInboxPath(this.plugin.settings);
-      await this.ensureFolder(inboxPath);
-
-      const created = await this.plugin.client.createEpisode({ content });
-
-      const baseName = sanitiseForFilename(created.name);
-      const path = resolveUniqueFilePath(this.plugin.app.vault, inboxPath, baseName);
-
-      const file = await this.plugin.app.vault.create(path, content);
-      await this.plugin.app.workspace.getLeaf(false).openFile(file);
-
-      // TODO(E3, Q3 §1.1): once frontmatter writes land, stamp `pipgraph.uuid`
-      // (created.uuid) into this note so resolution becomes uuid-primary.
-
+      // Hand off to the durable outbox. This writes the pending record
+      // synchronously, so once it resolves the note is safe; delivery and
+      // materialisation into the Inbox happen in the background.
+      await this.plugin.outbox.enqueue(content);
       this.close();
-
-      // The backend named the episode, but *we* own the final collision-resolved
-      // path, so we write it back (resolve-then-act, E2). Best-effort: the file
-      // already exists on disk; if the PATCH fails the episode just keeps a null
-      // file_path until a later sync, so we surface a notice rather than rolling
-      // back the note the user just captured.
-      void this.syncFilePath(created.uuid, path);
     } catch (err) {
+      // Only a failed durable write lands here — surface it and keep the text.
       this.isSaving = false;
       this.addButtonEl.disabled = false;
-      if (originalText !== null) this.addButtonEl.setText(originalText);
+      this.addButtonEl.setText("Add");
       this.setError(this.describeError(err));
-    }
-  }
-
-  private async syncFilePath(uuid: string, path: string): Promise<void> {
-    try {
-      await this.plugin.client.updateEpisodic(uuid, { file_path: path });
-    } catch (err) {
-      new Notice(
-        `Note saved, but recording its path in PipGraph failed: ${this.describeError(err)}`,
-      );
     }
   }
 
@@ -150,20 +124,4 @@ export class NewInboxNoteModal extends Modal {
     }
     return err instanceof Error ? err.message : String(err);
   }
-
-  private async ensureFolder(path: string): Promise<void> {
-    const existing = this.plugin.app.vault.getAbstractFileByPath(path);
-    if (existing instanceof TFolder) return;
-    if (existing) {
-      throw new Error(`"${path}" exists but is not a folder.`);
-    }
-    await this.plugin.app.vault.createFolder(path);
-  }
-}
-
-function sanitiseForFilename(name: string): string {
-  const trimmed = name.replace(/[\\/:*?"<>|]/g, "_").trim();
-  const collapsed = trimmed.replace(/\s+/g, " ");
-  const limited = collapsed.slice(0, 100).trim();
-  return limited.length > 0 ? limited : "Untitled";
 }

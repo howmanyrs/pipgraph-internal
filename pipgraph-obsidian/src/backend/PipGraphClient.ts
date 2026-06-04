@@ -232,7 +232,36 @@ export class PipGraphClient {
       uuid: env.uuid,
       name: env.name,
       created_at: env.created_at ?? undefined,
+      status: env.status ?? null,
     };
+  }
+
+  /**
+   * Fetch one Episodic by UUID — the status-polling endpoint
+   * (GET /episodic/{uuid}, dev.py). Returns null when the backend reports the
+   * node doesn't exist (a normal case while a create still races a retry)
+   * instead of throwing. Correlation is by UUID, not file_path — the latter is
+   * empty while the note is still a pending outbox record.
+   */
+  async getEpisodicByUuid(uuid: string): Promise<EpisodicNode | null> {
+    try {
+      const env = await this.request<GetEpisodicEnvelope>({
+        method: "GET",
+        path: `/episodic/${encodeURIComponent(uuid)}`,
+        timeoutMs: TIMEOUT_READ_MS,
+      });
+      return env.episodic ?? null;
+    } catch (err) {
+      if (
+        err instanceof PipGraphApiError &&
+        err.kind === "http" &&
+        typeof err.message === "string" &&
+        err.message.toLowerCase().includes("not found")
+      ) {
+        return null;
+      }
+      throw err;
+    }
   }
 
   async createParaEntity(

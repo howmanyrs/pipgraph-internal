@@ -11,18 +11,26 @@ import { PipGraphClient } from "./backend";
 import { registerCommands } from "./commands/register";
 import { FolderMirror } from "./folder-mirror/FolderMirror";
 import { DragToPlace } from "./drag/DragToPlace";
+import { CaptureOutbox } from "./outbox/CaptureOutbox";
 
 export default class PipGraphPlugin extends Plugin {
   settings!: PipGraphSettings;
   client!: PipGraphClient;
+  outbox!: CaptureOutbox;
   folderMirror!: FolderMirror;
   dragToPlace!: DragToPlace;
+  /** Statusbar counter for in-flight captures (hidden when none). */
+  private outboxStatusEl: HTMLElement | null = null;
   /** Folder last clicked in the explorer; the inspector tab reflects it. */
   lastInspectedFolderPath: string | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
     this.client = new PipGraphClient(this.settings);
+    this.outbox = new CaptureOutbox(this);
+    this.outboxStatusEl = this.addStatusBarItem();
+    this.outbox.onChange = () => this.renderOutboxStatus();
+    this.renderOutboxStatus();
 
     this.registerView(
       TRIAGE_VIEW_TYPE,
@@ -44,6 +52,10 @@ export default class PipGraphPlugin extends Plugin {
     this.dragToPlace.start();
 
     this.registerFolderClickInspector();
+
+    // Resume delivery of any capture records a previous session left pending
+    // (e.g. Obsidian or the backend died mid-flight). Fire-and-forget.
+    void this.outbox.reconcile();
   }
 
   /**
@@ -97,6 +109,17 @@ export default class PipGraphPlugin extends Plugin {
     // Rebuild the client so a new backendUrl / apiKey takes effect immediately.
     this.client = new PipGraphClient(this.settings);
     this.refreshTriagePanels();
+  }
+
+  /**
+   * Reflect the outbox's in-flight count in the statusbar. Captures live as
+   * hidden pending files, so this is the only ambient sign that work is in
+   * flight; we hide the item entirely (empty text) when nothing is pending.
+   */
+  private renderOutboxStatus(): void {
+    if (!this.outboxStatusEl) return;
+    const n = this.outbox.pendingCount;
+    this.outboxStatusEl.setText(n > 0 ? `PipGraph: ${n} processing…` : "");
   }
 
   /** Re-render every open triage panel (settings changed, a note was placed). */

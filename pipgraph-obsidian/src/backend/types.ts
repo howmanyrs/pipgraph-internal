@@ -49,6 +49,10 @@ export interface EpisodicNode {
   group_id?: string | null;
   // Path to the source note; persisted top-level on the Episodic node.
   file_path?: string | null;
+  // Transient processing status set by the backend job-runner: "processing"
+  // while an async naming job is in flight, "failed" if it errored, absent/null
+  // once settled. Capture polls this until it clears (see CaptureOutbox).
+  status?: string | null;
 }
 
 // `ParaSuggestion` in schemas/dev.py
@@ -82,6 +86,14 @@ export interface CreateEpisodeInput {
   reference_time?: string; // ISO datetime
   file_path?: string;
   frontmatter?: Record<string, unknown>;
+  // Client-supplied UUID (e.g. crypto.randomUUID()). The server MERGEs on it, so
+  // re-posting the same UUID upserts the same Episodic instead of duplicating
+  // (idempotent outbox delivery). Omit to let the server generate one.
+  uuid?: string;
+  // Defer name generation to the backend job queue: the node is created
+  // immediately with a provisional name + status="processing"; a background job
+  // overwrites the name and clears status. Poll getEpisodicByUuid until cleared.
+  generate_name?: boolean;
 }
 
 // `CreateParaEntityRequest` in schemas/dev.py
@@ -166,6 +178,9 @@ export interface CreateEpisodeResult {
   uuid: string;
   name: string;
   created_at?: string;
+  // "processing" when generate_name=true (an async naming job was enqueued);
+  // null/absent otherwise. Poll getEpisodicByUuid until it clears.
+  status?: string | null;
 }
 
 // `CreateParaEntityResponse` minus envelope
@@ -284,6 +299,7 @@ export interface CreateEpisodeEnvelope extends Envelope {
   uuid?: string | null;
   name?: string | null;
   created_at?: string | null;
+  status?: string | null;
 }
 
 export interface CreateParaEntityEnvelope extends Envelope {
