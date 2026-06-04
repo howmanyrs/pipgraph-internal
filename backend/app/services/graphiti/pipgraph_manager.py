@@ -139,6 +139,35 @@ class PipGraphManager:
         self.max_coroutines = graphiti.max_coroutines
         self.store_raw_episode_content = graphiti.store_raw_episode_content
 
+    @staticmethod
+    def _log_summary_changes(
+        stage: str,
+        summaries_before: dict[str, str],
+        hydrated_nodes: list,
+    ) -> None:
+        """Diagnostic for the empty-summary bug.
+
+        ``extract_attributes_from_nodes`` (graphiti) mutates each node in place via
+        ``node.summary = summary_response.get('summary', '')``. A blank/failed LLM
+        summary response therefore overwrites a previously-good summary with '', and
+        the next bulk save persists the wipe. This compares the pre-call snapshot
+        against the hydrated nodes and warns on any non-empty → empty transition,
+        pinpointing *which* node/note triggered it. Pair with the
+        ``[extract_summary]`` log in CloudRuPatchedClient for the raw LLM response.
+        """
+        for node in hydrated_nodes:
+            before = summaries_before.get(node.uuid, "")
+            after = node.summary or ""
+            if before and not after:
+                logger.warning(
+                    f"[{stage}] SUMMARY WIPED: '{node.name}' (uuid={node.uuid}) "
+                    f"had summary len={len(before)}, now EMPTY after extract_attributes"
+                )
+            elif not after:
+                logger.info(
+                    f"[{stage}] summary still empty for '{node.name}' (uuid={node.uuid})"
+                )
+
     async def process_note(
         self,
         name: str,
@@ -317,6 +346,9 @@ class PipGraphManager:
             edges = resolve_edge_pointers(extracted_edges, uuid_map)
 
             # ЭТАП 4: ВАЛИДАЦИЯ СВЯЗЕЙ И ИЗВЛЕЧЕНИЕ АТРИБУТОВ
+            # Snapshot summaries before extract_attributes mutates nodes in place
+            # (empty-summary bug — see _log_summary_changes).
+            summaries_before = {n.uuid: (n.summary or "") for n in nodes}
             (resolved_edges, invalidated_edges), hydrated_nodes = await semaphore_gather(
                 resolve_extracted_edges(
                     self.clients,
@@ -331,6 +363,7 @@ class PipGraphManager:
                 ),
                 max_coroutines=self.max_coroutines,
             )
+            self._log_summary_changes("process_note", summaries_before, hydrated_nodes)
 
             entity_edges = resolved_edges + invalidated_edges
 
@@ -977,6 +1010,11 @@ class PipGraphManager:
             edges = resolve_edge_pointers(extracted_edges, uuid_map)
 
             # ШАГ 8: ВАЛИДАЦИЯ СВЯЗЕЙ + ОБНОВЛЕНИЕ АТРИБУТОВ/SUMMARY
+            # Snapshot summaries before extract_attributes mutates nodes in place.
+            # This path is the prime suspect: existing PARA entities (with good
+            # summaries) are merged into nodes_for_summary and re-summarised, so a
+            # bad LLM response here wipes an established summary (empty-summary bug).
+            summaries_before = {n.uuid: (n.summary or "") for n in nodes_for_summary}
             (resolved_edges, invalidated_edges), hydrated_nodes = await semaphore_gather(
                 resolve_extracted_edges(
                     self.clients,
@@ -990,6 +1028,9 @@ class PipGraphManager:
                     self.clients, nodes_for_summary, episode, previous_episodes, entity_types
                 ),
                 max_coroutines=self.max_coroutines,
+            )
+            self._log_summary_changes(
+                "process_existing_episode", summaries_before, hydrated_nodes
             )
 
             entity_edges = resolved_edges + invalidated_edges

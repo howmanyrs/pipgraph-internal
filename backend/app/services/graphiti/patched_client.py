@@ -31,13 +31,17 @@ Reference:
 """
 
 import json
+import logging
 import typing
 from pydantic import BaseModel
 
 from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 from graphiti_core.llm_client.client import MULTILINGUAL_EXTRACTION_RESPONSES
 from graphiti_core.llm_client.config import ModelSize
+from graphiti_core.prompts.extract_nodes import EntitySummary
 from graphiti_core.prompts.models import Message
+
+logger = logging.getLogger(__name__)
 
 
 class CloudRuPatchedClient(OpenAIGenericClient):
@@ -95,6 +99,30 @@ class CloudRuPatchedClient(OpenAIGenericClient):
                 response = await self._generate_response(
                     messages, response_model, max_tokens=max_tokens, model_size=model_size
                 )
+
+                # DEBUG (empty-summary hunt): extract_summary feeds straight into
+                # `node.summary = summary_response.get('summary', '')` in graphiti's
+                # extract_attributes_from_node — a blank/missing 'summary' here silently
+                # wipes a previously-good summary on the next bulk save. Log the raw
+                # response so we can tell apart: empty string vs missing key vs schema
+                # leakage (the Qwen quirk this client patches around).
+                if response_model is EntitySummary:
+                    summary_val = (
+                        response.get('summary') if isinstance(response, dict) else None
+                    )
+                    if not summary_val:
+                        logger.warning(
+                            "[extract_summary] LLM returned EMPTY/missing summary "
+                            f"(model_size={model_size}, retry={retry_count}, "
+                            f"keys={list(response.keys()) if isinstance(response, dict) else type(response).__name__}, "
+                            f"raw={response!r})"
+                        )
+                    else:
+                        logger.debug(
+                            f"[extract_summary] ok, len={len(summary_val)} "
+                            f"(model_size={model_size}, retry={retry_count})"
+                        )
+
                 return response
             except Exception as e:
                 last_error = e
