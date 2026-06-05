@@ -49,9 +49,10 @@ export interface EpisodicNode {
   group_id?: string | null;
   // Path to the source note; persisted top-level on the Episodic node.
   file_path?: string | null;
-  // Transient processing status set by the backend job-runner: "processing"
-  // while an async naming job is in flight, "failed" if it errored, absent/null
-  // once settled. Capture polls this until it clears (see CaptureOutbox).
+  // Transient job-runner status (taxonomy in src/backend/status.ts): the job's
+  // type key while a job is in flight ("generate_episode_name" /
+  // "process_existing_episode"), "failed:<job>" on error, absent/null once
+  // settled. Poll this until it clears; use the status.ts predicates, not "==".
   status?: string | null;
 }
 
@@ -91,8 +92,9 @@ export interface CreateEpisodeInput {
   // (idempotent outbox delivery). Omit to let the server generate one.
   uuid?: string;
   // Defer name generation to the backend job queue: the node is created
-  // immediately with a provisional name + status="processing"; a background job
-  // overwrites the name and clears status. Poll getEpisodicByUuid until cleared.
+  // immediately with a provisional name + status="generate_episode_name"; a
+  // background job overwrites the name and clears status. Poll getEpisodicByUuid
+  // until cleared.
   generate_name?: boolean;
 }
 
@@ -153,6 +155,11 @@ export interface PlaceEpisodeInput {
   episodic_uuid: string;
   entity_uuid: string;
   file_path: string;
+  // If true, the backend enqueues the heavy extraction pipeline after linking
+  // (P2): the node is stamped status="process_existing_episode" atomically with
+  // the move+link, and the client polls getEpisodicByUuid until status clears.
+  // Omit/false for plain move+link (synchronous).
+  process?: boolean;
 }
 
 // `ProcessExistingEpisodeRequest` in schemas/dev.py.
@@ -178,8 +185,8 @@ export interface CreateEpisodeResult {
   uuid: string;
   name: string;
   created_at?: string;
-  // "processing" when generate_name=true (an async naming job was enqueued);
-  // null/absent otherwise. Poll getEpisodicByUuid until it clears.
+  // "generate_episode_name" when generate_name=true (an async naming job was
+  // enqueued); null/absent otherwise. Poll getEpisodicByUuid until it clears.
   status?: string | null;
 }
 

@@ -156,10 +156,15 @@ export class DragToPlace {
     }
 
     try {
+      // process:true — move+link is synchronous, but the heavy extraction
+      // pipeline runs as a server-side job (P2). The call returns immediately
+      // with the node stamped status="process_existing_episode"; we watch it via
+      // the in-memory ProcessingTracker until it settles (non-blocking).
       await client.placeEpisode({
         episodic_uuid: episode.uuid,
         entity_uuid: entity.uuid,
         file_path: targetPath,
+        process: true,
       });
     } catch (err) {
       // Best-effort: the file already moved on disk. Surface the graph failure
@@ -171,7 +176,8 @@ export class DragToPlace {
       return;
     }
 
-    new Notice(`Placed in ${folder.name}.`);
+    this.plugin.processing.track(episode.uuid);
+    new Notice(`Placed in ${folder.name} — processing…`);
     this.plugin.refreshTriagePanels();
   }
 }

@@ -55,9 +55,11 @@ class PipGraphEpisodicNode(EpisodicNode):
 
     status: Optional[str] = Field(
         default=None,
-        description="Transient processing status ('processing' / 'failed'). "
-                    "Absent = settled (no job in flight). Written by the job-runner "
-                    "around async work (e.g. name generation); cleared on completion."
+        description="Transient job-runner status. Active job → the job's type key "
+                    "('generate_episode_name' / 'process_existing_episode'); failure "
+                    "→ 'failed:<job_type>'; absent = settled. See the taxonomy in "
+                    "app/services/jobs/status.py. Written around async work, cleared "
+                    "on completion."
     )
 
     def compute_content_hash(self) -> str:
@@ -106,9 +108,9 @@ class PipGraphEpisodicNode(EpisodicNode):
         # the bulk-save round-trip exactly like file_path/frontmatter: Graphiti's
         # `SET n = {...}` (in super().save() and in add_nodes_and_edges_bulk) omits
         # it, so we re-apply it here via `SET e += {...}`. This is NOT just for the
-        # capture path — queued heavy-processing (process_existing_episode, Phase 2)
-        # marks the Episodic `status="processing"` *while it runs*, and the bulk save
-        # in the middle of that same operation would otherwise wipe the flag. The
+        # capture path — queued heavy-processing (process_existing_episode, P2)
+        # marks the Episodic `status="process_existing_episode"` *while it runs*, and
+        # the bulk save in the middle of that op would otherwise wipe the flag. The
         # re-apply in process_existing_episode (`episode.save()` after the bulk)
         # carries this through; see that method's ШАГ 10 note.
         if self.status is not None:

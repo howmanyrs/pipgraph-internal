@@ -2,7 +2,12 @@ import { Notice, TFolder } from "obsidian";
 import type PipGraphPlugin from "../main";
 import { getInboxPath } from "../settings/PipGraphSettings";
 import { resolveUniqueFilePath, sanitiseForFilename } from "../vault/paths";
-import { PipGraphApiError, type EpisodicNode } from "../backend";
+import {
+  PipGraphApiError,
+  isFailedStatus,
+  isSettledStatus,
+  type EpisodicNode,
+} from "../backend";
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_MAX_ATTEMPTS = 60; // ~90s ceiling while the naming job runs
@@ -127,11 +132,11 @@ export class CaptureOutbox {
     for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
       const episodic = await this.plugin.client.getEpisodicByUuid(uuid);
       if (episodic) {
-        if (episodic.status === "failed") {
+        if (isFailedStatus(episodic.status)) {
           new Notice("PipGraph: naming failed for a captured note.");
           return null;
         }
-        if (!episodic.status) return episodic; // settled → done
+        if (isSettledStatus(episodic.status)) return episodic; // settled → done
       }
       // still processing (or not yet visible) — wait and retry
       await sleep(POLL_INTERVAL_MS);

@@ -12,14 +12,16 @@ import { registerCommands } from "./commands/register";
 import { FolderMirror } from "./folder-mirror/FolderMirror";
 import { DragToPlace } from "./drag/DragToPlace";
 import { CaptureOutbox } from "./outbox/CaptureOutbox";
+import { ProcessingTracker } from "./outbox/ProcessingTracker";
 
 export default class PipGraphPlugin extends Plugin {
   settings!: PipGraphSettings;
   client!: PipGraphClient;
   outbox!: CaptureOutbox;
+  processing!: ProcessingTracker;
   folderMirror!: FolderMirror;
   dragToPlace!: DragToPlace;
-  /** Statusbar counter for in-flight captures (hidden when none). */
+  /** Statusbar counter for in-flight capture + processing work (hidden when none). */
   private outboxStatusEl: HTMLElement | null = null;
   /** Folder last clicked in the explorer; the inspector tab reflects it. */
   lastInspectedFolderPath: string | null = null;
@@ -28,8 +30,10 @@ export default class PipGraphPlugin extends Plugin {
     await this.loadSettings();
     this.client = new PipGraphClient(this.settings);
     this.outbox = new CaptureOutbox(this);
+    this.processing = new ProcessingTracker(this);
     this.outboxStatusEl = this.addStatusBarItem();
     this.outbox.onChange = () => this.renderOutboxStatus();
+    this.processing.onChange = () => this.renderOutboxStatus();
     this.renderOutboxStatus();
 
     this.registerView(
@@ -56,6 +60,9 @@ export default class PipGraphPlugin extends Plugin {
     // Resume delivery of any capture records a previous session left pending
     // (e.g. Obsidian or the backend died mid-flight). Fire-and-forget.
     void this.outbox.reconcile();
+    // Re-seed the processing watch set from the server's in-flight status, so
+    // markers resume for notes whose heavy job was enqueued before a restart.
+    void this.processing.reconcile();
   }
 
   /**
@@ -112,13 +119,14 @@ export default class PipGraphPlugin extends Plugin {
   }
 
   /**
-   * Reflect the outbox's in-flight count in the statusbar. Captures live as
-   * hidden pending files, so this is the only ambient sign that work is in
-   * flight; we hide the item entirely (empty text) when nothing is pending.
+   * Reflect in-flight work in the statusbar: pending captures (hidden pending
+   * files) + notes whose heavy processing job is running. Both are otherwise
+   * invisible, so this is the ambient sign that work is in flight; we hide the
+   * item entirely (empty text) when nothing is in flight.
    */
   private renderOutboxStatus(): void {
     if (!this.outboxStatusEl) return;
-    const n = this.outbox.pendingCount;
+    const n = this.outbox.pendingCount + this.processing.inFlightCount;
     this.outboxStatusEl.setText(n > 0 ? `PipGraph: ${n} processing…` : "");
   }
 

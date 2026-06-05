@@ -18,7 +18,7 @@ Anything that touches Neo4j or an LLM **must go through this service**. Clients 
 
 - **API**: stable enough that two clients depend on it; still under `/dev` because the contract is allowed to evolve (no `/v1` freeze yet).
 - **No workflow orchestration.** The prior LangGraph experiment was removed (archived under `.docs/DEPRECATED/`). Processing is direct: request → manager → graph.
-- **In-process job-runner** (`app/services/jobs/queue.py`) — a single `asyncio.Queue` worker started in `lifespan` for slow LLM work that shouldn't block a request (currently: async episode naming via `POST /dev/episode` `generate_name=true`). Deliberately a **job-runner, not a workflow engine**: each job is a flat `{type, args}` → one manager method, no steps/branches (guard against re-growing LangGraph). In-memory + concurrency=1; status of in-flight work survives on the Episodic (`status` property), but anything still *queued* is lost on restart (server-side re-enqueue is a later phase).
+- **In-process job-runner** (`app/services/jobs/queue.py`) — a single `asyncio.Queue` worker started in `lifespan` for slow LLM work that shouldn't block a request. Two job types today: async episode naming (`generate_episode_name`, via `POST /dev/episode` `generate_name=true`) and the heavy extraction pipeline (`process_existing_episode`, via `POST /dev/place-episode` `process=true`). Deliberately a **job-runner, not a workflow engine**: each job is a flat `{type, args}` → one manager method, no steps/branches (guard against re-growing LangGraph). In-memory + concurrency=1; the status of in-flight work survives on the Episodic (`status` property), but anything still *queued* is lost on restart (server-side re-enqueue is a later phase). **Status taxonomy** (`app/services/jobs/status.py`): a node's `status` is the active job's **type key** while it runs (`generate_episode_name` / `process_existing_episode`), `failed:<job_type>` on error, absent once settled — so a status-filtered list (`GET /dev/episodic/by-status`) and a future re-enqueue can tell which job a node needs.
 - **Single manager.** `PipGraphManager` is the only legitimate entry point to Neo4j. The old `EpisodicCRUD` / `PARAContainerCRUD` classes are gone; `app/crud/` retains only `EntityCRUD` and `RelationshipCRUD`, used **from inside** the manager, not from endpoints.
 - **Client-driven evolution.** The Obsidian plugin is now the contract's main driver: recent additions (`file_path` persistence on entities, the cascade-delete endpoint below) landed to serve its folder↔graph mirror. The *next* gaps it needs are catalogued — not yet built — in [`../pipgraph-obsidian/.docs/overview/future-methods.md`](../pipgraph-obsidian/.docs/overview/future-methods.md); skim it before adding an endpoint so you extend the backlog rather than fork it.
 - **Future work** is staged in [`.docs/.todo/`](./.docs/.todo) (retro vault import, cascade summary, oversaturation detection, `:Entity:Task`, alias/archetype layer). Each item is a design note, not an implementation — consult before inventing a parallel approach.
@@ -34,6 +34,7 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 | GET | `/dev/episodic?note_path=…` | Fetch one Episodic by `name` (path-like). |
 | GET | `/dev/episodic/list?limit=…` | List all Episodics (debug/inspection). |
 | GET | `/dev/episodic/unlinked?limit=…` | Episodics without any `MENTIONS` edge — i.e. the triage inbox. |
+| GET | `/dev/episodic/by-status?status=…&limit=…` | Episodics with an exact `status` value (e.g. `process_existing_episode`, `failed:…`). Backs the plugin's startup reconcile (re-seed the processing poll set) and future server-side re-enqueue. Declared before `/episodic/{uuid}` so the literal wins. |
 | GET | `/dev/episodics/by-entity?entity_uuid=…&limit=…` | Episodics that `MENTIONS` a given entity. |
 | GET | `/dev/episodic/{episodic_uuid}` | Fetch one Episodic by UUID — the status-polling endpoint (returns `status`, `name`, `file_path`, …). Correlation key is the UUID, not `file_path`. |
 | PATCH | `/dev/episodic/{episodic_uuid}` | Update an Episodic in place, keeping UUID + edges. **Only `file_path` editable** (Episodic mirror of S1). No embeddings/indexes recomputed. **Transition-guard (E6):** first-bind + same-folder rename allowed; **cross-folder move rejected** → `200 {success:false}` (placement change must go through the move+link op, which re-points `MENTIONS`). All Episodic read endpoints now return `file_path` top-level. |
@@ -42,7 +43,7 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 | PATCH | `/dev/para-entity/{entity_uuid}` | Update a PARA entity in place, keeping UUID + edges. **Only `summary` editable today** (S8 partial; `name`/`file_path` pending). Summary feeds the `make-suggestions` BM25 index; `name_embedding` is not recomputed. |
 | GET | `/dev/para-entity/list?limit=…&para_type=…&<prop>=…` | List PARA entities. Extra query params become property filters. |
 | POST | `/dev/link-entity-episode` | Create `MENTIONS` edge (Episodic → Entity). Idempotent (`MERGE`). |
-| POST | `/dev/place-episode` | **Move+link (E7):** set Episodic `file_path` to a new (cross-folder) location **and** `MERGE` its `MENTIONS` to an entity, in one act. Backs the plugin's drag-from-Inbox gesture. Idempotent on the (episode, entity) pair — MERGEs on the *relationship pattern*, not a fresh edge uuid. Physical file move is the client's job. |
+| POST | `/dev/place-episode` | **Move+link (E7):** set Episodic `file_path` to a new (cross-folder) location **and** `MERGE` its `MENTIONS` to an entity, in one act. Backs the plugin's drag-from-Inbox gesture. Idempotent on the (episode, entity) pair — MERGEs on the *relationship pattern*, not a fresh edge uuid. Physical file move is the client's job. **`process=true` (P2):** stamps `status="process_existing_episode"` atomically with the link and enqueues the heavy pipeline as a background job (returns immediately; poll `GET /episodic/{uuid}` until `status` clears). |
 | POST | `/dev/link-para-nodes` | Create `BELONGS_TO` edge (Entity → Entity) for hierarchy. Idempotent. |
 | POST | `/dev/make-suggestions` | Hybrid search (BM25 + vector + MMR) returning ranked PARA entities for an Episodic. |
 | GET | `/dev/para-tree` | Hierarchical PARA tree built from `BELONGS_TO` edges. |
@@ -95,9 +96,9 @@ Defined in [`app/services/graphiti/pipgraph_manager.py`](./app/services/graphiti
 **Episodic lifecycle**
 - `process_note(name, episode_body, …)` — full LLM pipeline (extract nodes → resolve → edges → bulk save).
 - `create_episode(content, …, name=None, uuid=None, status=None)` — lightweight ingestion, no LLM (except optional sync name generation). `uuid` lets a client supply the node UUID (saved via `MERGE` → idempotent retry); `status` stamps a transient flag (e.g. `"processing"` while an async naming job is in flight).
-- `finalize_episode_name(uuid, name)` — set final `name` + clear `status` (used by the naming job). `set_episodic_status(uuid, status)` — set the transient `status` (e.g. `"failed"`).
-- `process_existing_episode(episodic_uuid, …)` — re-run extraction on an Episodic already linked to a PARA entity.
-- `get_episodic_by_name(name)`, `list_episodics(limit)`, `list_unlinked_episodics(limit)`, `get_episodics_by_entity_uuid(uuid, limit)`.
+- `finalize_episode_name(uuid, name)` — set final `name` + clear `status` (naming job). `set_episodic_status(uuid, status)` — set the transient `status` (e.g. `failed:<job>`). `clear_episodic_status(uuid)` — remove `status` on success of a job that doesn't change `name` (the `process_existing_episode` job).
+- `process_existing_episode(episodic_uuid, …)` — re-run extraction on an Episodic already linked to a PARA entity. Runs as the `process_existing_episode` job when triggered via `place-episode` `process=true`.
+- `get_episodic_by_name(name)`, `list_episodics(limit)`, `list_unlinked_episodics(limit)`, `list_episodics_by_status(status, limit)`, `get_episodics_by_entity_uuid(uuid, limit)`.
 - `update_episodic_timestamp(uuid, valid_at)`, `update_episodic_file_path(uuid, file_path)` (narrow patch, mirrors `update_para_entity`; E6 transition-guard — raises `CrossFolderFilePathError` on a cross-folder move), `delete_episodic(uuid)`, `delete_node(uuid)` (type-agnostic).
 
 **PARA entity lifecycle**
@@ -108,7 +109,7 @@ Defined in [`app/services/graphiti/pipgraph_manager.py`](./app/services/graphiti
 
 **Relationships**
 - `link_entity_to_episode(episodic_uuid, entity_uuid)` — `MENTIONS`.
-- `place_episode(episodic_uuid, entity_uuid, file_path)` — move+link (E7): cross-folder `SET file_path` + `MERGE MENTIONS` on the pattern (idempotent on the pair). Bypasses the E6 guard by design.
+- `place_episode(episodic_uuid, entity_uuid, file_path, status=None)` — move+link (E7): cross-folder `SET file_path` + `MERGE MENTIONS` on the pattern (idempotent on the pair). Bypasses the E6 guard by design. Optional `status` is stamped in the **same** statement (P2 passes `"process_existing_episode"` so the in-flight record commits atomically with the link, before the job is enqueued).
 - `link_para_nodes(source, target)` — `BELONGS_TO`.
 
 **Discovery**
@@ -120,7 +121,8 @@ If a new endpoint needs a database operation that doesn't exist yet, **add a met
 
 ```
 (:Episodic {uuid, name, content, created_at, valid_at, source, source_description, group_id, file_path?, frontmatter?, status?})
-  // status: transient job flag ("processing"/"failed"); absent = settled. Managed by the job-runner.
+  // status: transient job flag — active job's type key ("generate_episode_name"/"process_existing_episode"),
+  //         "failed:<job>" on error, absent = settled. Managed by the job-runner (app/services/jobs/status.py).
 
 (:Entity:Project)   ┐
 (:Entity:Area)      │ {uuid, name, summary, name_embedding, attributes, created_at}

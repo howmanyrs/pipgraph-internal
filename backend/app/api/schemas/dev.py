@@ -563,6 +563,16 @@ class PlaceEpisodeRequest(BaseModel):
     episodic_uuid: str = Field(..., description="UUID of the Episodic being placed")
     entity_uuid: str = Field(..., description="UUID of the PARA Entity (folder) it is filed under")
     file_path: str = Field(..., description="New vault-relative path inside the entity's folder")
+    process: bool = Field(
+        False,
+        description=(
+            "If true, enqueue the heavy extraction pipeline after linking (P2): the "
+            "node is stamped status='process_existing_episode' atomically with the "
+            "move+link, a background job runs the pipeline, and the client polls "
+            "GET /episodic/{uuid} until status clears. If false (default), only "
+            "move+link is performed (synchronous, as before)."
+        ),
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -570,7 +580,8 @@ class PlaceEpisodeRequest(BaseModel):
                 {
                     "episodic_uuid": "550e8400-e29b-41d4-a716-446655440000",
                     "entity_uuid": "660e8400-e29b-41d4-a716-446655440111",
-                    "file_path": "Areas/Health/Meeting notes.md"
+                    "file_path": "Areas/Health/Meeting notes.md",
+                    "process": True
                 }
             ]
         }
