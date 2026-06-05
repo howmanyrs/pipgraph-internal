@@ -20,24 +20,34 @@ Problem:
     }
 
 Solution:
-    This patched client modifies the prompt instruction to be more explicit:
-    - Instead of: "Respond with a JSON object in the following format:"
-    - Uses: "Provide your response as valid JSON matching this schema (return data only, not the schema):"
+    Instead of appending the JSON *schema* (`model_json_schema()`) to the prompt —
+    which literally puts the word `properties` in front of the model for it to echo —
+    this patched client appends a flat *example* of the expected answer, built from the
+    Pydantic model without an LLM (see `response_examples.example_for_model`). The
+    example has no schema scaffolding to copy, so the `properties`-wrapper class of
+    failure has nothing to latch onto.
 
-    This single-line change helps Qwen understand it should return only data.
+    A manager-side guard (`PipGraphManager._guard_summaries`) is the second line of
+    defence: it never lets a previously-good summary be overwritten with an empty one.
 
 Reference:
-    See backend/docs/attend/explore_prompts_validation.md for detailed analysis.
+    See pipgraph-obsidian/.docs/plans/fix-json-schema/ for the full diagnosis and design.
 """
 
 import json
+import logging
 import typing
 from pydantic import BaseModel
 
 from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 from graphiti_core.llm_client.client import MULTILINGUAL_EXTRACTION_RESPONSES
 from graphiti_core.llm_client.config import ModelSize
+from graphiti_core.prompts.extract_nodes import EntitySummary
 from graphiti_core.prompts.models import Message
+
+from app.services.graphiti.response_examples import example_for_model
+
+logger = logging.getLogger(__name__)
 
 
 class CloudRuPatchedClient(OpenAIGenericClient):
@@ -78,12 +88,20 @@ class CloudRuPatchedClient(OpenAIGenericClient):
         retry_count = 0
         last_error = None
 
-        # PATCHED LINE: More explicit instruction for Qwen
+        # PATCHED: show the model a flat EXAMPLE of the answer, not the JSON schema.
+        # Feeding `model_json_schema()` put the literal word `properties` in front of
+        # Qwen, which it then echoes as a wrapper around the real data
+        # ({"properties": {"summary": ...}}) — silently wiping summaries downstream.
+        # An example response has no schema scaffolding to copy and is self-documenting
+        # (placeholders carry each field's description). Built without an LLM.
         if response_model is not None:
-            serialized_model = json.dumps(response_model.model_json_schema())
+            example = json.dumps(
+                example_for_model(response_model), ensure_ascii=False, indent=2
+            )
             messages[-1].content += (
-                f'\n\nProvide your response as valid JSON matching this schema '
-                f'(return data only, not the schema):\n\n{serialized_model}'
+                '\n\nReturn ONLY a JSON object with exactly these keys, in exactly '
+                'this shape. Replace each placeholder (text in angle brackets) with '
+                f'real data.\n\n{example}'
             )
 
         # Add multilingual extraction instructions
@@ -95,6 +113,30 @@ class CloudRuPatchedClient(OpenAIGenericClient):
                 response = await self._generate_response(
                     messages, response_model, max_tokens=max_tokens, model_size=model_size
                 )
+
+                # DEBUG (empty-summary hunt): extract_summary feeds straight into
+                # `node.summary = summary_response.get('summary', '')` in graphiti's
+                # extract_attributes_from_node — a blank/missing 'summary' here silently
+                # wipes a previously-good summary on the next bulk save. Log the raw
+                # response so we can tell apart: empty string vs missing key vs schema
+                # leakage (the Qwen quirk this client patches around).
+                if response_model is EntitySummary:
+                    summary_val = (
+                        response.get('summary') if isinstance(response, dict) else None
+                    )
+                    if not summary_val:
+                        logger.warning(
+                            "[extract_summary] LLM returned EMPTY/missing summary "
+                            f"(model_size={model_size}, retry={retry_count}, "
+                            f"keys={list(response.keys()) if isinstance(response, dict) else type(response).__name__}, "
+                            f"raw={response!r})"
+                        )
+                    else:
+                        logger.debug(
+                            f"[extract_summary] ok, len={len(summary_val)} "
+                            f"(model_size={model_size}, retry={retry_count})"
+                        )
+
                 return response
             except Exception as e:
                 last_error = e
