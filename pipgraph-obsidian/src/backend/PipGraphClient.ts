@@ -136,6 +136,22 @@ export class PipGraphClient {
     return env.episodics;
   }
 
+  /**
+   * List Episodics carrying an exact `status` value — the reconcile handle.
+   * On plugin start, query the in-flight status ("process_existing_episode") to
+   * re-seed the processing poll set so markers resume after a restart, without a
+   * perpetual DB scan. Mirror of `GET /episodic/by-status`.
+   */
+  async listEpisodicsByStatus(status: string, limit = 200): Promise<EpisodicNode[]> {
+    const env = await this.request<ListEpisodicEnvelope>({
+      method: "GET",
+      path: `/episodic/by-status`,
+      query: { status, limit },
+      timeoutMs: TIMEOUT_READ_MS,
+    });
+    return env.episodics;
+  }
+
   async listParaEntities(opts: {
     limit?: number;
     paraTypes?: ParaType[];

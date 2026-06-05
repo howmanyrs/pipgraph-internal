@@ -5,6 +5,13 @@ export {
   type PipGraphApiErrorKind,
 } from "./errors";
 export type { Fetcher, RawResponse, RequestSpec } from "./transport";
+export {
+  JOB_GENERATE_NAME,
+  JOB_PROCESS_EXISTING,
+  isFailedStatus,
+  isInFlightStatus,
+  isSettledStatus,
+} from "./status";
 export type {
   CreateEpisodeInput,
   CreateEpisodeResult,

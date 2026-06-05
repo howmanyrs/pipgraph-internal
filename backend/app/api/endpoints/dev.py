@@ -44,6 +44,7 @@ from app.api.schemas.dev import (
 )
 from app.services.graphiti import get_graphiti, PipGraphManager, CrossFolderFilePathError
 from app.services.graphiti.para_tree import PARATreeBuilder
+from app.services.jobs import enqueue, JOB_GENERATE_NAME, JOB_PROCESS_EXISTING
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +340,72 @@ async def list_unlinked_episodic(
         )
 
 
+@router.get("/episodic/by-status", response_model=ListEpisodicResponse)
+async def list_episodic_by_status(
+    status: str = Query(
+        ...,
+        description=(
+            "Exact status value to match — an active job key "
+            "(e.g. 'process_existing_episode', 'generate_episode_name') or a "
+            "'failed:<job>' value. See the status taxonomy in app/services/jobs."
+        ),
+        min_length=1,
+    ),
+    limit: int = Query(200, description="Maximum number of nodes to return", ge=1, le=1000),
+) -> ListEpisodicResponse:
+    """
+    List Episodics carrying a given ``status`` — the reconcile/re-enqueue handle.
+
+    Backs the plugin's startup reconcile: query the in-flight status
+    (``process_existing_episode``) to re-seed the poll set so processing markers
+    resume after a restart, without a perpetual DB scan. The same query feeds the
+    Phase-3 server-side re-enqueue. Declared before ``/episodic/{uuid}`` so the
+    literal path wins over the UUID catch-all.
+
+    Example:
+        GET /api/v1/dev/episodic/by-status?status=process_existing_episode
+    """
+    try:
+        logger.info(f"[list_episodic_by_status] status='{status}', limit={limit}")
+
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        episodics = await manager.list_episodics_by_status(status=status, limit=limit)
+
+        episodics_dicts = [
+            {
+                "uuid": ep.uuid,
+                "name": ep.name,
+                "file_path": ep.file_path,
+                "status": ep.status,
+                "created_at": ep.created_at.isoformat() if ep.created_at else None,
+                "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
+                "source": ep.source.value if ep.source else None,
+                "content": ep.content,
+                "source_description": ep.source_description,
+                "group_id": ep.group_id,
+            }
+            for ep in episodics
+        ]
+
+        return ListEpisodicResponse(
+            success=True,
+            episodics=episodics_dicts,
+            count=len(episodics_dicts),
+            error=None,
+        )
+
+    except ValueError as e:
+        logger.warning(f"[list_episodic_by_status] Validation error: {e}")
+        return ListEpisodicResponse(
+            success=False, episodics=[], count=0, error=f"Validation error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"[list_episodic_by_status] Error: {e}", exc_info=True)
+        return ListEpisodicResponse(success=False, episodics=[], count=0, error=str(e))
+
+
 @router.get("/episodic/{episodic_uuid}", response_model=GetEpisodicResponse)
 async def get_episodic_by_uuid(episodic_uuid: str) -> GetEpisodicResponse:
     """
@@ -517,10 +584,10 @@ async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse
     """
     try:
         # When async naming is requested, the LLM call is deferred to the job
-        # queue: create the node now (status=processing) with a provisional name,
-        # and a background job overwrites the name + clears status. Otherwise keep
-        # legacy behaviour — store the given name, or generate it synchronously if
-        # absent (create_episode does this when name is None).
+        # queue: create the node now (status=the naming job key) with a provisional
+        # name, and a background job overwrites the name + clears status. Otherwise
+        # keep legacy behaviour — store the given name, or generate it synchronously
+        # if absent (create_episode does this when name is None).
         async_naming = request.generate_name
         if async_naming:
             # A provisional title so the node is never nameless while the job runs;
@@ -551,14 +618,13 @@ async def create_episode(request: CreateEpisodeRequest) -> CreateEpisodeResponse
             file_path=request.file_path,
             frontmatter=request.frontmatter,
             uuid=request.uuid,
-            status="processing" if async_naming else None,
+            status=JOB_GENERATE_NAME if async_naming else None,
         )
 
         # Defer the LLM naming to the background worker (returns immediately).
         if async_naming:
-            from app.services.jobs import enqueue
             enqueue(
-                "generate_episode_name",
+                JOB_GENERATE_NAME,
                 {"episodic_uuid": episode.uuid, "content": request.content},
             )
 
@@ -899,10 +965,14 @@ async def place_episode(request: PlaceEpisodeRequest) -> PlaceEpisodeResponse:
         graphiti = await get_graphiti()
         manager = PipGraphManager(graphiti)
 
+        # When `process` is requested, stamp the in-flight status atomically with
+        # the move+link, so the durable "processing" record exists the moment the
+        # job is enqueued (survives a client/backend crash — see process-queue P2).
         result = await manager.place_episode(
             episodic_uuid=request.episodic_uuid,
             entity_uuid=request.entity_uuid,
             file_path=request.file_path,
+            status=JOB_PROCESS_EXISTING if request.process else None,
         )
 
         if result is None:
@@ -916,10 +986,18 @@ async def place_episode(request: PlaceEpisodeRequest) -> PlaceEpisodeResponse:
             )
 
         updated, edge_uuid = result
+
+        # Linked successfully and status committed → enqueue the heavy pipeline.
+        # The job clears status on success / sets failed:… on error; the client
+        # polls GET /episodic/{uuid} until status clears.
+        if request.process:
+            enqueue(JOB_PROCESS_EXISTING, {"episodic_uuid": updated.uuid})
+
         episodic_dict = {
             "uuid": updated.uuid,
             "name": updated.name,
             "file_path": updated.file_path,
+            "status": updated.status,
             "created_at": updated.created_at.isoformat() if updated.created_at else None,
             "valid_at": updated.valid_at.isoformat() if updated.valid_at else None,
             "source": updated.source.value if updated.source else None,
@@ -928,7 +1006,10 @@ async def place_episode(request: PlaceEpisodeRequest) -> PlaceEpisodeResponse:
             "group_id": updated.group_id,
         }
 
-        logger.info(f"[place_episode] Success: placed {request.episodic_uuid}")
+        logger.info(
+            f"[place_episode] Success: placed {request.episodic_uuid} "
+            f"(process={request.process})"
+        )
         return PlaceEpisodeResponse(
             success=True,
             episodic=episodic_dict,

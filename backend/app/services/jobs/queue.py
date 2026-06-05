@@ -1,9 +1,10 @@
 """In-process job queue + single background worker.
 
-Owns work that is too slow to run inside a request (currently: LLM episode-name
-generation; heavy processing is Phase 2). The queue lives on the server and is
-shared by every client interface — the backend is the engine, clients are thin
-senders (process-queue plan, "движок + интерфейсы").
+Owns work that is too slow to run inside a request: LLM episode-name generation
+(``generate_episode_name``) and the heavy extraction pipeline
+(``process_existing_episode``, P2). The queue lives on the server and is shared
+by every client interface — the backend is the engine, clients are thin senders
+(process-queue plan, "движок + интерфейсы").
 
 Scope guard: this is a **job-runner**, not a workflow engine. A job is a flat
 ``{"type": str, "args": dict}`` dispatched to exactly one handler. No multi-step
@@ -18,6 +19,12 @@ Concurrency is fixed at 1 (one worker) — sequential processing by design.
 import asyncio
 import logging
 from typing import Any, Awaitable, Callable
+
+from app.services.jobs.status import (
+    JOB_GENERATE_NAME,
+    JOB_PROCESS_EXISTING,
+    failed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +109,9 @@ async def _handle_generate_episode_name(args: dict[str, Any]) -> None:
     args: {"episodic_uuid": str, "content": str}
 
     On success: overwrites the provisional name and clears ``status``.
-    On failure: marks the node ``status="failed"`` so the client/visual layer can
-    surface a retry. Imports are local to avoid an import cycle with the manager.
+    On failure: marks the node ``status="failed:generate_episode_name"`` so the
+    client/visual layer can surface a retry and a re-enqueue knows which job to
+    re-run. Imports are local to avoid an import cycle with the manager.
     """
     from app.services.graphiti import get_graphiti, PipGraphManager
     from app.services.graphiti.name_generator import generate_episode_name
@@ -123,11 +131,46 @@ async def _handle_generate_episode_name(args: dict[str, Any]) -> None:
         logger.info(f"[jobs] named episode {episodic_uuid} -> '{name}'")
     except Exception:
         logger.exception(f"[jobs] naming failed for {episodic_uuid}")
-        await manager.set_episodic_status(episodic_uuid, "failed")
+        await manager.set_episodic_status(episodic_uuid, failed(JOB_GENERATE_NAME))
         raise
 
 
-_runner.register("generate_episode_name", _handle_generate_episode_name)
+async def _handle_process_existing_episode(args: dict[str, Any]) -> None:
+    """Run the heavy extraction pipeline on an already-linked Episodic (P2).
+
+    args: {"episodic_uuid": str}
+
+    The node is expected to already carry ``status="process_existing_episode"``
+    (stamped synchronously at enqueue time by ``place_episode``), so the durable
+    "in flight" record exists the moment the job is queued — not when the worker
+    picks it up. ``process_existing_episode`` itself carries that flag past its
+    internal bulk-save (the ``episode.save()`` re-apply); here we only resolve the
+    terminal state:
+
+    - On success: clear ``status`` (settled).
+    - On failure: mark ``status="failed:process_existing_episode"`` for retry.
+
+    Imports are local to avoid an import cycle with the manager.
+    """
+    from app.services.graphiti import get_graphiti, PipGraphManager
+
+    episodic_uuid = args["episodic_uuid"]
+
+    graphiti = await get_graphiti()
+    manager = PipGraphManager(graphiti)
+
+    try:
+        await manager.process_existing_episode(episodic_uuid=episodic_uuid)
+        await manager.clear_episodic_status(episodic_uuid)
+        logger.info(f"[jobs] processed existing episode {episodic_uuid} (status cleared)")
+    except Exception:
+        logger.exception(f"[jobs] processing failed for {episodic_uuid}")
+        await manager.set_episodic_status(episodic_uuid, failed(JOB_PROCESS_EXISTING))
+        raise
+
+
+_runner.register(JOB_GENERATE_NAME, _handle_generate_episode_name)
+_runner.register(JOB_PROCESS_EXISTING, _handle_process_existing_episode)
 
 
 # --- Public API -----------------------------------------------------------

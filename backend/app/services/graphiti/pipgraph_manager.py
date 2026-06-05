@@ -1061,9 +1061,11 @@ class PipGraphManager:
             # the node's properties and wipes PipGraph extras (file_path,
             # frontmatter, content_hash, status). Re-apply them via the PipGraph
             # save override (`SET e += {extras}`) so they survive the round-trip.
-            # `status` matters here specifically: once this op is queued (Phase 2),
-            # the job marks the Episodic status="processing" while it runs, and this
-            # save is what carries that flag past the bulk wipe (see nodes.py save()).
+            # `status` matters here specifically: when this op runs as a queued job
+            # (P2), the node carries status="process_existing_episode" while it runs
+            # (stamped by place_episode at enqueue time, cleared by the job on
+            # success), and this save carries that flag past the bulk wipe — the
+            # `episode` object loaded at ШАГ 1 still holds it (see nodes.py save()).
             # (Entity extras are carried by the bulk path itself — they live in
             # `attributes` — so only the Episodic needs this.)
             await episode.save(self.driver)
@@ -1541,6 +1543,68 @@ class PipGraphManager:
         )
         return episodics
 
+    async def list_episodics_by_status(
+        self,
+        status: str,
+        limit: int = 200,
+    ) -> List["PipGraphEpisodicNode"]:
+        """
+        List Episodics carrying a given ``status`` value (exact match).
+
+        The status taxonomy (:mod:`app.services.jobs.status`) makes this the
+        "what async work is in flight" query: pass an active job key
+        (``"process_existing_episode"``) to find in-flight nodes, or a
+        ``"failed:<job>"`` value to find failures. Backs two consumers:
+
+        - **Client reconcile** — on plugin start, seed the in-memory poll set with
+          nodes still processing (so markers resume without a perpetual DB scan).
+        - **Phase-3 server re-enqueue** — on backend start, re-queue stuck jobs.
+
+        Args:
+            status: Exact ``status`` value to match (non-null).
+            limit: Maximum number of nodes to return (default: 200, max: 1000).
+
+        Returns:
+            List of PipGraphEpisodicNode objects, newest first.
+
+        Raises:
+            ValueError: If limit is out of range.
+        """
+        from graphiti_core.helpers import parse_db_date
+        from app.models.nodes import PipGraphEpisodicNode
+
+        if not 1 <= limit <= 1000:
+            raise ValueError(f"limit must be between 1 and 1000, got {limit}")
+
+        query = """
+        MATCH (e:Episodic {status: $status})
+        RETURN e
+        ORDER BY e.created_at DESC
+        LIMIT $limit
+        """
+
+        episodics = []
+        async with self.driver.session() as session:
+            result = await session.run(query, status=status, limit=limit)
+
+            async for record in result:
+                node_data = dict(record["e"])
+
+                if "created_at" in node_data and node_data["created_at"]:
+                    node_data["created_at"] = parse_db_date(node_data["created_at"])
+                if "valid_at" in node_data and node_data["valid_at"]:
+                    node_data["valid_at"] = parse_db_date(node_data["valid_at"])
+                if "frontmatter" in node_data and node_data["frontmatter"]:
+                    node_data["frontmatter"] = json.loads(node_data["frontmatter"])
+
+                episodics.append(PipGraphEpisodicNode(**node_data))
+
+        logger.info(
+            f"[list_episodics_by_status] Retrieved {len(episodics)} episodics "
+            f"with status='{status}'"
+        )
+        return episodics
+
     async def get_episodics_by_entity_uuid(
         self,
         entity_uuid: str,
@@ -1805,11 +1869,13 @@ class PipGraphManager:
         status: str,
     ) -> bool:
         """
-        Set the transient ``status`` property on an Episodic (e.g. ``"failed"``).
+        Set the transient ``status`` property on an Episodic.
 
-        Used by the job-runner to mark an episode whose async work errored. To
-        *clear* status on success, use :meth:`finalize_episode_name` (naming job)
-        or remove the property explicitly — this method only sets a non-null value.
+        Used by the job-runner to mark an episode whose async work errored
+        (``"failed:<job_type>"``) — see :mod:`app.services.jobs.status` for the
+        value taxonomy. To *clear* status on success use
+        :meth:`clear_episodic_status` (or :meth:`finalize_episode_name` for the
+        naming job, which clears it as part of setting the final name).
 
         Args:
             episodic_uuid: UUID of the Episodic.
@@ -1838,12 +1904,47 @@ class PipGraphManager:
         logger.info(f"[set_episodic_status] uuid={episodic_uuid} status='{status}'")
         return True
 
+    async def clear_episodic_status(self, episodic_uuid: str) -> bool:
+        """
+        Remove the transient ``status`` property, marking an Episodic settled.
+
+        Counterpart to :meth:`set_episodic_status`. Used by the job-runner when an
+        async job completes successfully without changing ``name`` (the heavy
+        ``process_existing_episode`` job; the naming job clears status via
+        :meth:`finalize_episode_name` instead, since it also sets the final name).
+
+        Args:
+            episodic_uuid: UUID of the Episodic.
+
+        Returns:
+            True if a node was updated, False if no Episodic with that UUID exists.
+        """
+        async with self.driver.session() as session:
+            record = await (
+                await session.run(
+                    """
+                    MATCH (e:Episodic {uuid: $uuid})
+                    REMOVE e.status
+                    RETURN e.uuid AS uuid
+                    """,
+                    uuid=episodic_uuid,
+                )
+            ).single()
+
+        if not record:
+            logger.warning(f"[clear_episodic_status] Not found: uuid={episodic_uuid}")
+            return False
+
+        logger.info(f"[clear_episodic_status] uuid={episodic_uuid} (status cleared)")
+        return True
+
     async def place_episode(
         self,
         episodic_uuid: str,
         entity_uuid: str,
         file_path: str,
         created_at: datetime | None = None,
+        status: str | None = None,
     ) -> Optional[tuple["PipGraphEpisodicNode", str]]:
         """
         Place an Episodic into a PARA folder-entity in one act: set its
@@ -1871,6 +1972,10 @@ class PipGraphManager:
             entity_uuid: UUID of the PARA Entity (folder) it is filed under.
             file_path: New vault-relative POSIX path inside the entity's folder.
             created_at: Optional ``MENTIONS`` timestamp (defaults to now).
+            status: Optional ``status`` to stamp in the **same** statement (P2). The
+                drop-then-process flow passes ``"process_existing_episode"`` so the
+                durable "in flight" record exists atomically with the link, before
+                the heavy job is enqueued; ``None`` leaves ``status`` untouched.
 
         Returns:
             ``(updated PipGraphEpisodicNode, edge_uuid)`` on success, or ``None``
@@ -1893,13 +1998,16 @@ class PipGraphManager:
         if not entity:
             raise ValueError(f"Entity not found: {entity_uuid}")
 
-        # SET file_path (cross-folder allowed — this IS the relink) + MERGE the
-        # MENTIONS edge on the pattern (idempotent) in one statement.
-        query = """
-        MATCH (e:Episodic {uuid: $episodic_uuid})
-        SET e.file_path = $file_path
+        # SET file_path (cross-folder allowed — this IS the relink) + optionally
+        # stamp status (P2 in-flight marker) + MERGE the MENTIONS edge on the
+        # pattern (idempotent) — all in one statement so the placement, the link
+        # and the durable "processing" record commit together.
+        status_clause = ", e.status = $status" if status is not None else ""
+        query = f"""
+        MATCH (e:Episodic {{uuid: $episodic_uuid}})
+        SET e.file_path = $file_path{status_clause}
         WITH e
-        MATCH (n:Entity {uuid: $entity_uuid})
+        MATCH (n:Entity {{uuid: $entity_uuid}})
         MERGE (e)-[r:MENTIONS]->(n)
         ON CREATE SET r.uuid = $edge_uuid, r.group_id = $group_id, r.created_at = $created_at
         RETURN e AS episode, r.uuid AS edge_uuid
@@ -1911,6 +2019,7 @@ class PipGraphManager:
                     episodic_uuid=episodic_uuid,
                     entity_uuid=entity_uuid,
                     file_path=file_path,
+                    status=status,
                     edge_uuid=str(uuid4()),
                     group_id=entity.group_id,
                     created_at=now,
