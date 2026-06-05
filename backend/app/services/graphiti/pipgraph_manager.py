@@ -140,29 +140,36 @@ class PipGraphManager:
         self.store_raw_episode_content = graphiti.store_raw_episode_content
 
     @staticmethod
-    def _log_summary_changes(
+    def _guard_summaries(
         stage: str,
         summaries_before: dict[str, str],
         hydrated_nodes: list,
     ) -> None:
-        """Diagnostic for the empty-summary bug.
+        """Guard against the empty-summary wipe (variant G).
 
         ``extract_attributes_from_nodes`` (graphiti) mutates each node in place via
         ``node.summary = summary_response.get('summary', '')``. A blank/failed LLM
         summary response therefore overwrites a previously-good summary with '', and
-        the next bulk save persists the wipe. This compares the pre-call snapshot
-        against the hydrated nodes and warns on any non-empty → empty transition,
-        pinpointing *which* node/note triggered it. Pair with the
-        ``[extract_summary]`` log in CloudRuPatchedClient for the raw LLM response.
+        the next bulk save persists the wipe — silently.
+
+        This compares the pre-call snapshot against the hydrated nodes and, on any
+        non-empty → empty transition, **restores the previous summary** in place
+        before the bulk save sees it. ``node.summary`` has no derived embedding (only
+        ``name`` is embedded), so the restore is safe. We mutate the same node objects
+        that flow into ``add_nodes_and_edges_bulk``.
+
+        "Better to warn and keep the old value than to write a regression." Pair with
+        the ``[extract_summary]`` log in CloudRuPatchedClient for the raw LLM response.
         """
         for node in hydrated_nodes:
             before = summaries_before.get(node.uuid, "")
             after = node.summary or ""
             if before and not after:
                 logger.warning(
-                    f"[{stage}] SUMMARY WIPED: '{node.name}' (uuid={node.uuid}) "
-                    f"had summary len={len(before)}, now EMPTY after extract_attributes"
+                    f"[{stage}] SUMMARY WIPE BLOCKED: '{node.name}' (uuid={node.uuid}) "
+                    f"— LLM returned empty summary; keeping previous (len={len(before)})"
                 )
+                node.summary = before
             elif not after:
                 logger.info(
                     f"[{stage}] summary still empty for '{node.name}' (uuid={node.uuid})"
@@ -363,7 +370,7 @@ class PipGraphManager:
                 ),
                 max_coroutines=self.max_coroutines,
             )
-            self._log_summary_changes("process_note", summaries_before, hydrated_nodes)
+            self._guard_summaries("process_note", summaries_before, hydrated_nodes)
 
             entity_edges = resolved_edges + invalidated_edges
 
@@ -1029,7 +1036,7 @@ class PipGraphManager:
                 ),
                 max_coroutines=self.max_coroutines,
             )
-            self._log_summary_changes(
+            self._guard_summaries(
                 "process_existing_episode", summaries_before, hydrated_nodes
             )
 
