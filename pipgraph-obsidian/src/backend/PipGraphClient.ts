@@ -280,6 +280,23 @@ export class PipGraphClient {
     }
   }
 
+  /**
+   * Manual retry of the heavy processing job (POST /episodic/{uuid}/reprocess,
+   * process-queue P3). Re-stamps `status="process_existing_episode"` and
+   * enqueues the job server-side, returning immediately with the re-stamped
+   * node; poll `getEpisodicByUuid` until it settles. Backs the "retry failed
+   * processing" command for nodes stuck at `failed:process_existing_episode`.
+   * Returns null if the backend reports the node doesn't exist.
+   */
+  async reprocessEpisodic(uuid: string): Promise<EpisodicNode | null> {
+    const env = await this.request<GetEpisodicEnvelope>({
+      method: "POST",
+      path: `/episodic/${encodeURIComponent(uuid)}/reprocess`,
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    return env.episodic ?? null;
+  }
+
   async createParaEntity(
     input: CreateParaEntityInput,
   ): Promise<CreateParaEntityResult> {

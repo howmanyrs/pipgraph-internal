@@ -10,6 +10,7 @@ import { PipGraphSettingTab } from "./settings/PipGraphSettingTab";
 import { PipGraphClient } from "./backend";
 import { registerCommands } from "./commands/register";
 import { FolderMirror } from "./folder-mirror/FolderMirror";
+import { FileDecorator } from "./folder-mirror/fileDecoration";
 import { DragToPlace } from "./drag/DragToPlace";
 import { CaptureOutbox } from "./outbox/CaptureOutbox";
 import { ProcessingTracker } from "./outbox/ProcessingTracker";
@@ -20,6 +21,7 @@ export default class PipGraphPlugin extends Plugin {
   outbox!: CaptureOutbox;
   processing!: ProcessingTracker;
   folderMirror!: FolderMirror;
+  fileDecorator!: FileDecorator;
   dragToPlace!: DragToPlace;
   /** Statusbar counter for in-flight capture + processing work (hidden when none). */
   private outboxStatusEl: HTMLElement | null = null;
@@ -31,9 +33,10 @@ export default class PipGraphPlugin extends Plugin {
     this.client = new PipGraphClient(this.settings);
     this.outbox = new CaptureOutbox(this);
     this.processing = new ProcessingTracker(this);
+    this.fileDecorator = new FileDecorator(this.app);
     this.outboxStatusEl = this.addStatusBarItem();
     this.outbox.onChange = () => this.renderOutboxStatus();
-    this.processing.onChange = () => this.renderOutboxStatus();
+    this.processing.onChange = () => this.refreshProcessingUi();
     this.renderOutboxStatus();
 
     this.registerView(
@@ -51,6 +54,8 @@ export default class PipGraphPlugin extends Plugin {
 
     this.folderMirror = new FolderMirror(this);
     this.folderMirror.start();
+
+    this.fileDecorator.start();
 
     this.dragToPlace = new DragToPlace(this);
     this.dragToPlace.start();
@@ -101,6 +106,7 @@ export default class PipGraphPlugin extends Plugin {
   onunload(): void {
     this.app.workspace.detachLeavesOfType(TRIAGE_VIEW_TYPE);
     this.folderMirror?.stop();
+    this.fileDecorator?.stop();
   }
 
   async loadSettings(): Promise<void> {
@@ -128,6 +134,18 @@ export default class PipGraphPlugin extends Plugin {
     if (!this.outboxStatusEl) return;
     const n = this.outbox.pendingCount + this.processing.inFlightCount;
     this.outboxStatusEl.setText(n > 0 ? `PipGraph: ${n} processing…` : "");
+  }
+
+  /**
+   * Processing state changed: refresh the statusbar counter and re-paint the
+   * file-explorer markers (in-flight / failed) from the tracker's path sets.
+   */
+  private refreshProcessingUi(): void {
+    this.renderOutboxStatus();
+    this.fileDecorator.setMarkedPaths(
+      this.processing.processingPaths,
+      this.processing.failedPaths,
+    );
   }
 
   /** Re-render every open triage panel (settings changed, a note was placed). */

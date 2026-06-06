@@ -132,7 +132,7 @@ src/
 ├── modals/NewInboxNoteModal.ts   # Capture modal behind "New inbox note"
 ├── settings/                     # Settings tab, settings model + path helpers, folder autosuggest
 ├── backend/                      # Typed HTTP client over the backend (PipGraphClient, transport, errors, types)
-├── folder-mirror/                # Folder ↔ entity mirror (FolderMirror) + file-explorer decoration
+├── folder-mirror/                # Folder ↔ entity mirror (FolderMirror) + explorer decoration (folder summary, file processing/failed markers)
 ├── drag/                         # Drag-to-place (DragToPlace) — inbox note → PARA folder = move + MENTIONS
 ├── vault/                        # Path helpers shared by capture + drag (resolveUniqueFilePath)
 ├── frontmatter/                  # Read-only pipgraph.uuid reader (uuid-primary resolve, not yet active)

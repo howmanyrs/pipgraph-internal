@@ -173,6 +173,42 @@ _runner.register(JOB_GENERATE_NAME, _handle_generate_episode_name)
 _runner.register(JOB_PROCESS_EXISTING, _handle_process_existing_episode)
 
 
+# --- Startup re-enqueue (Phase 3 durability) ------------------------------
+
+async def requeue_in_flight() -> None:
+    """Re-queue heavy jobs that were in flight when the backend last stopped.
+
+    The queue is in-memory, so a restart loses anything still queued; the only
+    durable trace is the ``status`` property on the node. On startup we scan for
+    nodes still marked ``process_existing_episode`` and put them back on the
+    queue, so a backend crash mid-pipeline self-heals.
+
+    Scope is deliberately **``process_existing_episode`` only**: the naming flow
+    (``generate_episode_name``) already has a durable client-side driver — the
+    Obsidian capture outbox re-POSTs and re-polls pending notes on reload — so
+    re-enqueuing it here too would double-run the job. Heavy processing has no
+    such client-side ledger (the note + link already exist; the in-flight record
+    lives solely in this ``status``), making the server the only owner that can
+    resume it. ``failed:`` nodes are terminal and left for manual retry.
+
+    Best-effort: logs and returns on any error so a transient DB hiccup can't
+    block server startup. Local import avoids an import cycle with the manager.
+    """
+    from app.services.graphiti import get_graphiti, PipGraphManager
+
+    try:
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+        stuck = await manager.list_episodics_by_status(JOB_PROCESS_EXISTING)
+    except Exception:
+        logger.exception("[jobs] startup re-enqueue scan failed — skipping")
+        return
+
+    for node in stuck:
+        _runner.enqueue(JOB_PROCESS_EXISTING, {"episodic_uuid": node.uuid})
+    logger.info(f"[jobs] startup re-enqueue: {len(stuck)} '{JOB_PROCESS_EXISTING}' job(s) restored")
+
+
 # --- Public API -----------------------------------------------------------
 
 def enqueue(job_type: str, args: dict[str, Any]) -> None:
