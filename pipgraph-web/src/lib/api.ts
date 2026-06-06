@@ -204,6 +204,56 @@ export interface ListUnlinkedEpisodicResponse {
   error?: string;
 }
 
+// --- LLM provider configuration (/dev/llm-config) ---
+// Mirrors backend/app/api/schemas/dev.py. The api_key is never returned — only
+// `api_key_set` + a 4-char `api_key_hint`. Kept in sync with the plugin client
+// (pipgraph-obsidian/src/backend/types.ts) per the two-clients invariant.
+
+export type LlmProvider = 'cloudru' | 'openrouter';
+
+export interface LlmProviderDefaults {
+  base_url: string;
+  main_model: string;
+  small_model: string;
+  embedding_model: string;
+}
+
+export interface LlmConfigEntry {
+  provider: LlmProvider;
+  base_url: string;
+  main_model: string;
+  small_model: string;
+  embedding_model: string;
+  api_key_set: boolean;
+  api_key_hint?: string | null;
+}
+
+export interface GetLlmConfigResponse {
+  success: boolean;
+  active?: LlmConfigEntry | null;
+  saved?: LlmConfigEntry | null;
+  restart_required: boolean;
+  providers: Record<string, LlmProviderDefaults>;
+  error?: string;
+}
+
+export interface UpdateLlmConfigRequest {
+  provider: LlmProvider;
+  api_key?: string;
+  main_model?: string;
+  small_model?: string;
+  embedding_model?: string;
+  base_url?: string;
+}
+
+export interface LlmConfigUpdateResponse {
+  success: boolean;
+  restart_required: boolean;
+  saved?: LlmConfigEntry | null;
+  warnings?: string[];
+  error?: string;
+}
+
 // ============================================================================
 // API Error Class
 // ============================================================================
@@ -429,6 +479,36 @@ export async function getUnlinkedEpisodics(params?: {
   );
 }
 
+/**
+ * Read the current LLM provider config (active vs saved + per-provider defaults).
+ */
+export async function getLlmConfig(): Promise<GetLlmConfigResponse> {
+  return fetchJson<GetLlmConfigResponse>(getApiUrl('/llm-config'));
+}
+
+/**
+ * Persist a new LLM provider config to the backend overlay. Applies on backend
+ * restart (does not rebuild the running singleton). Empty api_key keeps the
+ * saved key unless the provider changed.
+ */
+export async function updateLlmConfig(
+  request: UpdateLlmConfigRequest
+): Promise<LlmConfigUpdateResponse> {
+  return fetchJson<LlmConfigUpdateResponse>(getApiUrl('/llm-config'), {
+    method: 'PATCH',
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * Delete the backend overlay, reverting to .env/settings defaults (on restart).
+ */
+export async function resetLlmConfig(): Promise<LlmConfigUpdateResponse> {
+  return fetchJson<LlmConfigUpdateResponse>(getApiUrl('/llm-config/reset'), {
+    method: 'POST',
+  });
+}
+
 // ============================================================================
 // Export all
 // ============================================================================
@@ -446,6 +526,9 @@ export const api = {
   getParaTree,
   getEpisodicsByEntity,
   getUnlinkedEpisodics,
+  getLlmConfig,
+  updateLlmConfig,
+  resetLlmConfig,
 };
 
 export default api;

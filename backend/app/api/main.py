@@ -60,30 +60,34 @@ async def _verify_neo4j() -> None:
 
 
 async def _verify_llm() -> None:
-    # Лёгкая проверка LLM-провайдера через OpenAI-совместимый GET /models.
-    # Использует те же base_url и api_key, что и CloudRuPatchedClient в setup_graphiti.py,
-    # но не инстанцирует Graphiti (избегаем build_indices и расхода токенов).
-    base_url = settings.CLOUDRU_BASE_URL.rstrip("/")
+    # Лёгкая проверка активного LLM-провайдера через OpenAI-совместимый GET /models.
+    # Использует те же base_url и api_key, что и PatchedLLMClient в setup_graphiti.py
+    # (через resolve_active_config), но не инстанцирует Graphiti (избегаем
+    # build_indices и расхода токенов).
+    from app.services.graphiti.llm_config import resolve_active_config
+
+    active = resolve_active_config()
+    base_url = active.base_url.rstrip("/")
     url = f"{base_url}/models"
-    logger.info(f"Verifying LLM service availability at {base_url} ...")
+    logger.info(f"Verifying LLM service availability ({active.provider}) at {base_url} ...")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 url,
-                headers={"Authorization": f"Bearer {settings.CLOUDRU_API_KEY}"},
+                headers={"Authorization": f"Bearer {active.api_key}"},
             )
     except httpx.HTTPError as e:
         logger.error(f"LLM service unreachable at {base_url}: {e}")
         raise RuntimeError(
             f"LLM service unreachable at {base_url}. "
-            "Check network and CLOUDRU_BASE_URL."
+            "Check network and the active provider's base_url."
         ) from e
 
     if resp.status_code == 401 or resp.status_code == 403:
         logger.error(f"LLM authentication failed ({resp.status_code}): {resp.text[:200]}")
         raise RuntimeError(
             f"LLM authentication failed at {base_url} (HTTP {resp.status_code}). "
-            "Check CLOUDRU_API_KEY."
+            "Check the active provider's API key."
         )
     if resp.status_code >= 500:
         logger.error(f"LLM service error ({resp.status_code}): {resp.text[:200]}")

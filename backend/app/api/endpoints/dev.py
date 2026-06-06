@@ -41,9 +41,15 @@ from app.api.schemas.dev import (
     DeleteNodeResponse,
     DeleteParaEntityResponse,
     GetParaTreeResponse,
+    LlmConfigEntry,
+    LlmProviderDefaults,
+    GetLlmConfigResponse,
+    UpdateLlmConfigRequest,
+    LlmConfigUpdateResponse,
 )
 from app.services.graphiti import get_graphiti, PipGraphManager, CrossFolderFilePathError
 from app.services.graphiti.para_tree import PARATreeBuilder
+from app.services.graphiti import llm_config as llm_cfg
 from app.services.jobs import enqueue, JOB_GENERATE_NAME, JOB_PROCESS_EXISTING
 
 logger = logging.getLogger(__name__)
@@ -1628,3 +1634,187 @@ async def get_para_tree() -> GetParaTreeResponse:
             count=0,
             error=str(e),
         )
+
+
+# --- LLM provider configuration (/dev/llm-config) ---
+
+
+def _entry_from_config(cfg: "llm_cfg.ActiveLLMConfig") -> LlmConfigEntry:
+    """Build a client-facing entry from an ActiveLLMConfig, masking the api_key."""
+    key = cfg.api_key or ""
+    return LlmConfigEntry(
+        provider=cfg.provider,
+        base_url=cfg.base_url,
+        main_model=cfg.main_model,
+        small_model=cfg.small_model,
+        embedding_model=cfg.embedding_model,
+        api_key_set=bool(key),
+        api_key_hint=key[-4:] if len(key) >= 4 else None,
+    )
+
+
+def _embedding_warnings(before: "llm_cfg.ActiveLLMConfig | None",
+                        after: "llm_cfg.ActiveLLMConfig") -> list[str]:
+    """Warn if the embedding setup changes vs the running config (vectors invalidated)."""
+    if before is None:
+        return []
+    if (before.embedding_model, before.base_url) != (after.embedding_model, after.base_url):
+        return [
+            "Embedding model/provider changed: existing vectors become incompatible; "
+            "search and suggestions will be wrong until re-embedding (not performed)."
+        ]
+    return []
+
+
+@router.get("/llm-config", response_model=GetLlmConfigResponse)
+async def get_llm_config() -> GetLlmConfigResponse:
+    """
+    Read the current LLM provider configuration.
+
+    Returns three things:
+    - ``active``: the config the running Graphiti singleton was actually built on
+      (``None`` if the singleton hasn't been built yet this process).
+    - ``saved``: what ``resolve_active_config()`` returns now (settings defaults +
+      the runtime overlay file) — i.e. what applies after the next restart.
+    - ``providers``: per-provider defaults (base_url + models, no keys) for prefill.
+
+    ``restart_required`` is true when ``saved`` differs from ``active``. The api_key is
+    never returned — only ``api_key_set`` and a 4-char hint.
+
+    Returns:
+        GetLlmConfigResponse
+    """
+    try:
+        snapshot = llm_cfg.get_active_snapshot()
+        saved_cfg = llm_cfg.resolve_active_config()
+
+        if snapshot is None:
+            # Nothing built yet → the next build uses `saved`; no restart needed.
+            active_cfg = saved_cfg
+            restart_required = False
+        else:
+            active_cfg = snapshot
+            restart_required = snapshot != saved_cfg
+
+        providers = {
+            name: LlmProviderDefaults(**defaults)
+            for name, defaults in llm_cfg.provider_catalog().items()
+        }
+
+        return GetLlmConfigResponse(
+            success=True,
+            active=_entry_from_config(active_cfg),
+            saved=_entry_from_config(saved_cfg),
+            restart_required=restart_required,
+            providers=providers,
+            error=None,
+        )
+    except Exception as e:
+        logger.error(f"[get_llm_config] Error: {e}", exc_info=True)
+        return GetLlmConfigResponse(
+            success=False,
+            active=None,
+            saved=None,
+            restart_required=False,
+            providers={},
+            error=str(e),
+        )
+
+
+@router.patch("/llm-config", response_model=LlmConfigUpdateResponse)
+async def update_llm_config(request: UpdateLlmConfigRequest) -> LlmConfigUpdateResponse:
+    """
+    Persist a new LLM provider configuration to the runtime overlay file.
+
+    Validates the provider, writes ``config/llm_config.json`` (atomic), and reports
+    ``restart_required`` — the running singleton is **never** rebuilt in place.
+
+    Field semantics:
+    - Omitted/empty model and base_url fields fall back to the selected provider's
+      defaults (not persisted, so future default changes still apply).
+    - An empty/omitted ``api_key`` keeps the previously-saved key **only if the
+      provider is unchanged**; switching provider drops a stale key so the resolver
+      falls back to that provider's configured default.
+
+    Returns:
+        LlmConfigUpdateResponse with the persisted config and any warnings.
+    """
+    try:
+        provider = (request.provider or "").strip()
+        if provider not in llm_cfg.PROVIDERS:
+            return LlmConfigUpdateResponse(
+                success=False,
+                error=f"Unknown provider {provider!r}; expected one of {list(llm_cfg.PROVIDERS)}",
+            )
+
+        before = llm_cfg.get_active_snapshot()
+        old_overlay = llm_cfg.read_overlay()
+
+        overlay: dict = {"provider": provider}
+        for field in ("base_url", "main_model", "small_model", "embedding_model"):
+            value = getattr(request, field)
+            if value and value.strip():
+                overlay[field] = value.strip()
+
+        if request.api_key and request.api_key.strip():
+            overlay["api_key"] = request.api_key.strip()
+        elif old_overlay.get("provider") == provider and old_overlay.get("api_key"):
+            # Same provider, no new key supplied → preserve the saved key.
+            overlay["api_key"] = old_overlay["api_key"]
+
+        llm_cfg.write_overlay(overlay)
+
+        saved_cfg = llm_cfg.resolve_active_config()
+        # If nothing is built yet (before is None), the next build picks up `saved` —
+        # no restart needed. Matches GET/reset semantics.
+        restart_required = before is not None and before != saved_cfg
+        warnings = _embedding_warnings(before, saved_cfg)
+
+        logger.info(
+            f"[update_llm_config] saved provider={provider} "
+            f"(restart_required={restart_required}, warnings={len(warnings)})"
+        )
+        return LlmConfigUpdateResponse(
+            success=True,
+            restart_required=restart_required,
+            saved=_entry_from_config(saved_cfg),
+            warnings=warnings,
+            error=None,
+        )
+    except Exception as e:
+        logger.error(f"[update_llm_config] Error: {e}", exc_info=True)
+        return LlmConfigUpdateResponse(success=False, error=str(e))
+
+
+@router.post("/llm-config/reset", response_model=LlmConfigUpdateResponse)
+async def reset_llm_config() -> LlmConfigUpdateResponse:
+    """
+    Delete the runtime overlay file, reverting to ``.env``/settings defaults.
+
+    Reports ``restart_required`` if the defaults differ from the running config.
+
+    Returns:
+        LlmConfigUpdateResponse with the defaults that will apply after restart.
+    """
+    try:
+        before = llm_cfg.get_active_snapshot()
+        removed = llm_cfg.clear_overlay()
+
+        saved_cfg = llm_cfg.resolve_active_config()
+        restart_required = before is not None and before != saved_cfg
+        warnings = _embedding_warnings(before, saved_cfg)
+
+        logger.info(
+            f"[reset_llm_config] overlay_removed={removed} "
+            f"(restart_required={restart_required})"
+        )
+        return LlmConfigUpdateResponse(
+            success=True,
+            restart_required=restart_required,
+            saved=_entry_from_config(saved_cfg),
+            warnings=warnings,
+            error=None,
+        )
+    except Exception as e:
+        logger.error(f"[reset_llm_config] Error: {e}", exc_info=True)
+        return LlmConfigUpdateResponse(success=False, error=str(e))

@@ -40,12 +40,17 @@ import type {
   Envelope,
   EpisodicNode,
   GetEpisodicEnvelope,
+  GetLlmConfigEnvelope,
+  LlmConfigState,
+  LlmConfigUpdateEnvelope,
+  LlmConfigUpdateResult,
   LinkEntityEpisodeEnvelope,
   LinkEntityEpisodeInput,
   LinkEntityEpisodeResult,
   LinkParaNodesEnvelope,
   LinkParaNodesInput,
   LinkParaNodesResult,
+  UpdateLlmConfigInput,
   ListEpisodicEnvelope,
   ListParaEntitiesEnvelope,
   MakeSuggestionsEnvelope,
@@ -535,6 +540,72 @@ export class PipGraphClient {
       });
     }
     return { node_uuid: env.node_uuid, node_type: env.node_type };
+  }
+
+  // --------------------------------------------------------------------------
+  // LLM provider configuration (/dev/llm-config)
+  //
+  // The backend owns the LLM config; the plugin only reads/dispatches. Changes
+  // apply on backend restart (see restart_required). The api_key is never read
+  // back — only api_key_set + a 4-char hint.
+  // --------------------------------------------------------------------------
+
+  /**
+   * Read the current LLM provider config: `active` (what the running singleton
+   * was built on, null before first build), `saved` (applies after restart),
+   * `restart_required`, and per-provider `providers` defaults for prefill.
+   */
+  async getLlmConfig(): Promise<LlmConfigState> {
+    const env = await this.request<GetLlmConfigEnvelope>({
+      method: "GET",
+      path: `/llm-config`,
+      timeoutMs: TIMEOUT_READ_MS,
+    });
+    return {
+      active: env.active ?? null,
+      saved: env.saved ?? null,
+      restart_required: env.restart_required,
+      providers: env.providers ?? {},
+    };
+  }
+
+  /**
+   * Persist a new LLM provider config to the backend overlay file. Does NOT
+   * rebuild the running singleton — apply by restarting the backend. An empty
+   * `api_key` keeps the saved key (unless the provider changed). Returns
+   * `restart_required` and any `warnings` (e.g. embedding-model change).
+   */
+  async updateLlmConfig(
+    input: UpdateLlmConfigInput,
+  ): Promise<LlmConfigUpdateResult> {
+    const env = await this.request<LlmConfigUpdateEnvelope>({
+      method: "PATCH",
+      path: `/llm-config`,
+      body: input,
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    return {
+      restart_required: env.restart_required,
+      saved: env.saved ?? null,
+      warnings: env.warnings ?? [],
+    };
+  }
+
+  /**
+   * Delete the backend overlay file, reverting to `.env`/settings defaults.
+   * Applies after a backend restart.
+   */
+  async resetLlmConfig(): Promise<LlmConfigUpdateResult> {
+    const env = await this.request<LlmConfigUpdateEnvelope>({
+      method: "POST",
+      path: `/llm-config/reset`,
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    return {
+      restart_required: env.restart_required,
+      saved: env.saved ?? null,
+      warnings: env.warnings ?? [],
+    };
   }
 
   // --------------------------------------------------------------------------

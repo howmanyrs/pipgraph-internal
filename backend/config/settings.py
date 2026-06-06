@@ -4,6 +4,11 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
 
+    # Active LLM provider: "cloudru" | "openrouter".
+    # Default block used to build the Graphiti singleton; can be overridden at
+    # runtime via the llm_config.json overlay (see services/graphiti/llm_config.py).
+    LLM_PROVIDER: str = "cloudru"
+
     # Neo4j Database Configuration
     NEO4J_URI: str
     NEO4J_USER: str

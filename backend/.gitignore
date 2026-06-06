@@ -45,6 +45,9 @@ htmlcov/
 .env.local
 .env.*.local
 
+# Runtime LLM provider overlay (holds api_key in plaintext)
+config/llm_config.json
+
 # OS
 .DS_Store
 Thumbs.db

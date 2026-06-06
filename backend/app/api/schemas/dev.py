@@ -889,3 +889,80 @@ class GetParaTreeResponse(BaseModel):
             ]
         }
     }
+
+
+# --- LLM provider configuration (/dev/llm-config) ---
+
+
+class LlmProviderDefaults(BaseModel):
+    """Default base_url + model names for a provider (no api_key). Lets clients prefill."""
+
+    base_url: str = Field(..., description="Default OpenAI-compatible base URL")
+    main_model: str = Field(..., description="Default main model id")
+    small_model: str = Field(..., description="Default small/fast model id")
+    embedding_model: str = Field(..., description="Default embedding model id")
+
+
+class LlmConfigEntry(BaseModel):
+    """A resolved LLM config. The api_key is never returned — only whether it is set."""
+
+    provider: str = Field(..., description='Active provider: "cloudru" | "openrouter"')
+    base_url: str = Field(..., description="OpenAI-compatible base URL")
+    main_model: str = Field(..., description="Main model id")
+    small_model: str = Field(..., description="Small/fast model id")
+    embedding_model: str = Field(..., description="Embedding model id")
+    api_key_set: bool = Field(..., description="Whether a non-empty api_key is configured")
+    api_key_hint: Optional[str] = Field(
+        None, description="Last 4 chars of the api_key, for recognition only"
+    )
+
+
+class GetLlmConfigResponse(BaseModel):
+    """Current LLM config state: what's running vs what applies after restart."""
+
+    success: bool = Field(..., description="Whether the state was read successfully")
+    active: Optional[LlmConfigEntry] = Field(
+        None, description="Config the running Graphiti singleton was built on"
+    )
+    saved: Optional[LlmConfigEntry] = Field(
+        None, description="Config that will apply after the next backend restart"
+    )
+    restart_required: bool = Field(
+        False, description="True if saved differs from active (restart to apply)"
+    )
+    providers: dict[str, LlmProviderDefaults] = Field(
+        default_factory=dict, description="Per-provider defaults for client prefill"
+    )
+    error: Optional[str] = Field(None, description="Error message if read failed")
+
+
+class UpdateLlmConfigRequest(BaseModel):
+    """Patch the saved LLM config. Omitted model/base_url fields fall back to the
+    selected provider's defaults; an empty/omitted api_key keeps the saved key
+    (unless the provider changed)."""
+
+    provider: str = Field(..., description='"cloudru" | "openrouter"')
+    api_key: Optional[str] = Field(
+        None, description="Provider API key; empty/omitted keeps the existing key"
+    )
+    main_model: Optional[str] = Field(None, description="Main model id (optional)")
+    small_model: Optional[str] = Field(None, description="Small model id (optional)")
+    embedding_model: Optional[str] = Field(None, description="Embedding model id (optional)")
+    base_url: Optional[str] = Field(None, description="Override base URL (optional)")
+
+
+class LlmConfigUpdateResponse(BaseModel):
+    """Result of a PATCH/reset on the saved LLM config."""
+
+    success: bool = Field(..., description="Whether the write succeeded")
+    restart_required: bool = Field(
+        False, description="True if the change differs from the running config"
+    )
+    saved: Optional[LlmConfigEntry] = Field(
+        None, description="The config now persisted (applies after restart)"
+    )
+    warnings: List[str] = Field(
+        default_factory=list,
+        description="Non-fatal warnings (e.g. embedding-model change invalidates vectors)",
+    )
+    error: Optional[str] = Field(None, description="Error message if the write failed")

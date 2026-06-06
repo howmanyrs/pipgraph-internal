@@ -1,10 +1,16 @@
 """
-Cloud.ru (Qwen) Patched LLM Client
+PipGraph Patched LLM Client
 
-Provides a patched version of OpenAIGenericClient specifically for Cloud.ru/Qwen models.
+The single LLM entry point for **all** providers (Cloud.ru, OpenRouter, …) and the
+home for PipGraph's custom behaviour on top of graphiti's OpenAI-compatible client.
+Today that custom behaviour is "show the model a flat EXAMPLE of the answer, not the
+JSON schema"; custom-prompt substitution will land here later (see fix-json-schema).
 
-Problem:
-    Qwen models copy the entire JSON schema structure into their responses instead
+Because every supported provider is OpenAI-compatible, nothing in this client is
+specific to Cloud.ru — the same patch applies regardless of the configured provider.
+
+Problem (the bug that motivated this client; first seen with Qwen on Cloud.ru):
+    Some models copy the entire JSON schema structure into their responses instead
     of returning only the data conforming to that schema. This causes ValidationError
     in Pydantic when graphiti_core tries to parse the response.
 
@@ -50,12 +56,13 @@ from app.services.graphiti.response_examples import example_for_model
 logger = logging.getLogger(__name__)
 
 
-class CloudRuPatchedClient(OpenAIGenericClient):
+class PatchedLLMClient(OpenAIGenericClient):
     """
-    Patched OpenAI client for Cloud.ru (Qwen) models.
+    PipGraph's patched OpenAI-compatible client, used for every provider.
 
-    Overrides generate_response() to provide clearer JSON schema instructions
-    that help Qwen models understand they should return data only, not the schema.
+    Overrides generate_response() to show the model a flat example of the answer
+    instead of the JSON schema, so it returns data only, not the schema wrapper.
+    This is also where future custom-prompt substitution will live.
 
     All other functionality remains identical to OpenAIGenericClient.
     """
@@ -68,7 +75,7 @@ class CloudRuPatchedClient(OpenAIGenericClient):
         model_size: ModelSize = ModelSize.medium,
     ) -> dict[str, typing.Any]:
         """
-        Generate response with Qwen-friendly JSON schema instructions.
+        Generate response with example-instead-of-schema instructions.
 
         This method is identical to OpenAIGenericClient.generate_response()
         except for the prompt instruction format (line that appends schema to messages).
