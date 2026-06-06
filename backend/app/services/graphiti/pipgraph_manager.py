@@ -159,7 +159,7 @@ class PipGraphManager:
         that flow into ``add_nodes_and_edges_bulk``.
 
         "Better to warn and keep the old value than to write a regression." Pair with
-        the ``[extract_summary]`` log in CloudRuPatchedClient for the raw LLM response.
+        the ``[extract_summary]`` log in PatchedLLMClient for the raw LLM response.
         """
         for node in hydrated_nodes:
             before = summaries_before.get(node.uuid, "")

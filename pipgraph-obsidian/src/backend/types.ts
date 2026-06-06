@@ -345,3 +345,75 @@ export interface ProcessNoteEnvelope extends Envelope {
   nodes_count: number;
   edges_count: number;
 }
+
+// ============================================================================
+// LLM provider configuration (/dev/llm-config)
+//
+// The backend owns the LLM config (single Graphiti singleton). The plugin only
+// reads/dispatches; changes apply on backend restart. Shapes mirror schemas/dev.py
+// (snake_case, like the rest of this file). The api_key is never returned — only
+// `api_key_set` + a 4-char `api_key_hint`.
+// ============================================================================
+
+export type LlmProvider = "cloudru" | "openrouter";
+
+// `LlmProviderDefaults` in schemas/dev.py — per-provider defaults (no key) for prefill.
+export interface LlmProviderDefaults {
+  base_url: string;
+  main_model: string;
+  small_model: string;
+  embedding_model: string;
+}
+
+// `LlmConfigEntry` in schemas/dev.py — a resolved config; the key is masked.
+export interface LlmConfigEntry {
+  provider: LlmProvider;
+  base_url: string;
+  main_model: string;
+  small_model: string;
+  embedding_model: string;
+  api_key_set: boolean;
+  api_key_hint?: string | null;
+}
+
+// `UpdateLlmConfigRequest` in schemas/dev.py. Omitted model/base_url → provider
+// defaults; empty/omitted api_key keeps the saved key (unless provider changed).
+export interface UpdateLlmConfigInput {
+  provider: LlmProvider;
+  api_key?: string;
+  main_model?: string;
+  small_model?: string;
+  embedding_model?: string;
+  base_url?: string;
+}
+
+// `GetLlmConfigResponse` minus envelope. `active` = what the running singleton was
+// built on (null before first build); `saved` = what applies after restart.
+export interface LlmConfigState {
+  active: LlmConfigEntry | null;
+  saved: LlmConfigEntry | null;
+  restart_required: boolean;
+  providers: Record<string, LlmProviderDefaults>;
+}
+
+// `LlmConfigUpdateResponse` minus envelope (PATCH / reset).
+export interface LlmConfigUpdateResult {
+  restart_required: boolean;
+  saved: LlmConfigEntry | null;
+  warnings: string[];
+}
+
+// `GetLlmConfigResponse` in schemas/dev.py.
+export interface GetLlmConfigEnvelope extends Envelope {
+  active?: LlmConfigEntry | null;
+  saved?: LlmConfigEntry | null;
+  restart_required: boolean;
+  providers: Record<string, LlmProviderDefaults>;
+}
+
+// `LlmConfigUpdateResponse` in schemas/dev.py.
+export interface LlmConfigUpdateEnvelope extends Envelope {
+  restart_required: boolean;
+  saved?: LlmConfigEntry | null;
+  warnings?: string[] | null;
+}

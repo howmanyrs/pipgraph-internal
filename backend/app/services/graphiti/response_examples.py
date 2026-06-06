@@ -13,7 +13,7 @@ Why this exists:
     description, so the example is also self-documenting.
 
 This is pure type introspection: it tracks any change to the graphiti response
-models automatically and never calls the LLM. Used from ``CloudRuPatchedClient``
+models automatically and never calls the LLM. Used from ``PatchedLLMClient``
 (the single choke-point where ``response_model`` is visible for every call).
 """
 

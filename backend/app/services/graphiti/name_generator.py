@@ -174,7 +174,7 @@ async def generate_episode_name(
 
     Args:
         episode_body: Full content of the note/episode
-        llm_client: Configured Graphiti LLM client (e.g., CloudRuPatchedClient)
+        llm_client: Configured Graphiti LLM client (e.g., PatchedLLMClient)
         max_length: Maximum length for filename (default: 100 chars)
 
     Returns:
