@@ -8,6 +8,7 @@ export type { Fetcher, RawResponse, RequestSpec } from "./transport";
 export {
   JOB_GENERATE_NAME,
   JOB_PROCESS_EXISTING,
+  failedStatus,
   isFailedStatus,
   isInFlightStatus,
   isSettledStatus,

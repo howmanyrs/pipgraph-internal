@@ -14,6 +14,11 @@ export const JOB_PROCESS_EXISTING = "process_existing_episode";
 
 export const FAILED_PREFIX = "failed:";
 
+/** The `status` value for a failed job of the given type (`failed:<job>`). */
+export function failedStatus(jobType: string): string {
+  return `${FAILED_PREFIX}${jobType}`;
+}
+
 /** True if `status` marks a terminal failure (`failed:<job>`). */
 export function isFailedStatus(status: string | null | undefined): boolean {
   return typeof status === "string" && status.startsWith(FAILED_PREFIX);

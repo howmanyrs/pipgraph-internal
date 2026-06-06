@@ -58,6 +58,19 @@ export function registerCommands(plugin: PipGraphPlugin): void {
   });
 
   plugin.addCommand({
+    // id kept stable (was "Retry failed processing") so existing hotkeys survive.
+    id: "retry-failed-processing",
+    name: "Process all failed notes",
+    checkCallback: (checking) => {
+      const failedCount = plugin.processing.failedCount;
+      if (failedCount === 0) return false;
+      if (checking) return true;
+      void retryFailedProcessing(plugin, failedCount);
+      return true;
+    },
+  });
+
+  plugin.addCommand({
     id: "sync-from-backend",
     name: "Sync from backend",
     callback: () => {
@@ -74,6 +87,59 @@ export function registerCommands(plugin: PipGraphPlugin): void {
       );
     },
   });
+
+  registerFailedNoteMenu(plugin);
+}
+
+/**
+ * Per-file "Process note" item on the file-explorer context menu, shown only
+ * for notes currently in the failed-processing set (process-queue P3). It
+ * retries exactly that note — the single-note counterpart of the "Process all
+ * failed notes" command. Visibility + the retry target both come from the
+ * tracker's in-memory uuid↔path map, so no backend round-trip on right-click.
+ */
+function registerFailedNoteMenu(plugin: PipGraphPlugin): void {
+  plugin.registerEvent(
+    plugin.app.workspace.on("file-menu", (menu, file) => {
+      if (!(file instanceof TFile) || file.extension !== "md") return;
+      const uuid = plugin.processing.failedUuidForPath(file.path);
+      if (!uuid) return;
+      menu.addItem((item) => {
+        item
+          .setTitle("Process note")
+          .setIcon("refresh-cw")
+          .onClick(() => {
+            void processFailedNote(plugin, uuid, file.basename);
+          });
+      });
+    }),
+  );
+}
+
+async function processFailedNote(
+  plugin: PipGraphPlugin,
+  uuid: string,
+  name: string,
+): Promise<void> {
+  const ok = await plugin.processing.retryOne(uuid);
+  new Notice(
+    ok
+      ? `Processing "${name}"…`
+      : `Couldn't re-queue "${name}" (backend unreachable?).`,
+  );
+}
+
+async function retryFailedProcessing(
+  plugin: PipGraphPlugin,
+  failedCount: number,
+): Promise<void> {
+  new Notice(`Retrying ${failedCount} failed note(s)…`);
+  const retried = await plugin.processing.retryFailed();
+  if (retried < failedCount) {
+    new Notice(
+      `Re-queued ${retried} of ${failedCount}; the rest stayed failed (backend unreachable?).`,
+    );
+  }
 }
 
 async function createDraftNote(plugin: PipGraphPlugin): Promise<void> {

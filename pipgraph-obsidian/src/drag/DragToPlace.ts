@@ -176,7 +176,7 @@ export class DragToPlace {
       return;
     }
 
-    this.plugin.processing.track(episode.uuid);
+    this.plugin.processing.track(episode.uuid, targetPath);
     new Notice(`Placed in ${folder.name} — processing…`);
     this.plugin.refreshTriagePanels();
   }

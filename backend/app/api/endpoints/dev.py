@@ -51,6 +51,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dev", tags=["development"])
 
 
+def _episodic_to_dict(ep) -> dict:
+    """Serialize an EpisodicNode to the response dict shared by every Episodic
+    endpoint (single-object and list alike). One place so the shape can't drift.
+    """
+    return {
+        "uuid": ep.uuid,
+        "name": ep.name,
+        "file_path": ep.file_path,
+        "status": ep.status,
+        "created_at": ep.created_at.isoformat() if ep.created_at else None,
+        "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
+        "source": ep.source.value if ep.source else None,
+        "content": ep.content,
+        "source_description": ep.source_description,
+        "group_id": ep.group_id,
+    }
+
+
 @router.post("/process-note", response_model=ProcessNoteResponse)
 async def process_note_direct(request: ProcessNoteRequest) -> ProcessNoteResponse:
     """
@@ -150,23 +168,9 @@ async def get_episodic_by_path(
         if episodic:
             logger.info(f"[get_episodic_by_path] Found episodic: {note_path} (uuid: {episodic.uuid})")
 
-            # Convert EpisodicNode to dict for response
-            episodic_dict = {
-                "uuid": episodic.uuid,
-                "name": episodic.name,
-                "file_path": episodic.file_path,
-                "status": episodic.status,
-                "created_at": episodic.created_at.isoformat() if episodic.created_at else None,
-                "valid_at": episodic.valid_at.isoformat() if episodic.valid_at else None,
-                "source": episodic.source.value if episodic.source else None,
-                "content": episodic.content,
-                "source_description": episodic.source_description,
-                "group_id": episodic.group_id,
-            }
-
             return GetEpisodicResponse(
                 success=True,
-                episodic=episodic_dict,
+                episodic=_episodic_to_dict(episodic),
                 error=None,
             )
         else:
@@ -216,18 +220,7 @@ async def list_all_episodic(
 
         # Convert EpisodicNode objects to dicts for response
         episodics_dicts = [
-            {
-                "uuid": ep.uuid,
-                "name": ep.name,
-                "file_path": ep.file_path,
-                "status": ep.status,
-                "created_at": ep.created_at.isoformat() if ep.created_at else None,
-                "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
-                "source": ep.source.value if ep.source else None,
-                "content": ep.content,
-                "source_description": ep.source_description,
-                "group_id": ep.group_id,
-            }
+            _episodic_to_dict(ep)
             for ep in episodics
         ]
 
@@ -292,18 +285,7 @@ async def list_unlinked_episodic(
 
         # Convert EpisodicNode objects to dicts for response
         episodics_dicts = [
-            {
-                "uuid": ep.uuid,
-                "name": ep.name,
-                "file_path": ep.file_path,
-                "status": ep.status,
-                "created_at": ep.created_at.isoformat() if ep.created_at else None,
-                "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
-                "source": ep.source.value if ep.source else None,
-                "content": ep.content,
-                "source_description": ep.source_description,
-                "group_id": ep.group_id,
-            }
+            _episodic_to_dict(ep)
             for ep in episodics
         ]
 
@@ -374,18 +356,7 @@ async def list_episodic_by_status(
         episodics = await manager.list_episodics_by_status(status=status, limit=limit)
 
         episodics_dicts = [
-            {
-                "uuid": ep.uuid,
-                "name": ep.name,
-                "file_path": ep.file_path,
-                "status": ep.status,
-                "created_at": ep.created_at.isoformat() if ep.created_at else None,
-                "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
-                "source": ep.source.value if ep.source else None,
-                "content": ep.content,
-                "source_description": ep.source_description,
-                "group_id": ep.group_id,
-            }
+            _episodic_to_dict(ep)
             for ep in episodics
         ]
 
@@ -437,20 +408,9 @@ async def get_episodic_by_uuid(episodic_uuid: str) -> GetEpisodicResponse:
                 error=f"Episodic not found: {episodic_uuid}",
             )
 
-        episodic_dict = {
-            "uuid": episodic.uuid,
-            "name": episodic.name,
-            "file_path": episodic.file_path,
-            "status": episodic.status,
-            "created_at": episodic.created_at.isoformat() if episodic.created_at else None,
-            "valid_at": episodic.valid_at.isoformat() if episodic.valid_at else None,
-            "source": episodic.source.value if episodic.source else None,
-            "content": episodic.content,
-            "source_description": episodic.source_description,
-            "group_id": episodic.group_id,
-        }
-
-        return GetEpisodicResponse(success=True, episodic=episodic_dict, error=None)
+        return GetEpisodicResponse(
+            success=True, episodic=_episodic_to_dict(episodic), error=None
+        )
 
     except Exception as e:
         logger.error(f"[get_episodic_by_uuid] Error: {e}", exc_info=True)
@@ -508,22 +468,10 @@ async def update_episodic(
                 error=f"Episodic not found: {episodic_uuid}",
             )
 
-        episodic_dict = {
-            "uuid": updated.uuid,
-            "name": updated.name,
-            "file_path": updated.file_path,
-            "created_at": updated.created_at.isoformat() if updated.created_at else None,
-            "valid_at": updated.valid_at.isoformat() if updated.valid_at else None,
-            "source": updated.source.value if updated.source else None,
-            "content": updated.content,
-            "source_description": updated.source_description,
-            "group_id": updated.group_id,
-        }
-
         logger.info(f"[update_episodic] Success: updated episodic {episodic_uuid}")
         return UpdateEpisodicResponse(
             success=True,
-            episodic=episodic_dict,
+            episodic=_episodic_to_dict(updated),
             error=None,
         )
 
@@ -544,6 +492,59 @@ async def update_episodic(
             episodic=None,
             error=str(e),
         )
+
+
+@router.post("/episodic/{episodic_uuid}/reprocess", response_model=GetEpisodicResponse)
+async def reprocess_episodic(episodic_uuid: str) -> GetEpisodicResponse:
+    """
+    Re-run the heavy extraction pipeline on an Episodic (manual retry).
+
+    Backs the plugin's "retry failed processing" action (process-queue P3,
+    Q-P2c). Re-stamps ``status="process_existing_episode"`` and enqueues the job
+    — the same terminal handling as a fresh ``place-episode?process=true``, but
+    without moving or re-linking (the note is already placed). Intended for nodes
+    stuck at ``failed:process_existing_episode``, though it is permissive: any
+    existing Episodic can be (re)queued. Concurrency=1 serializes the worker, so
+    a redundant retry can't race the original.
+
+    Returns immediately; poll ``GET /episodic/{uuid}`` until ``status`` clears.
+
+    Example:
+        POST /api/v1/dev/episodic/550e8400-.../reprocess
+
+    Returns:
+        GetEpisodicResponse with the re-stamped episodic, or success=false if no
+        node with that UUID exists.
+    """
+    try:
+        logger.info(f"[reprocess_episodic] Re-queuing {episodic_uuid}")
+
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        # Stamp the in-flight status before enqueue, so the durable record exists
+        # the moment the job is queued (mirrors place-episode?process=true).
+        stamped = await manager.set_episodic_status(episodic_uuid, JOB_PROCESS_EXISTING)
+        if not stamped:
+            logger.warning(f"[reprocess_episodic] Not found: {episodic_uuid}")
+            return GetEpisodicResponse(
+                success=False,
+                episodic=None,
+                error=f"Episodic not found: {episodic_uuid}",
+            )
+
+        enqueue(JOB_PROCESS_EXISTING, {"episodic_uuid": episodic_uuid})
+
+        episodic = await manager.get_episodic_by_uuid(episodic_uuid)
+
+        logger.info(f"[reprocess_episodic] Enqueued reprocess for {episodic_uuid}")
+        return GetEpisodicResponse(
+            success=True, episodic=_episodic_to_dict(episodic), error=None
+        )
+
+    except Exception as e:
+        logger.error(f"[reprocess_episodic] Error: {e}", exc_info=True)
+        return GetEpisodicResponse(success=False, episodic=None, error=str(e))
 
 
 @router.post("/episode", response_model=CreateEpisodeResponse)
@@ -711,18 +712,7 @@ async def get_episodics_by_entity(
 
         # Convert EpisodicNode objects to dicts for response
         episodics_dicts = [
-            {
-                "uuid": ep.uuid,
-                "name": ep.name,
-                "file_path": ep.file_path,
-                "status": ep.status,
-                "created_at": ep.created_at.isoformat() if ep.created_at else None,
-                "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
-                "source": ep.source.value if ep.source else None,
-                "content": ep.content,
-                "source_description": ep.source_description,
-                "group_id": ep.group_id,
-            }
+            _episodic_to_dict(ep)
             for ep in episodics
         ]
 
@@ -993,26 +983,13 @@ async def place_episode(request: PlaceEpisodeRequest) -> PlaceEpisodeResponse:
         if request.process:
             enqueue(JOB_PROCESS_EXISTING, {"episodic_uuid": updated.uuid})
 
-        episodic_dict = {
-            "uuid": updated.uuid,
-            "name": updated.name,
-            "file_path": updated.file_path,
-            "status": updated.status,
-            "created_at": updated.created_at.isoformat() if updated.created_at else None,
-            "valid_at": updated.valid_at.isoformat() if updated.valid_at else None,
-            "source": updated.source.value if updated.source else None,
-            "content": updated.content,
-            "source_description": updated.source_description,
-            "group_id": updated.group_id,
-        }
-
         logger.info(
             f"[place_episode] Success: placed {request.episodic_uuid} "
             f"(process={request.process})"
         )
         return PlaceEpisodeResponse(
             success=True,
-            episodic=episodic_dict,
+            episodic=_episodic_to_dict(updated),
             entity_uuid=request.entity_uuid,
             edge_uuid=edge_uuid,
             error=None,

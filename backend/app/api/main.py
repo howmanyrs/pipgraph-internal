@@ -106,9 +106,13 @@ async def lifespan(app: FastAPI):
     # Start the in-process job-runner (background-worker for slow LLM work, e.g.
     # async episode naming). In-memory + single worker by design — see
     # app/services/jobs/queue.py.
-    from app.services.jobs import start_worker, stop_worker
+    from app.services.jobs import requeue_in_flight, start_worker, stop_worker
     start_worker()
     logger.info("Job-runner worker started")
+    # Re-queue heavy jobs left in flight by a previous (crashed/restarted) run.
+    # In-memory queue loses what was queued; the node's status is the only
+    # durable trace. Best-effort — never blocks startup. See queue.requeue_in_flight.
+    await requeue_in_flight()
     try:
         yield
     finally:
