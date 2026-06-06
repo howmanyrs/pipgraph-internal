@@ -132,9 +132,12 @@ Backend `.env` (full reference: [`backend/.docs/CONFIGURATION.md`](backend/.docs
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=...
+LLM_PROVIDER=cloudru              # "cloudru" | "openrouter" — selects the active provider block
 CLOUDRU_API_KEY=...               # or OPENROUTER_API_KEY, depending on provider
 CLOUDRU_BASE_URL=https://.../v1
 ```
+
+The LLM provider/keys/models are also editable at runtime from the Obsidian plugin via `PATCH /dev/llm-config`, which writes a gitignored overlay (`backend/config/llm_config.json`) applied on backend restart. `.env` stays the default.
 
 Web `.env.local`:
 ```bash

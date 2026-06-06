@@ -50,6 +50,9 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 | GET | `/dev/para-tree` | Hierarchical PARA tree built from `BELONGS_TO` edges. |
 | DELETE | `/dev/node/{node_uuid}` | Delete an Episodic or Entity with `DETACH DELETE`. Auto-detects type. Irreversible. |
 | DELETE | `/dev/para-entity/{entity_uuid}` | Delete a PARA entity **and cascade-delete its orphaned Episodics** (those whose only `MENTIONS` pointed at it). Backs the Obsidian folder-mirror delete. Irreversible hard delete; bi-temporal soft-invalidation is the deferred successor. |
+| GET | `/dev/llm-config` | Active LLM config (provider, base_url, models) for each provider + the resolved active one. `api_key` is **masked**, never returned. Includes `restart_required` (active snapshot ≠ resolved config) and embedding-change warnings. |
+| PATCH | `/dev/llm-config` | Update the runtime overlay (`config/llm_config.json`, gitignored): `provider` + per-field `base_url`/`api_key`/`*_model`. Applied **on backend restart** — the Graphiti singleton is never rebuilt in place. Returns `restart_required` + embedding-warning. |
+| POST | `/dev/llm-config/reset` | Delete the runtime overlay → revert to pure `settings`/`.env` defaults. Applied on restart. |
 
 **OpenAPI** is served at `http://localhost:8001/docs` when the server is running — use it as the cross-check, not this table.
 
@@ -58,6 +61,7 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 - Responses follow `{success: bool, …payload…, error: str|None}` — endpoints return HTTP 200 even on validation failure, with `success=false` and `error` populated. Clients must check `success`.
 - Identifiers are **UUIDs** for nodes/edges, and **path-like `name`** for Episodics.
 - `MENTIONS` and `BELONGS_TO` use `MERGE` — calling a link endpoint twice is safe.
+- The `/dev/llm-config` endpoints are the one **legitimate** bypass of the manager: they touch no graph state, so they call `services/graphiti/llm_config.py` directly (no Cypher, no `PipGraphManager`).
 
 ## Layered architecture
 
@@ -70,8 +74,9 @@ app/api/endpoints/dev.py        ← thin: Pydantic validate → call manager →
    ▼
 app/services/graphiti/
    pipgraph_manager.py          ← all business logic, all Graphiti orchestration
-   setup_graphiti.py            ← Graphiti singleton + Cloud.ru/Qwen patches
-   patched_client.py
+   setup_graphiti.py            ← Graphiti singleton, built from the active LLM config
+   llm_config.py                ← active LLM config: provider defaults + runtime overlay; restart snapshot
+   patched_client.py            ← provider-agnostic PatchedLLMClient (Cloud.ru, OpenRouter; example-not-schema)
    name_generator.py            ← LLM-based episode-name generation
    para_tree.py                 ← BELONGS_TO tree builder
    │
@@ -153,11 +158,14 @@ NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=…
 
+LLM_PROVIDER=cloudru             # "cloudru" | "openrouter" — picks which block below is active
 CLOUDRU_API_KEY=…                # or OPENROUTER_API_KEY, depending on provider
 CLOUDRU_BASE_URL=https://…/v1
 ```
 
-Startup (`app/api/main.py:lifespan`) actively verifies both Neo4j and the LLM provider — the server refuses to come up if either is unreachable.
+`.env` is the **default** LLM config. A gitignored runtime overlay (`config/llm_config.json`, written by `PATCH /dev/llm-config`) overrides individual fields and is applied **on restart** — the active config is resolved in `services/graphiti/llm_config.py`, and `get_graphiti()` snapshots what it built on so `restart_required` can be reported honestly. The Graphiti singleton is never rebuilt in place.
+
+Startup (`app/api/main.py:lifespan`) actively verifies both Neo4j and the LLM provider (on the *active* config) — the server refuses to come up if either is unreachable.
 
 ## Running locally
 
