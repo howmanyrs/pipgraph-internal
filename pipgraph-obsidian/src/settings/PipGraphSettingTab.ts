@@ -13,6 +13,7 @@ import { FolderSuggest } from "./FolderSuggest";
 import type {
   LlmConfigState,
   LlmProvider,
+  PromptEntry,
 } from "../backend/types";
 
 type StringKey =
@@ -49,6 +50,7 @@ export class PipGraphSettingTab extends PluginSettingTab {
   private llmSectionEl: HTMLDivElement | null = null;
   private llmState: LlmConfigState | null = null;
   private llmForm: LlmFormState | null = null;
+  private promptsSectionEl: HTMLDivElement | null = null;
 
   constructor(
     app: App,
@@ -150,6 +152,11 @@ export class PipGraphSettingTab extends PluginSettingTab {
     // from /dev/llm-config and degrades gracefully when the backend is offline.
     this.renderLlmHeading(containerEl);
     void this.reloadLlm();
+
+    // Editable prompts — same shape as the LLM section: lazy load from
+    // /dev/prompts, graceful absence when the backend is offline.
+    this.renderPromptsHeading(containerEl);
+    void this.reloadPrompts();
 
     // Debug-only destructive actions, fenced off at the bottom.
     this.renderDangerZone(containerEl);
@@ -503,6 +510,152 @@ export class PipGraphSettingTab extends PluginSettingTab {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       new Notice(`Failed to reset LLM config: ${message}`);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Editable prompts section (/dev/prompts)
+  //
+  // The backend owns the prompt text and overlays it onto graphiti; this section
+  // only shows each prompt's editable domain block + a read-only response-format
+  // example. Unlike the LLM section, an edit applies live (no backend restart).
+  // --------------------------------------------------------------------------
+
+  private renderPromptsHeading(containerEl: HTMLElement): void {
+    containerEl.createEl("h3", { text: "Промпты" });
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text:
+        "Доменные guidelines промптов извлечения живут на бэкенде. Правка " +
+        "применяется к следующей обработке заметки — без рестарта. Пример формата " +
+        "ответа — только для чтения.",
+    });
+    this.promptsSectionEl = containerEl.createDiv({
+      cls: "pipgraph-settings__prompts",
+    });
+  }
+
+  /** Re-fetch the tunable prompts from the backend and re-render the cards. */
+  private async reloadPrompts(): Promise<void> {
+    const el = this.promptsSectionEl;
+    if (!el) return;
+    el.empty();
+    el.createEl("p", { text: "Загрузка промптов с бэкенда…" });
+
+    try {
+      const prompts = await this.plugin.client.listPrompts();
+      el.empty();
+      if (prompts.length === 0) {
+        el.createEl("p", {
+          cls: "setting-item-description",
+          text: "На бэкенде не зарегистрировано редактируемых промптов.",
+        });
+        return;
+      }
+      for (const entry of prompts) this.renderPromptCard(el, entry);
+    } catch (err) {
+      el.empty();
+      const message = err instanceof Error ? err.message : String(err);
+      el.createEl("p", {
+        cls: "pipgraph-settings__warning",
+        text: `Промпты недоступны — бэкенд запущен? (${message})`,
+      });
+      new Setting(el).addButton((btn) =>
+        btn.setButtonText("Повторить").onClick(() => void this.reloadPrompts()),
+      );
+    }
+  }
+
+  private renderPromptCard(parent: HTMLElement, entry: PromptEntry): void {
+    const card = parent.createDiv({ cls: "pipgraph-prompt-card" });
+
+    const header = card.createDiv({ cls: "pipgraph-prompt-card__header" });
+    header.createEl("span", {
+      cls: "pipgraph-prompt-card__title",
+      text: entry.title,
+    });
+    header.createEl("code", {
+      cls: "pipgraph-prompt-card__key",
+      text: entry.key,
+    });
+    header.createEl("span", {
+      cls: `pipgraph-prompt-card__badge pipgraph-prompt-card__badge--${entry.mode}`,
+      text: entry.mode,
+    });
+    if (entry.is_customized) {
+      header.createEl("span", {
+        cls: "pipgraph-prompt-card__customised",
+        text: "изменено",
+      });
+    }
+
+    card.createEl("p", {
+      cls: "setting-item-description",
+      text: entry.description,
+    });
+
+    // Editable domain block — the same text feeds both append and replace modes.
+    card.createEl("label", {
+      cls: "pipgraph-prompt-card__label",
+      text: "Доменные указания (редактируемо):",
+    });
+    const textarea = card.createEl("textarea", {
+      cls: "pipgraph-prompt-card__textarea",
+    });
+    textarea.value = entry.domain_block;
+    textarea.rows = 6;
+    textarea.disabled = !entry.editable;
+
+    new Setting(card)
+      .addButton((btn) =>
+        btn
+          .setButtonText("Сохранить")
+          .setCta()
+          .setDisabled(!entry.editable)
+          .onClick(() => void this.savePrompt(entry.key, textarea.value)),
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Сбросить к дефолту")
+          .setDisabled(!entry.editable)
+          .onClick(() => void this.resetPrompt(entry.key)),
+      );
+
+    // Read-only response-format example — the exact example the LLM is shown
+    // (goes through the same example_for() on the backend, so it can't disagree).
+    if (entry.example_preview) {
+      card.createEl("label", {
+        cls: "pipgraph-prompt-card__label",
+        text: "Формат ответа (только чтение):",
+      });
+      const pre = card.createEl("pre", {
+        cls: "pipgraph-prompt-card__example",
+      });
+      pre.createEl("code", { text: entry.example_preview });
+    }
+  }
+
+  private async savePrompt(key: string, domainBlock: string): Promise<void> {
+    try {
+      await this.plugin.client.updatePrompt(key, domainBlock);
+      new Notice(
+        "Промпт сохранён — применится со следующей обработки заметки (без рестарта).",
+      );
+      await this.reloadPrompts();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      new Notice(`Не удалось сохранить промпт: ${message}`);
+    }
+  }
+
+  private async resetPrompt(key: string): Promise<void> {
+    try {
+      await this.plugin.client.resetPrompt(key);
+      new Notice("Промпт сброшен к значению по умолчанию.");
+      await this.reloadPrompts();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      new Notice(`Не удалось сбросить промпт: ${message}`);
     }
   }
 

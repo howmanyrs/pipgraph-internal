@@ -63,6 +63,10 @@ import type {
   PlaceEpisodeEnvelope,
   PlaceEpisodeInput,
   PlaceEpisodeResult,
+  PromptEntry,
+  ListPromptsEnvelope,
+  GetPromptEnvelope,
+  UpdatePromptEnvelope,
   ProcessExistingEpisodeEnvelope,
   ProcessExistingEpisodeInput,
   ProcessExistingEpisodeResult,
@@ -622,6 +626,98 @@ export class PipGraphClient {
       saved: env.saved ?? null,
       warnings: env.warnings ?? [],
     };
+  }
+
+  // --------------------------------------------------------------------------
+  // Editable prompts (/dev/prompts)
+  //
+  // The backend owns the prompt text and overlays it onto graphiti; the plugin
+  // only reads/edits each prompt's `domain_block` and shows a read-only
+  // `example_preview`. Unlike /llm-config, edits apply LIVE — the next note
+  // processing picks up the new block without a backend restart — and persist
+  // across restarts via a gitignored overlay file.
+  // --------------------------------------------------------------------------
+
+  /** List the tunable prompts (editable domain block + read-only format example). */
+  async listPrompts(): Promise<PromptEntry[]> {
+    const env = await this.request<ListPromptsEnvelope>({
+      method: "GET",
+      path: `/prompts`,
+      timeoutMs: TIMEOUT_READ_MS,
+    });
+    return env.prompts;
+  }
+
+  /**
+   * Fetch one tunable prompt by its registry key, or null when the backend
+   * doesn't know it. An unknown key is `200 {success:false}` (→ the unwrap
+   * raises kind:'http'); we map that to null because "no such prompt" is a
+   * normal control-flow case, mirroring getEpisodicByPath.
+   */
+  async getPrompt(key: string): Promise<PromptEntry | null> {
+    try {
+      const env = await this.request<GetPromptEnvelope>({
+        method: "GET",
+        path: `/prompts/${encodeURIComponent(key)}`,
+        timeoutMs: TIMEOUT_READ_MS,
+      });
+      return env.prompt ?? null;
+    } catch (err) {
+      if (
+        err instanceof PipGraphApiError &&
+        err.kind === "http" &&
+        typeof err.message === "string" &&
+        err.message.toLowerCase().includes("unknown prompt")
+      ) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Edit a prompt's domain block. Applied **live** on the backend (the next note
+   * processing uses it, no restart) and persisted to the overlay file. An empty
+   * string is a deliberate empty block — use resetPrompt to revert to the code
+   * default. Returns the prompt's post-change state. Throws PipGraphApiError on
+   * failure (unknown / non-editable key, or a persist error → kind:'http').
+   */
+  async updatePrompt(key: string, domainBlock: string): Promise<PromptEntry> {
+    const env = await this.request<UpdatePromptEnvelope>({
+      method: "PATCH",
+      path: `/prompts/${encodeURIComponent(key)}`,
+      body: { domain_block: domainBlock },
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    if (!env.prompt) {
+      throw new PipGraphApiError({
+        kind: "parse",
+        message: "updatePrompt succeeded but response missing prompt",
+        body: JSON.stringify(env),
+      });
+    }
+    return env.prompt;
+  }
+
+  /**
+   * Reset a prompt's domain block to its code default (drops the key from the
+   * overlay file). Persisted and live, like updatePrompt. Returns the prompt's
+   * post-reset state. Throws PipGraphApiError on failure (e.g. unknown key).
+   */
+  async resetPrompt(key: string): Promise<PromptEntry> {
+    const env = await this.request<UpdatePromptEnvelope>({
+      method: "POST",
+      path: `/prompts/${encodeURIComponent(key)}/reset`,
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    if (!env.prompt) {
+      throw new PipGraphApiError({
+        kind: "parse",
+        message: "resetPrompt succeeded but response missing prompt",
+        body: JSON.stringify(env),
+      });
+    }
+    return env.prompt;
   }
 
   // --------------------------------------------------------------------------

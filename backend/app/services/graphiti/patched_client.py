@@ -51,7 +51,7 @@ from graphiti_core.llm_client.config import ModelSize
 from graphiti_core.prompts.extract_nodes import EntitySummary
 from graphiti_core.prompts.models import Message
 
-from app.services.graphiti.response_examples import example_for_model
+from app.services.graphiti.response_examples import example_for
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ class PatchedLLMClient(OpenAIGenericClient):
         # (placeholders carry each field's description). Built without an LLM.
         if response_model is not None:
             example = json.dumps(
-                example_for_model(response_model), ensure_ascii=False, indent=2
+                example_for(response_model), ensure_ascii=False, indent=2
             )
             messages[-1].content += (
                 '\n\nReturn ONLY a JSON object with exactly these keys, in exactly '

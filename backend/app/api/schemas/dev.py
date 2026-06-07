@@ -988,3 +988,65 @@ class LlmConfigUpdateResponse(BaseModel):
         description="Non-fatal warnings (e.g. embedding-model change invalidates vectors)",
     )
     error: Optional[str] = Field(None, description="Error message if the write failed")
+
+
+# --- Editable prompts (/dev/prompts) ---
+
+
+class PromptEntryResponse(BaseModel):
+    """One tunable prompt as exposed to clients. The structural skeleton stays in the
+    backend; only ``domain_block`` is editable. ``example_preview`` is the exact response
+    example the LLM receives (read-only)."""
+
+    key: str = Field(..., description='Stable task key, e.g. "extract_nodes.extract_summary"')
+    title: str = Field(..., description="Human-readable label")
+    description: str = Field(..., description="What this prompt does in the pipeline")
+    mode: str = Field(..., description='Override mode: "passthrough" | "append" | "replace"')
+    domain_block: str = Field(
+        ..., description="Current editable domain text (user edit, or the code default)"
+    )
+    is_customized: bool = Field(
+        ..., description="True if a user edit is active (False ⇒ showing the code default)"
+    )
+    example_preview: str = Field(
+        "", description="Read-only response-format example the LLM is shown (empty if none)"
+    )
+    response_model: Optional[str] = Field(
+        None, description="Name of the response model whose example is previewed"
+    )
+    editable: bool = Field(..., description="Whether the domain_block may be edited")
+
+
+class ListPromptsResponse(BaseModel):
+    """All tunable prompts."""
+
+    success: bool = Field(..., description="Whether the list was read successfully")
+    prompts: List[PromptEntryResponse] = Field(
+        default_factory=list, description="The registered tunable prompts"
+    )
+    error: Optional[str] = Field(None, description="Error message if the read failed")
+
+
+class GetPromptResponse(BaseModel):
+    """A single tunable prompt by key."""
+
+    success: bool = Field(..., description="Whether the prompt was found")
+    prompt: Optional[PromptEntryResponse] = Field(None, description="The prompt entry")
+    error: Optional[str] = Field(None, description="Error message (e.g. unknown key)")
+
+
+class UpdatePromptRequest(BaseModel):
+    """Patch a prompt's editable domain block. An empty string is a deliberate empty
+    block (persisted); use the reset endpoint to revert to the code default."""
+
+    domain_block: str = Field(..., description="New editable domain text for this prompt")
+
+
+class UpdatePromptResponse(BaseModel):
+    """Result of a PATCH or reset on a prompt. Applied live (no restart) and persisted."""
+
+    success: bool = Field(..., description="Whether the change was applied and persisted")
+    prompt: Optional[PromptEntryResponse] = Field(
+        None, description="The prompt's state after the change"
+    )
+    error: Optional[str] = Field(None, description="Error message if the change failed")

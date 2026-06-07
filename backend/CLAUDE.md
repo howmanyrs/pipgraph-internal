@@ -54,6 +54,10 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 | GET | `/dev/llm-config` | Active LLM config (provider, base_url, models) for each provider + the resolved active one. `api_key` is **masked**, never returned. Includes `restart_required` (active snapshot ≠ resolved config) and embedding-change warnings. |
 | PATCH | `/dev/llm-config` | Update the runtime overlay (`config/llm_config.json`, gitignored): `provider` + per-field `base_url`/`api_key`/`*_model`. Applied **on backend restart** — the Graphiti singleton is never rebuilt in place. Returns `restart_required` + embedding-warning. |
 | POST | `/dev/llm-config/reset` | Delete the runtime overlay → revert to pure `settings`/`.env` defaults. Applied on restart. |
+| GET | `/dev/prompts` | List the tunable graphiti prompts (editable domain block + mode + read-only response-format example). Backs the Obsidian "Промпты" settings section. |
+| GET | `/dev/prompts/{key}` | One tunable prompt by registry key (e.g. `extract_nodes.extract_summary`). |
+| PATCH | `/dev/prompts/{key}` | Edit a prompt's `domain_block`. Applied **live, no restart** (the override layer reads the in-memory registry at LLM-call time) **and** persisted to `config/prompt_overrides.json` (gitignored). Failed persist ⇒ `200 {success:false}`, nothing applied. |
+| POST | `/dev/prompts/{key}/reset` | Reset a prompt's `domain_block` to its code default (drops the key from the overlay file). |
 
 **OpenAPI** is served at `http://localhost:8001/docs` when the server is running — use it as the cross-check, not this table.
 
@@ -62,7 +66,7 @@ All endpoints live in [`app/api/endpoints/dev.py`](./app/api/endpoints/dev.py). 
 - Responses follow `{success: bool, …payload…, error: str|None}` — endpoints return HTTP 200 even on validation failure, with `success=false` and `error` populated. Clients must check `success`.
 - Identifiers are **UUIDs** for nodes/edges, and **path-like `name`** for Episodics.
 - `MENTIONS` and `BELONGS_TO` use `MERGE` — calling a link endpoint twice is safe.
-- The `/dev/llm-config` endpoints are the one **legitimate** bypass of the manager: they touch no graph state, so they call `services/graphiti/llm_config.py` directly (no Cypher, no `PipGraphManager`).
+- The `/dev/llm-config` and `/dev/prompts` endpoints are the **legitimate** manager bypasses: they touch no graph state, so they call `services/graphiti/llm_config.py` / `services/graphiti/prompt_registry.py` directly (no Cypher, no `PipGraphManager`). Prompt edits apply **live** (the override layer reads the registry at LLM-call time) — unlike `llm-config`, which needs a restart.
 
 ## Layered architecture
 

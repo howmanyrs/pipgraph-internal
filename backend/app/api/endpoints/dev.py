@@ -47,11 +47,27 @@ from app.api.schemas.dev import (
     GetLlmConfigResponse,
     UpdateLlmConfigRequest,
     LlmConfigUpdateResponse,
+    PromptEntryResponse,
+    ListPromptsResponse,
+    GetPromptResponse,
+    UpdatePromptRequest,
+    UpdatePromptResponse,
 )
 from app.services.graphiti import get_graphiti, PipGraphManager, CrossFolderFilePathError
 from app.services.graphiti.para_tree import PARATreeBuilder
 from app.services.graphiti import llm_config as llm_cfg
+from app.services.graphiti import prompt_registry as prompt_reg
+from app.services.graphiti.response_examples import example_for
 from app.services.jobs import enqueue, JOB_GENERATE_NAME, JOB_PROCESS_EXISTING
+
+# Response models whose examples can be previewed in the prompts UI (name → type).
+# Resolves PromptEntry.response_model (a name) to the actual class for example_for().
+from graphiti_core.prompts.extract_nodes import EntitySummary, ExtractedEntities
+
+_PROMPT_RESPONSE_MODELS = {
+    "EntitySummary": EntitySummary,
+    "ExtractedEntities": ExtractedEntities,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -1859,3 +1875,104 @@ async def reset_llm_config() -> LlmConfigUpdateResponse:
     except Exception as e:
         logger.error(f"[reset_llm_config] Error: {e}", exc_info=True)
         return LlmConfigUpdateResponse(success=False, error=str(e))
+
+
+# --- Editable prompts (/dev/prompts) ---
+
+
+def _example_preview(response_model_name: "str | None") -> str:
+    """The exact response-format example the LLM is shown for this prompt (read-only).
+
+    Goes through ``example_for`` — the same entry point the LLM prompt uses — so the
+    preview can never disagree with what the model actually receives.
+    """
+    model = _PROMPT_RESPONSE_MODELS.get(response_model_name or "")
+    if model is None:
+        return ""
+    return json.dumps(example_for(model), ensure_ascii=False, indent=2)
+
+
+def _prompt_entry_response(entry: "prompt_reg.PromptEntry") -> PromptEntryResponse:
+    """Project a registry ``PromptEntry`` to its client-facing shape."""
+    return PromptEntryResponse(
+        key=entry.key,
+        title=entry.title,
+        description=entry.description,
+        mode=entry.mode.value,
+        domain_block=entry.block,
+        is_customized=entry.domain_block is not None,
+        example_preview=_example_preview(entry.response_model),
+        response_model=entry.response_model,
+        editable=entry.editable,
+    )
+
+
+@router.get("/prompts", response_model=ListPromptsResponse)
+async def list_prompts() -> ListPromptsResponse:
+    """List the tunable prompts (editable domain block + read-only format example)."""
+    try:
+        prompts = [_prompt_entry_response(e) for e in prompt_reg.REGISTRY.values()]
+        return ListPromptsResponse(success=True, prompts=prompts, error=None)
+    except Exception as e:
+        logger.error(f"[list_prompts] Error: {e}", exc_info=True)
+        return ListPromptsResponse(success=False, prompts=[], error=str(e))
+
+
+@router.get("/prompts/{key}", response_model=GetPromptResponse)
+async def get_prompt(key: str) -> GetPromptResponse:
+    """Fetch one tunable prompt by its registry key."""
+    try:
+        entry = prompt_reg.REGISTRY.get(key)
+        if entry is None:
+            return GetPromptResponse(
+                success=False, prompt=None, error=f"Unknown prompt key {key!r}"
+            )
+        return GetPromptResponse(success=True, prompt=_prompt_entry_response(entry), error=None)
+    except Exception as e:
+        logger.error(f"[get_prompt] Error: {e}", exc_info=True)
+        return GetPromptResponse(success=False, prompt=None, error=str(e))
+
+
+@router.patch("/prompts/{key}", response_model=UpdatePromptResponse)
+async def update_prompt(key: str, request: UpdatePromptRequest) -> UpdatePromptResponse:
+    """Edit a prompt's domain block. Applied **live** (no restart) and persisted.
+
+    The in-memory registry is read at LLM-call time, so the next note processing uses the
+    new block immediately; the overlay file makes it survive a restart. If persistence
+    fails, nothing is applied (``200 {success:false}``) — no silent apply-with-error.
+    """
+    try:
+        entry = prompt_reg.REGISTRY.get(key)
+        if entry is None:
+            return UpdatePromptResponse(
+                success=False, prompt=None, error=f"Unknown prompt key {key!r}"
+            )
+        if not entry.editable:
+            return UpdatePromptResponse(
+                success=False, prompt=None, error=f"Prompt {key!r} is not editable"
+            )
+        prompt_reg.set_domain_block(key, request.domain_block)
+        return UpdatePromptResponse(
+            success=True, prompt=_prompt_entry_response(entry), error=None
+        )
+    except Exception as e:
+        logger.error(f"[update_prompt] Error: {e}", exc_info=True)
+        return UpdatePromptResponse(success=False, prompt=None, error=str(e))
+
+
+@router.post("/prompts/{key}/reset", response_model=UpdatePromptResponse)
+async def reset_prompt(key: str) -> UpdatePromptResponse:
+    """Reset a prompt's domain block to its code default (drops the key from the overlay)."""
+    try:
+        entry = prompt_reg.REGISTRY.get(key)
+        if entry is None:
+            return UpdatePromptResponse(
+                success=False, prompt=None, error=f"Unknown prompt key {key!r}"
+            )
+        prompt_reg.reset_domain_block(key)
+        return UpdatePromptResponse(
+            success=True, prompt=_prompt_entry_response(entry), error=None
+        )
+    except Exception as e:
+        logger.error(f"[reset_prompt] Error: {e}", exc_info=True)
+        return UpdatePromptResponse(success=False, prompt=None, error=str(e))
