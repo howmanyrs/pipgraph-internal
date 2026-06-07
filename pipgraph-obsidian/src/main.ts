@@ -180,6 +180,9 @@ export default class PipGraphPlugin extends Plugin {
       this.processing.failedPaths,
       this.naming.paths,
     );
+    // In ghost mode the placed note is hidden under root; surface its in-flight
+    // state as a spinning row inside its ghost folder instead.
+    this.focusSuggest?.refreshProcessing();
   }
 
   /** Re-render every open triage panel (settings changed, a note was placed). */

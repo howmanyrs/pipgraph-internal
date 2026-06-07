@@ -455,6 +455,36 @@ body.pipgraph-focus-suggest .pipgraph-fs-hidden {
   display: none;
 }
 
+/* A just-placed note shown inside its ghost folder while its heavy processing
+   job is in flight (M5b). The note name + the same ⟳ glyph the real-tree
+   file-marker uses (.pipgraph-processing); the row is removed on the next
+   re-render once the job settles. */
+.pipgraph-ghost-note {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  padding: var(--size-2-1) var(--size-2-2);
+  padding-left: calc(
+    var(--size-2-2) + var(--pipgraph-ghost-depth, 0) * var(--size-4-3)
+  );
+  opacity: 0.7;
+  font-size: var(--font-ui-small);
+}
+
+.pipgraph-ghost-note-name {
+  flex: 1 1 auto;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipgraph-ghost-note-status {
+  flex: 0 0 auto;
+  color: var(--text-accent);
+  font-size: var(--font-ui-smaller);
+}
+
 /* Drop target while dragging an Inbox note onto a ghost candidate folder. */
 .pipgraph-ghost-folder.pipgraph-ghost-drop-target {
   opacity: 1;
