@@ -9,6 +9,11 @@ export interface PipGraphSettings {
   // explicit only (right-click → "Sync folder to backend"). Freshly-created
   // "Untitled" folders are never auto-mirrored regardless of this flag.
   autoMirrorFolders: boolean;
+  // Panel-global "Focus suggest" toggle (M5b): when on AND a triage panel is
+  // open, the real PARA subtree under root is hidden and a ghost-tree of folder
+  // candidates (with match %) is drawn in its place. Persisted across sessions;
+  // closing the panel deactivates the mode without flipping this flag.
+  focusSuggest: boolean;
   initialized: boolean;
 }
 
@@ -19,6 +24,7 @@ export const DEFAULT_SETTINGS: PipGraphSettings = {
   inboxRelativePath: "Inbox",
   draftsRelativePath: "drafts",
   autoMirrorFolders: false,
+  focusSuggest: false,
   initialized: false,
 };
 

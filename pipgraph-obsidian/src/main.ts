@@ -12,6 +12,7 @@ import { registerCommands } from "./commands/register";
 import { FolderMirror } from "./folder-mirror/FolderMirror";
 import { FileDecorator } from "./folder-mirror/fileDecoration";
 import { DragToPlace } from "./drag/DragToPlace";
+import { FocusSuggestController } from "./focus-suggest/FocusSuggestController";
 import { CaptureOutbox } from "./outbox/CaptureOutbox";
 import { ProcessingTracker } from "./outbox/ProcessingTracker";
 import { NamingTracker } from "./outbox/NamingTracker";
@@ -25,10 +26,13 @@ export default class PipGraphPlugin extends Plugin {
   folderMirror!: FolderMirror;
   fileDecorator!: FileDecorator;
   dragToPlace!: DragToPlace;
+  focusSuggest!: FocusSuggestController;
   /** Statusbar counter for in-flight capture + processing work (hidden when none). */
   private outboxStatusEl: HTMLElement | null = null;
   /** Folder last clicked in the explorer; the inspector tab reflects it. */
   lastInspectedFolderPath: string | null = null;
+  /** Note last picked in the Inbox tab; focus-suggest's fallback scoring target. */
+  lastInboxSelectionPath: string | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -71,6 +75,9 @@ export default class PipGraphPlugin extends Plugin {
 
     this.dragToPlace = new DragToPlace(this);
     this.dragToPlace.start();
+
+    this.focusSuggest = new FocusSuggestController(this);
+    this.focusSuggest.start();
 
     this.registerFolderClickInspector();
 
@@ -122,6 +129,7 @@ export default class PipGraphPlugin extends Plugin {
     this.app.workspace.detachLeavesOfType(TRIAGE_VIEW_TYPE);
     this.folderMirror?.stop();
     this.fileDecorator?.stop();
+    this.focusSuggest?.stop();
   }
 
   async loadSettings(): Promise<void> {

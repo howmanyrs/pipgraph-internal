@@ -69,11 +69,14 @@ export class TriagePanelView extends ItemView {
     // Pick up the folder the user last clicked while the panel was closed.
     this.inspectedPath = this.plugin.lastInspectedFolderPath;
     this.render();
+    // Focus-suggest is active only while a panel is open (Q7).
+    this.plugin.focusSuggest.onPanelOpened();
   }
 
   async onClose(): Promise<void> {
     this.panelContentEl = null;
     this.tabButtons = {};
+    this.plugin.focusSuggest.onPanelClosed();
   }
 
   /** Full re-render (settings changed, tab structure). */
@@ -118,9 +121,35 @@ export class TriagePanelView extends ItemView {
     }
 
     this.renderDevStrip(root);
+    this.renderModeToggle(root);
     this.renderTabBar(root);
     this.panelContentEl = root.createDiv({ cls: "pipgraph-panel__content" });
     void this.renderContent();
+  }
+
+  // --------------------------------------------------------------------------
+  // Focus-suggest toggle (panel-global — sits above the tab bar). While a panel
+  // is open the explorer becomes a decision tool for the active/selected note;
+  // the toggle picks the renderer (M5b): OFF = match-% badges on the real folder
+  // tree (Phase 1), ON = ghost-tree that replaces it (Phase 2). Persisted;
+  // active only while a panel is open.
+  // --------------------------------------------------------------------------
+
+  private renderModeToggle(root: HTMLElement): void {
+    const bar = root.createDiv({ cls: "pipgraph-panel__mode" });
+    const label = bar.createEl("label", { cls: "pipgraph-panel__mode-label" });
+    label.setAttr(
+      "title",
+      "While the panel is open, candidate folders are scored for the active note.\n" +
+        "Off: match-% badges on the real folder tree.\n" +
+        "On: a ghost-tree of candidates replaces the real tree.",
+    );
+    const checkbox = label.createEl("input", { type: "checkbox" });
+    checkbox.checked = this.plugin.focusSuggest.enabled;
+    label.createSpan({ text: "Focus suggest: ghost tree" });
+    checkbox.addEventListener("change", () => {
+      void this.plugin.focusSuggest.setEnabled(checkbox.checked);
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -352,6 +381,9 @@ export class TriagePanelView extends ItemView {
     }
 
     row.addEventListener("click", () => {
+      // Remember this as the focus-suggest fallback target (when no md note is
+      // active in the editor); opening it also makes it the active file.
+      this.plugin.lastInboxSelectionPath = file.path;
       void this.plugin.app.workspace.getLeaf(false).openFile(file);
     });
     // Drag onto a PARA folder to move+link (DragToPlace handles the drop).
