@@ -24,7 +24,7 @@ pipgraph/
 │   ├── src/lib/api.ts    ← backend API wrapper
 │   └── CLAUDE.md
 │
-├── pipgraph-obsidian/    ← Obsidian plugin (TypeScript, pre-implementation, becoming primary client)
+├── pipgraph-obsidian/    ← Obsidian plugin (TypeScript, iterative build — the primary client)
 │   ├── src/backend/PipGraphClient.ts
 │   ├── .docs/{suggestions,plans,overview,extra}/   ← gitignored design + roadmap
 │   └── CLAUDE.md
@@ -137,7 +137,7 @@ CLOUDRU_API_KEY=...               # or OPENROUTER_API_KEY, depending on provider
 CLOUDRU_BASE_URL=https://.../v1
 ```
 
-The LLM provider/keys/models are also editable at runtime from the Obsidian plugin via `PATCH /dev/llm-config`, which writes a gitignored overlay (`backend/config/llm_config.json`) applied on backend restart. `.env` stays the default.
+The LLM provider/keys/models are also editable at runtime from the Obsidian plugin via `PATCH /dev/llm-config`, which writes a gitignored overlay (`backend/config/llm_config.json`) applied on backend restart. `.env` stays the default. The extraction prompts' domain guidance is likewise tunable from the plugin via `PATCH /dev/prompts` (gitignored overlay `backend/config/prompt_overrides.json`) — but applied **live, without a restart**.
 
 Web `.env.local`:
 ```bash

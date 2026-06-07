@@ -10,7 +10,7 @@
 - Owns all LLM calls — clients never invoke an LLM provider themselves.
 - Exposes one HTTP surface (`/api/v1/dev`) that both clients consume:
   - [`../pipgraph-web/`](../pipgraph-web) — Next.js browser prototype.
-  - [`../pipgraph-obsidian/`](../pipgraph-obsidian) — Obsidian plugin (pre-implementation, becoming the primary client).
+  - [`../pipgraph-obsidian/`](../pipgraph-obsidian) — Obsidian plugin (iterative build — now the primary client driving the contract).
 
 Anything that touches Neo4j or an LLM **must go through this service**. Clients that bypass it are buggy by definition.
 
