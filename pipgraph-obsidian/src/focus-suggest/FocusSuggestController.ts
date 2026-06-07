@@ -189,9 +189,22 @@ export class FocusSuggestController {
         onSkip: () => this.skip(),
         onDropNote: (node, sourcePath) => void this.dropNote(node, sourcePath),
       },
-      { loading: this.loading },
+      {
+        loading: this.loading,
+        processingPaths: this.plugin.processing.processingPaths,
+      },
     );
     this.ghost.setTree(tree);
+  }
+
+  /**
+   * A processing job changed state (placed / settled / failed): repaint the
+   * ghost tree so the in-flight note rows (spinning `⟳`) appear and disappear.
+   * Cheap — reuses the current scores, no re-fetch. No-op unless the ghost
+   * renderer is the one running.
+   */
+  refreshProcessing(): void {
+    if (this.renderer === "ghost") this.renderGhost();
   }
 
   private renderBadges(): void {

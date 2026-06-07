@@ -39,6 +39,13 @@ export interface GhostTreeCallbacks {
 export interface GhostTreeOptions {
   /** True while a make-suggestions call is in flight (shows a loading hint). */
   loading?: boolean;
+  /**
+   * Vault paths of notes whose heavy processing job is in flight. Each is shown
+   * as a row inside its (ghost) folder with a spinning circular-arrow icon —
+   * the "I just placed this here, it's being processed" cue. Driven by the
+   * {@link ProcessingTracker}; the row disappears when the job settles.
+   */
+  processingPaths?: Set<string>;
 }
 
 // A branch is drawn expanded if it (or any descendant) scores at least this.
@@ -68,8 +75,9 @@ export function buildGhostTree(
     return container;
   }
 
+  const processing = options.processingPaths ?? new Set<string>();
   for (const node of nodes) {
-    renderNode(container, node, 0, target, callbacks);
+    renderNode(container, node, 0, target, callbacks, processing);
   }
   return container;
 }
@@ -135,12 +143,20 @@ function renderNode(
   depth: number,
   target: TFile | null,
   cb: GhostTreeCallbacks,
+  processing: Set<string>,
 ): void {
   const row = parent.createDiv({ cls: "pipgraph-ghost-folder" });
   row.style.setProperty("--pipgraph-ghost-depth", String(depth));
 
-  const hasChildren = node.children.length > 0;
-  const expanded = maxScore(node) >= EXPAND_THRESHOLD;
+  // Notes currently processing whose folder is exactly this one (just placed
+  // here). They render as child rows with a spinning icon, so the folder is
+  // forced open to make the fresh placement visible.
+  const processingHere = [...processing].filter(
+    (p) => p.slice(0, p.lastIndexOf("/")) === node.path,
+  );
+  const hasChildren = node.children.length > 0 || processingHere.length > 0;
+  const expanded =
+    processingHere.length > 0 || maxScore(node) >= EXPAND_THRESHOLD;
 
   const twistie = row.createSpan({ cls: "pipgraph-ghost-twistie" });
   if (hasChildren) setIcon(twistie, expanded ? "chevron-down" : "chevron-right");
@@ -225,7 +241,11 @@ function renderNode(
     const childrenEl = parent.createDiv({ cls: "pipgraph-ghost-children" });
     if (!expanded) childrenEl.addClass("is-collapsed");
     for (const child of node.children) {
-      renderNode(childrenEl, child, depth + 1, target, cb);
+      renderNode(childrenEl, child, depth + 1, target, cb, processing);
+    }
+    // Sub-folders first (explorer convention), then the in-flight notes.
+    for (const path of processingHere) {
+      renderProcessingNote(childrenEl, path, depth + 1);
     }
     twistie.addEventListener("click", (ev) => {
       ev.preventDefault();
@@ -235,6 +255,29 @@ function renderNode(
       setIcon(twistie, collapsed ? "chevron-right" : "chevron-down");
     });
   }
+}
+
+/**
+ * A note placed into this folder whose processing job is in flight. Non-
+ * interactive: the note name followed by the same `⟳` glyph the real-tree
+ * file-marker uses (styles.css `.pipgraph-processing`), signalling "this just
+ * landed here and is being processed". Disappears on the next re-render once the
+ * {@link ProcessingTracker} drops its path (settled).
+ */
+function renderProcessingNote(
+  parent: HTMLElement,
+  path: string,
+  depth: number,
+): void {
+  const name = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+  const row = parent.createDiv({ cls: "pipgraph-ghost-note" });
+  row.style.setProperty("--pipgraph-ghost-depth", String(depth));
+  // Empty twistie-width spacer so the name lines up under the folder name.
+  row.createSpan({ cls: "pipgraph-ghost-twistie" });
+  row.createSpan({ cls: "pipgraph-ghost-note-name", text: name });
+  // Reuse the real-tree processing glyph (⟳, accent, not animated).
+  row.createSpan({ cls: "pipgraph-ghost-note-status", text: "⟳" });
+  row.setAttr("aria-label", `${name} — processing…`);
 }
 
 function scoreClass(score: number): string {
