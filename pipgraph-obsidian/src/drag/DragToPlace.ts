@@ -177,6 +177,10 @@ export class DragToPlace {
     }
 
     this.plugin.processing.track(episode.uuid, targetPath);
+    // If this note was fallback-named (`❗`), placing it overwrites
+    // `failed:generate_episode_name` with `process_existing_episode` — so the
+    // fallback marker yields to the processing `⟳`. Drop it from the naming set.
+    this.plugin.naming.clear(episode.uuid);
     new Notice(`Placed in ${folder.name} — processing…`);
     this.plugin.refreshTriagePanels();
   }

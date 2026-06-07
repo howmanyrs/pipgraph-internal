@@ -146,6 +146,56 @@
   font-size: var(--font-ui-smaller);
 }
 
+/* Phantom rows: a capture that is in flight (⟳) or failed to be created (⚠).
+   They back no file — inflight is non-interactive, failed-create is retriable. */
+.pipgraph-inbox-phantom {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.pipgraph-inbox-phantom__icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.pipgraph-inbox-phantom--inflight .pipgraph-inbox-phantom__icon {
+  color: var(--text-accent);
+}
+
+.pipgraph-inbox-phantom--failed .pipgraph-inbox-phantom__icon {
+  color: var(--text-error);
+}
+
+.pipgraph-inbox-phantom__hint {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+.pipgraph-inbox-phantom.is-clickable {
+  cursor: pointer;
+}
+
+/* Fallback-name marker on a real Inbox row — the panel-side twin of the
+   file-tree `❗` (NamingTracker-driven). Right-click the row → "Regenerate name
+   with LLM". Same glyph + warning colour as .nav-file-title.pipgraph-fallback-name. */
+.pipgraph-inbox-row__fallback {
+  margin-left: var(--size-2-2);
+  color: var(--text-warning);
+  font-size: var(--font-ui-smaller);
+  cursor: help;
+}
+
+/* In-flight `⟳` on an Inbox row while its naming job re-runs (Regenerate name).
+   Same accent as a processing note — the regenerate uses the same server queue. */
+.pipgraph-inbox-row__regen {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--size-2-2);
+  color: var(--text-accent);
+}
+
 /* ---- Entity Inspector tab -------------------------------------------- */
 
 .pipgraph-inspector-card {
@@ -259,5 +309,15 @@
   content: "⚠";
   margin-left: var(--size-2-2);
   color: var(--text-error);
+  font-size: var(--font-ui-smaller);
+}
+
+/* Marker for a materialised note whose name is a *text fallback* — the backend
+   couldn't auto-name it (inbox-in-process, NamingTracker-driven). Right-click →
+   "Regenerate name with LLM", or place the note, to clear it. */
+.nav-file-title.pipgraph-fallback-name .nav-file-title-content::after {
+  content: "❗";
+  margin-left: var(--size-2-2);
+  color: var(--text-warning);
   font-size: var(--font-ui-smaller);
 }

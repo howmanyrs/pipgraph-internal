@@ -181,7 +181,7 @@ class PipGraphManager:
         episode_body: str,
         source_description: str,
         reference_time: datetime,
-        source: EpisodeType = EpisodeType.message,
+        source: EpisodeType = EpisodeType.text,
         group_id: str | None = None,
         uuid: str | None = None,
         update_communities: bool = False,
@@ -210,7 +210,9 @@ class PipGraphManager:
         reference_time : datetime
             The reference time for the episode.
         source : EpisodeType, optional
-            The type of the episode. Defaults to EpisodeType.message.
+            The type of the episode. Defaults to EpisodeType.text — notes are free-form
+            prose, so the entity extractor is `extract_nodes.extract_text` (not the
+            chat-oriented `extract_message`, which assumes a speaker + dialogue history).
         group_id : str | None
             An id for the graph partition the episode is a part of.
         uuid : str | None
@@ -494,7 +496,7 @@ class PipGraphManager:
         # Auto-generate name if not provided
         if not name:
             logger.info("[create_episode] Auto-generating episode name from content")
-            name = await generate_episode_name(
+            name, _used_fallback = await generate_episode_name(
                 episode_body=content,
                 llm_client=self.clients.llm_client
             )
@@ -1861,6 +1863,52 @@ class PipGraphManager:
             return False
 
         logger.info(f"[finalize_episode_name] uuid={episodic_uuid} name='{name}' (status cleared)")
+        return True
+
+    async def set_episode_name(
+        self,
+        episodic_uuid: str,
+        name: str,
+    ) -> bool:
+        """
+        Set an Episodic's ``name`` **without touching its ``status``**.
+
+        Counterpart to :meth:`finalize_episode_name` for the fallback branch of
+        the naming job: when the LLM fails and we fall back to a text-derived
+        name, we still want a usable, real name on the node — but we deliberately
+        **keep** ``status="failed:generate_episode_name"`` so the client can
+        surface the fallback (the ``❗`` marker) and offer a regenerate. The
+        node thus carries a usable name *and* the failed status (graph and file
+        agree on the name; the marker is status-driven).
+
+        Narrow by design — touches only ``name``. UUID, edges, ``status`` and all
+        other properties are preserved.
+
+        Args:
+            episodic_uuid: UUID of the Episodic.
+            name: Name to set.
+
+        Returns:
+            True if a node was updated, False if no Episodic with that UUID exists.
+        """
+        async with self.driver.session() as session:
+            record = await (
+                await session.run(
+                    """
+                    MATCH (e:Episodic {uuid: $uuid})
+                    SET e.name = $name
+                    RETURN e.uuid AS uuid
+                    """,
+                    uuid=episodic_uuid,
+                    name=name,
+                )
+            ).single()
+
+        if not record:
+            logger.warning(f"[set_episode_name] Not found: uuid={episodic_uuid}")
+            return False
+
+        logger.info(f"[set_episode_name] uuid={episodic_uuid} name='{name}' (status kept)")
         return True
 
     async def set_episodic_status(
