@@ -129,6 +129,10 @@ If a new endpoint needs a database operation that doesn't exist yet, **add a met
 (:Episodic {uuid, name, content, created_at, valid_at, source, source_description, group_id, file_path?, frontmatter?, status?})
   // status: transient job flag — active job's type key ("generate_episode_name"/"process_existing_episode"),
   //         "failed:<job>" on error, absent = settled. Managed by the job-runner (app/services/jobs/status.py).
+  //         Note: "failed:generate_episode_name" is reused for a *fallback-named* node too — the naming job
+  //         no longer masks an LLM failure: it stores the text-derived fallback name but keeps this status,
+  //         so the node carries a usable name AND the failed flag (client drives a ❗ marker + "Regenerate
+  //         name with LLM"). A *cleared* status = a real LLM name. No new property/value/endpoint.
 
 (:Entity:Project)   ┐
 (:Entity:Area)      │ {uuid, name, summary, name_embedding, attributes, created_at}

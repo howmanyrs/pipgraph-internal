@@ -14,12 +14,14 @@ import { FileDecorator } from "./folder-mirror/fileDecoration";
 import { DragToPlace } from "./drag/DragToPlace";
 import { CaptureOutbox } from "./outbox/CaptureOutbox";
 import { ProcessingTracker } from "./outbox/ProcessingTracker";
+import { NamingTracker } from "./outbox/NamingTracker";
 
 export default class PipGraphPlugin extends Plugin {
   settings!: PipGraphSettings;
   client!: PipGraphClient;
   outbox!: CaptureOutbox;
   processing!: ProcessingTracker;
+  naming!: NamingTracker;
   folderMirror!: FolderMirror;
   fileDecorator!: FileDecorator;
   dragToPlace!: DragToPlace;
@@ -33,10 +35,20 @@ export default class PipGraphPlugin extends Plugin {
     this.client = new PipGraphClient(this.settings);
     this.outbox = new CaptureOutbox(this);
     this.processing = new ProcessingTracker(this);
+    this.naming = new NamingTracker(this);
     this.fileDecorator = new FileDecorator(this.app);
     this.outboxStatusEl = this.addStatusBarItem();
-    this.outbox.onChange = () => this.renderOutboxStatus();
+    this.outbox.onChange = () => {
+      this.renderOutboxStatus();
+      this.refreshInboxTabs();
+    };
     this.processing.onChange = () => this.refreshProcessingUi();
+    this.naming.onChange = () => {
+      this.refreshProcessingUi();
+      // The fallback `❗` also shows on the panel's Inbox row — keep it in sync
+      // when the set changes (reconcile on load, regenerate clears it).
+      this.refreshInboxTabs();
+    };
     this.renderOutboxStatus();
 
     this.registerView(
@@ -68,6 +80,9 @@ export default class PipGraphPlugin extends Plugin {
     // Re-seed the processing watch set from the server's in-flight status, so
     // markers resume for notes whose heavy job was enqueued before a restart.
     void this.processing.reconcile();
+    // Re-seed the fallback-name markers (materialised notes still flagged
+    // `failed:generate_episode_name`) so the `❗` resumes after a restart.
+    void this.naming.reconcile();
   }
 
   /**
@@ -132,19 +147,30 @@ export default class PipGraphPlugin extends Plugin {
    */
   private renderOutboxStatus(): void {
     if (!this.outboxStatusEl) return;
-    const n = this.outbox.pendingCount + this.processing.inFlightCount;
+    const n =
+      this.outbox.pendingCount +
+      this.processing.inFlightCount +
+      this.naming.regeneratingCount;
     this.outboxStatusEl.setText(n > 0 ? `PipGraph: ${n} processing…` : "");
   }
 
   /**
-   * Processing state changed: refresh the statusbar counter and re-paint the
-   * file-explorer markers (in-flight / failed) from the tracker's path sets.
+   * Processing/naming state changed: refresh the statusbar counter and re-paint
+   * the file-explorer markers (in-flight / failed / fallback-name) from the
+   * trackers' path sets.
    */
   private refreshProcessingUi(): void {
     this.renderOutboxStatus();
+    // A regenerate-in-flight note shows the same `⟳` as a processing one (it's
+    // the same naming queue), overriding its `❗` until the job settles.
+    const processing = new Set([
+      ...this.processing.processingPaths,
+      ...this.naming.regeneratingPaths,
+    ]);
     this.fileDecorator.setMarkedPaths(
-      this.processing.processingPaths,
+      processing,
       this.processing.failedPaths,
+      this.naming.paths,
     );
   }
 
@@ -154,6 +180,20 @@ export default class PipGraphPlugin extends Plugin {
       const view = leaf.view;
       if (view instanceof TriagePanelView) {
         view.refresh();
+      }
+    });
+  }
+
+  /**
+   * Re-render only the Inbox tab of open panels (a capture phantom changed).
+   * Cheaper than {@link refreshTriagePanels} — it skips the dev-strip re-ping
+   * and leaves the Entity Inspector tab alone.
+   */
+  refreshInboxTabs(): void {
+    this.app.workspace.getLeavesOfType(TRIAGE_VIEW_TYPE).forEach((leaf) => {
+      const view = leaf.view;
+      if (view instanceof TriagePanelView) {
+        view.refreshInboxContent();
       }
     });
   }

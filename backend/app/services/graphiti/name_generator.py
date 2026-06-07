@@ -159,7 +159,7 @@ async def generate_episode_name(
     episode_body: str,
     llm_client: OpenAIGenericClient,
     max_length: int = 100
-) -> str:
+) -> tuple[str, bool]:
     """
     Generate a meaningful, filesystem-compatible name for an episode.
 
@@ -172,21 +172,26 @@ async def generate_episode_name(
     3. Sanitize the name for filesystem compatibility
     4. Return sanitized name
 
+    This routine **never raises** for an LLM failure — it falls back to a name
+    derived from the first words of the content (``_generate_fallback_name``).
+    The second tuple element reports *which* path produced the name so callers
+    can surface the difference (the async naming job keeps the node marked
+    ``failed:generate_episode_name`` on a fallback instead of masking it; the
+    sync ``create_episode`` path ignores the flag).
+
     Args:
         episode_body: Full content of the note/episode
         llm_client: Configured Graphiti LLM client (e.g., PatchedLLMClient)
         max_length: Maximum length for filename (default: 100 chars)
 
     Returns:
-        Sanitized episode name suitable for use as filename
-
-    Raises:
-        Exception: If LLM call fails or returns invalid data
+        ``(name, used_fallback)`` — the sanitized name, and ``True`` when the LLM
+        call failed and the name is a text-derived fallback.
 
     Example:
         >>> from app.services.graphiti.setup_graphiti import get_graphiti
         >>> graphiti = await get_graphiti()
-        >>> name = await generate_episode_name(
+        >>> name, used_fallback = await generate_episode_name(
         ...     episode_body="Today we discussed the new API architecture...",
         ...     llm_client=graphiti.clients.llm_client
         ... )
@@ -220,14 +225,14 @@ async def generate_episode_name(
                 f"[generate_episode_name] Sanitized: '{result.name}' → '{sanitized_name}'"
             )
 
-        return sanitized_name
+        return sanitized_name, False
 
     except Exception as e:
         logger.error(f"[generate_episode_name] Error generating name: {e}", exc_info=True)
         # Fallback: use first few words of content
         fallback_name = _generate_fallback_name(episode_body)
         logger.warning(f"[generate_episode_name] Using fallback name: '{fallback_name}'")
-        return fallback_name
+        return fallback_name, True
 
 
 def _generate_fallback_name(episode_body: str, max_words: int = 5) -> str:

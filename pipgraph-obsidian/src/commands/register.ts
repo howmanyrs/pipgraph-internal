@@ -5,7 +5,15 @@ import {
   getInboxPath,
 } from "../settings/PipGraphSettings";
 import { NewInboxNoteModal } from "../modals/NewInboxNoteModal";
-import { PipGraphApiError } from "../backend";
+import {
+  PipGraphApiError,
+  isFailedStatus,
+  isSettledStatus,
+} from "../backend";
+import { resolveUniqueFilePath, sanitiseForFilename } from "../vault/paths";
+
+const REGEN_POLL_INTERVAL_MS = 1500;
+const REGEN_POLL_MAX_ATTEMPTS = 60; // ~90s, mirrors the capture outbox
 
 export function registerCommands(plugin: PipGraphPlugin): void {
   plugin.addCommand({
@@ -89,6 +97,7 @@ export function registerCommands(plugin: PipGraphPlugin): void {
   });
 
   registerFailedNoteMenu(plugin);
+  registerFallbackNameMenu(plugin);
 }
 
 /**
@@ -127,6 +136,158 @@ async function processFailedNote(
       ? `Processing "${name}"…`
       : `Couldn't re-queue "${name}" (backend unreachable?).`,
   );
+}
+
+/**
+ * Per-file "Regenerate name with LLM" item, shown only for materialised
+ * fallback-named notes — those the NamingTracker flags `❗` (inbox-in-process,
+ * Model 2). Re-runs the naming job and, on success, renames the file in-folder
+ * to the new LLM name. Mirror of {@link registerFailedNoteMenu}: visibility +
+ * target both come from the tracker's in-memory uuid↔path map.
+ */
+function registerFallbackNameMenu(plugin: PipGraphPlugin): void {
+  plugin.registerEvent(
+    plugin.app.workspace.on("file-menu", (menu, file) => {
+      if (!(file instanceof TFile) || file.extension !== "md") return;
+      const uuid = plugin.naming.uuidForPath(file.path);
+      if (!uuid) return;
+      menu.addItem((item) => {
+        item
+          .setTitle("Regenerate name with LLM")
+          .setIcon("sparkles")
+          .onClick(() => {
+            void regenerateName(plugin, uuid, file);
+          });
+      });
+    }),
+  );
+}
+
+/**
+ * Re-enqueue the naming job for a fallback-named note and, on a fresh LLM name,
+ * rename the file **in the same folder** (the E6 guard allows first-bind +
+ * same-folder rename) and sync `file_path`. Obsidian fixes `[[links]]` across
+ * the rename. On another fallback the file is left untouched and the `❗` stays.
+ *
+ * No new endpoint: re-POST /episode with the current `file_path` preserved
+ * re-enqueues naming (idempotent MERGE on uuid).
+ */
+export async function regenerateName(
+  plugin: PipGraphPlugin,
+  uuid: string,
+  file: TFile,
+): Promise<void> {
+  // Captured up front: the file may be renamed before we unmark, so we always
+  // clear the `⟳` against the *original* path (where it was set).
+  const startPath = file.path;
+  await withRegenerating(plugin, startPath, () =>
+    runRegeneration(plugin, uuid, file),
+  );
+}
+
+/** Show the in-flight `⟳`/statusbar while `job` runs, clearing it on any exit. */
+async function withRegenerating(
+  plugin: PipGraphPlugin,
+  path: string,
+  job: () => Promise<void>,
+): Promise<void> {
+  plugin.naming.markRegenerating(path);
+  try {
+    await job();
+  } finally {
+    plugin.naming.unmarkRegenerating(path);
+  }
+}
+
+async function runRegeneration(
+  plugin: PipGraphPlugin,
+  uuid: string,
+  file: TFile,
+): Promise<void> {
+  const { app, client } = plugin;
+
+  let content: string;
+  try {
+    content = await app.vault.read(file);
+  } catch (err) {
+    new Notice(`Couldn't read the note: ${describeError(err)}`);
+    return;
+  }
+
+  new Notice(`Regenerating a name for "${file.basename}"…`);
+  try {
+    // Re-enqueue naming, preserving file_path so the node stays bound here.
+    await client.createEpisode({
+      uuid,
+      content,
+      file_path: file.path,
+      generate_name: true,
+    });
+  } catch (err) {
+    new Notice(`Couldn't start regeneration: ${describeError(err)}`);
+    return;
+  }
+
+  // Poll until the naming job settles (cleared = real name; failed = fallback).
+  for (let attempt = 0; attempt < REGEN_POLL_MAX_ATTEMPTS; attempt++) {
+    await sleep(REGEN_POLL_INTERVAL_MS);
+    let episodic;
+    try {
+      episodic = await client.getEpisodicByUuid(uuid);
+    } catch {
+      continue; // transient hiccup — keep polling
+    }
+    if (!episodic) continue;
+
+    if (isFailedStatus(episodic.status)) {
+      // Fell back again — leave the file and the `❗` as they are.
+      new Notice("Still couldn't auto-name this note. The fallback name stays.");
+      return;
+    }
+    if (isSettledStatus(episodic.status)) {
+      await applyRegeneratedName(plugin, uuid, file, episodic.name);
+      return;
+    }
+  }
+  new Notice("Naming is taking a while — it'll resync on the next reload.");
+}
+
+/** Same-folder rename to the new LLM name + file_path sync; clears the `❗`. */
+async function applyRegeneratedName(
+  plugin: PipGraphPlugin,
+  uuid: string,
+  file: TFile,
+  name: string,
+): Promise<void> {
+  const { app, client } = plugin;
+  const dir = file.parent?.path ?? "";
+  const base = sanitiseForFilename(name);
+  const target = resolveUniqueFilePath(app.vault, dir, base);
+
+  try {
+    await app.fileManager.renameFile(file, target);
+  } catch (err) {
+    new Notice(`Got a name, but renaming the file failed: ${describeError(err)}`);
+    return;
+  }
+
+  try {
+    await client.updateEpisodic(uuid, { file_path: target });
+  } catch (err) {
+    // The file moved but the node's path lagged — naming.reconcile() re-syncs.
+    new Notice(
+      `Renamed, but recording the new path failed: ${describeError(err)}. ` +
+        `It'll resync on the next reload.`,
+    );
+    return;
+  }
+
+  plugin.naming.clear(uuid);
+  new Notice(`Renamed to "${base}".`);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function retryFailedProcessing(

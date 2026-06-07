@@ -108,10 +108,19 @@ async def _handle_generate_episode_name(args: dict[str, Any]) -> None:
 
     args: {"episodic_uuid": str, "content": str}
 
-    On success: overwrites the provisional name and clears ``status``.
-    On failure: marks the node ``status="failed:generate_episode_name"`` so the
-    client/visual layer can surface a retry and a re-enqueue knows which job to
-    re-run. Imports are local to avoid an import cycle with the manager.
+    Three outcomes — the job no longer *masks* a naming fallback (inbox-in-process):
+
+    - **Real LLM name** → ``finalize_episode_name`` overwrites the provisional name
+      and **clears** ``status`` (settled, happy path).
+    - **Fallback name** (LLM failed, ``generate_episode_name`` returned a text-derived
+      name) → store that real, usable name via ``set_episode_name`` but **keep**
+      ``status="failed:generate_episode_name"``. The node thus carries a usable name
+      *and* the failed status, so the file materialises with a real name (graph and
+      file agree) and the client drives the ``❗`` marker off the status.
+    - **Genuine infra failure** (the save itself throws) → mark
+      ``status="failed:generate_episode_name"`` (provisional name kept) and re-raise.
+
+    Imports are local to avoid an import cycle with the manager.
     """
     from app.services.graphiti import get_graphiti, PipGraphManager
     from app.services.graphiti.name_generator import generate_episode_name
@@ -123,12 +132,23 @@ async def _handle_generate_episode_name(args: dict[str, Any]) -> None:
     manager = PipGraphManager(graphiti)
 
     try:
-        name = await generate_episode_name(
+        name, used_fallback = await generate_episode_name(
             episode_body=content,
             llm_client=manager.clients.llm_client,
         )
-        await manager.finalize_episode_name(episodic_uuid, name)
-        logger.info(f"[jobs] named episode {episodic_uuid} -> '{name}'")
+        if used_fallback:
+            # Surface the fallback instead of clearing status: a real (text-derived)
+            # name lands, but the failed status stays so the client can mark it ❗
+            # and offer "Regenerate name with LLM".
+            await manager.set_episode_name(episodic_uuid, name)
+            await manager.set_episodic_status(episodic_uuid, failed(JOB_GENERATE_NAME))
+            logger.warning(
+                f"[jobs] named episode {episodic_uuid} via FALLBACK -> '{name}' "
+                f"(status kept '{failed(JOB_GENERATE_NAME)}')"
+            )
+        else:
+            await manager.finalize_episode_name(episodic_uuid, name)
+            logger.info(f"[jobs] named episode {episodic_uuid} -> '{name}'")
     except Exception:
         logger.exception(f"[jobs] naming failed for {episodic_uuid}")
         await manager.set_episodic_status(episodic_uuid, failed(JOB_GENERATE_NAME))

@@ -1,13 +1,17 @@
 import {
   App,
   ItemView,
+  Menu,
   Notice,
   WorkspaceLeaf,
   setIcon,
 } from "obsidian";
 import type PipGraphPlugin from "../main";
+import type { TFile } from "obsidian";
+import type { CaptureRecord } from "../outbox/CaptureOutbox";
 import { getInboxPath } from "../settings/PipGraphSettings";
 import { PIPGRAPH_DRAG_MIME } from "../drag/DragToPlace";
+import { regenerateName } from "../commands/register";
 import { PipGraphApiError, type EpisodicNode, type ParaEntity } from "../backend";
 
 export const TRIAGE_VIEW_TYPE = "pipgraph-triage-panel";
@@ -75,6 +79,16 @@ export class TriagePanelView extends ItemView {
   /** Full re-render (settings changed, tab structure). */
   refresh(): void {
     this.render();
+  }
+
+  /**
+   * Re-render only the Inbox tab's content (a capture phantom changed). No-op
+   * unless the Inbox tab is the active one — cheaper than {@link refresh}, and
+   * it never re-pings the backend via the dev strip.
+   */
+  refreshInboxContent(): void {
+    if (this.activeTab !== "inbox" || !this.panelContentEl) return;
+    void this.renderContent();
   }
 
   /**
@@ -265,7 +279,9 @@ export class TriagePanelView extends ItemView {
       .filter((f) => f.path.startsWith(prefix))
       .sort((a, b) => b.stat.mtime - a.stat.mtime);
 
-    if (files.length === 0) {
+    const records = this.plugin.outbox.listRecords();
+
+    if (files.length === 0 && records.length === 0) {
       host.createEl("p", {
         text: "Inbox is empty.",
         cls: "pipgraph-panel__placeholder",
@@ -274,24 +290,140 @@ export class TriagePanelView extends ItemView {
     }
 
     const list = host.createDiv({ cls: "pipgraph-inbox-list" });
+
+    // Phantom rows for in-flight / failed-create captures, above the real files.
+    for (const record of records) {
+      this.renderPhantomRow(list, record);
+    }
+
     for (const file of files) {
-      const row = list.createDiv({ cls: "pipgraph-inbox-row" });
-      row.createSpan({ cls: "pipgraph-inbox-row__title", text: file.basename });
-      const rel = file.parent?.path.slice(inboxPath.length).replace(/^\//, "");
-      if (rel) {
-        row.createSpan({ cls: "pipgraph-inbox-row__path", text: rel });
-      }
-      row.addEventListener("click", () => {
-        void this.plugin.app.workspace.getLeaf(false).openFile(file);
+      this.renderFileRow(list, file, inboxPath);
+    }
+  }
+
+  /**
+   * Render a real Inbox file row. A note whose name is a *text fallback* (the
+   * NamingTracker flags it `❗` in the file-tree) gets the same `❗` marker here,
+   * a tooltip explaining the LLM-naming failure, and a right-click → "Regenerate
+   * name with LLM" — the panel-side mirror of the file-explorer menu.
+   */
+  private renderFileRow(
+    list: HTMLElement,
+    file: TFile,
+    inboxPath: string,
+  ): void {
+    const fallbackUuid = this.plugin.naming.uuidForPath(file.path);
+    const regenerating = this.plugin.naming.isRegenerating(file.path);
+
+    const row = list.createDiv({ cls: "pipgraph-inbox-row" });
+    row.createSpan({ cls: "pipgraph-inbox-row__title", text: file.basename });
+    const rel = file.parent?.path.slice(inboxPath.length).replace(/^\//, "");
+    if (rel) {
+      row.createSpan({ cls: "pipgraph-inbox-row__path", text: rel });
+    }
+
+    if (regenerating) {
+      // Naming job re-running — show the same in-flight `⟳` an add shows, in
+      // place of the `❗`. No menu while it's working.
+      const spin = row.createSpan({ cls: "pipgraph-inbox-row__regen" });
+      setIcon(spin, "loader");
+      spin.setAttr("aria-label", "Regenerating the name with the LLM…");
+    } else if (fallbackUuid) {
+      const tooltip =
+        "Couldn't auto-name this note with the LLM — possibly an LLM provider " +
+        "connection error. Right-click to regenerate the name.";
+      row.addClass("pipgraph-inbox-row--fallback");
+      const marker = row.createSpan({
+        cls: "pipgraph-inbox-row__fallback",
+        text: "❗",
       });
-      // Drag onto a PARA folder to move+link (DragToPlace handles the drop).
-      row.draggable = true;
-      row.addEventListener("dragstart", (ev) => {
-        ev.dataTransfer?.setData(PIPGRAPH_DRAG_MIME, file.path);
-        ev.dataTransfer?.setData("text/plain", file.path);
-        if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+      marker.setAttr("aria-label", tooltip);
+      row.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        const menu = new Menu();
+        menu.addItem((item) =>
+          item
+            .setTitle("Regenerate name with LLM")
+            .setIcon("sparkles")
+            .onClick(() => void regenerateName(this.plugin, fallbackUuid, file)),
+        );
+        menu.showAtMouseEvent(ev);
       });
     }
+
+    row.addEventListener("click", () => {
+      void this.plugin.app.workspace.getLeaf(false).openFile(file);
+    });
+    // Drag onto a PARA folder to move+link (DragToPlace handles the drop).
+    row.draggable = true;
+    row.addEventListener("dragstart", (ev) => {
+      ev.dataTransfer?.setData(PIPGRAPH_DRAG_MIME, file.path);
+      ev.dataTransfer?.setData("text/plain", file.path);
+      if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+    });
+  }
+
+  /**
+   * Render a phantom row for a pre-materialisation capture (Model 2):
+   *  - `inflight`     — a static `⟳`, non-interactive (the naming job runs).
+   *  - `failed-create`— a `⚠`; left-click retries, right-click offers
+   *    Retry adding note / Save to drafts / Discard.
+   * Phantoms back no file, so they are never draggable.
+   */
+  private renderPhantomRow(list: HTMLElement, record: CaptureRecord): void {
+    const inflight = record.state === "inflight";
+    const row = list.createDiv({
+      cls: `pipgraph-inbox-row pipgraph-inbox-phantom pipgraph-inbox-phantom--${
+        inflight ? "inflight" : "failed"
+      }`,
+    });
+
+    const iconEl = row.createSpan({ cls: "pipgraph-inbox-phantom__icon" });
+    setIcon(iconEl, inflight ? "loader" : "alert-triangle");
+
+    row.createSpan({
+      cls: "pipgraph-inbox-row__title",
+      text: record.preview,
+    });
+    row.createSpan({
+      cls: "pipgraph-inbox-phantom__hint",
+      text: inflight ? "adding…" : "couldn't add",
+    });
+
+    if (inflight) {
+      row.setAttr("aria-label", "Adding this note — naming it…");
+      return; // non-interactive while in flight
+    }
+
+    row.setAttr(
+      "aria-label",
+      "Couldn't add this note to PipGraph. Click to retry, or right-click for options.",
+    );
+    row.addClass("is-clickable");
+    row.addEventListener("click", () => this.plugin.outbox.retry(record.uuid));
+    row.addEventListener("contextmenu", (ev) => {
+      ev.preventDefault();
+      const menu = new Menu();
+      menu.addItem((item) =>
+        item
+          .setTitle("Retry adding note")
+          .setIcon("refresh-cw")
+          .onClick(() => this.plugin.outbox.retry(record.uuid)),
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle("Save to drafts")
+          .setIcon("file-pen")
+          .onClick(() => void this.plugin.outbox.saveToDraft(record.uuid)),
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle("Discard")
+          .setIcon("trash")
+          .onClick(() => void this.plugin.outbox.discard(record.uuid)),
+      );
+      menu.showAtMouseEvent(ev);
+    });
   }
 
   // --------------------------------------------------------------------------
