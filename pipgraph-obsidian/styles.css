@@ -333,3 +333,174 @@
   color: var(--text-warning);
   font-size: var(--font-ui-smaller);
 }
+
+/* ---- Focus-suggest toggle (panel-global, above the tabs) ------------- */
+
+.pipgraph-panel__mode {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--size-2-3);
+}
+
+.pipgraph-panel__mode-label {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+/* ---- Focus-suggest ghost tree (M5b, in-place in the file-explorer) ---- */
+
+/* While focus-suggest is on, hide the real PARA subtree under root (Inbox and
+   everything outside root stay visible — JS tags the items to hide). */
+body.pipgraph-focus-suggest .pipgraph-fs-hidden {
+  display: none !important;
+}
+
+/* The injected ghost-tree container. Dotted border + reduced-opacity rows make
+   the phantoms clearly NOT real file rows (no icon/emoji — decision 2026-06-07). */
+.pipgraph-ghost-tree-host {
+  margin: var(--size-2-3) var(--size-4-1);
+  padding: var(--size-2-2);
+  border: 1px dotted var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+
+.pipgraph-ghost-separator {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--size-2-2);
+}
+
+.pipgraph-ghost-empty {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+.pipgraph-ghost-folder {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  padding: var(--size-2-1) var(--size-2-2);
+  padding-left: calc(
+    var(--size-2-2) + var(--pipgraph-ghost-depth, 0) * var(--size-4-3)
+  );
+  border-radius: var(--radius-s);
+  /* ghost: clearly not a real file row */
+  opacity: 0.7;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+}
+
+.pipgraph-ghost-folder:hover {
+  opacity: 1;
+  background: var(--background-modifier-hover);
+}
+
+.pipgraph-ghost-twistie {
+  display: inline-flex;
+  align-items: center;
+  width: var(--size-4-3);
+  flex: 0 0 auto;
+  color: var(--text-faint);
+}
+
+.pipgraph-ghost-twistie svg {
+  width: 0.8em;
+  height: 0.8em;
+}
+
+.pipgraph-ghost-name {
+  flex: 1 1 auto;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipgraph-ghost-score {
+  flex: 0 0 auto;
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.pipgraph-ghost-score--high {
+  color: var(--text-on-accent);
+  background: var(--color-accent);
+  border-radius: var(--radius-s);
+  padding: 0 var(--size-2-2);
+}
+
+.pipgraph-ghost-score--mid {
+  color: var(--text-accent);
+  border: 1px solid var(--text-accent);
+  border-radius: var(--radius-s);
+  padding: 0 var(--size-2-1);
+}
+
+.pipgraph-ghost-score--low {
+  color: var(--text-muted);
+}
+
+.pipgraph-ghost-score--none {
+  color: var(--text-faint);
+}
+
+.pipgraph-ghost-children.is-collapsed {
+  display: none;
+}
+
+/* Drop target while dragging an Inbox note onto a ghost candidate folder. */
+.pipgraph-ghost-folder.pipgraph-ghost-drop-target {
+  opacity: 1;
+  outline: 2px solid var(--text-accent);
+  outline-offset: -2px;
+  background: var(--background-modifier-hover);
+}
+
+/* ---- Focus-suggest real-mode badges (M5b Phase 1, toggle OFF) ---------
+   Candidate PARA folders keep their real explorer row but gain a match-%
+   badge. Treatment by score mirrors the ghost-tree (M5b score table):
+     ≥0.7 solid accent · 0.4–0.7 outlined · 0.1–0.4 dot (·) until row hover.
+   Right-click → "PipGraph: place … here" is wired via the native file-menu. */
+.pipgraph-folder-score {
+  margin-left: var(--size-2-2);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.pipgraph-folder-score--high {
+  color: var(--text-on-accent);
+  background: var(--color-accent);
+  border-radius: var(--radius-s);
+  padding: 0 var(--size-2-2);
+  font-weight: var(--font-bold);
+}
+
+.pipgraph-folder-score--mid {
+  color: var(--text-accent);
+  border: 1px solid var(--text-accent);
+  border-radius: var(--radius-s);
+  padding: 0 var(--size-2-1);
+}
+
+.pipgraph-folder-score--low {
+  color: var(--text-faint);
+}
+
+/* Low candidates show only a dot until the folder row is hovered. */
+.nav-folder-title:not(:hover) .pipgraph-folder-score--low {
+  font-size: 0;
+}
+
+.nav-folder-title:not(:hover) .pipgraph-folder-score--low::before {
+  content: "·";
+  font-size: var(--font-ui-small);
+  color: var(--text-faint);
+}
