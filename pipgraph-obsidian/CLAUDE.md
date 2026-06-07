@@ -134,6 +134,7 @@ src/
 ├── backend/                      # Typed HTTP client over the backend (PipGraphClient, transport, errors, types)
 ├── folder-mirror/                # Folder ↔ entity mirror (FolderMirror) + explorer decoration (folder summary, file processing/failed markers)
 ├── drag/                         # Drag-to-place (DragToPlace) — inbox note → PARA folder = move + MENTIONS
+├── outbox/                       # Durable capture outbox + in-flight trackers (CaptureOutbox, ProcessingTracker, NamingTracker — drive Inbox phantoms ⟳/⚠ + fallback-name ❗)
 ├── vault/                        # Path helpers shared by capture + drag (resolveUniqueFilePath)
 ├── frontmatter/                  # Read-only pipgraph.uuid reader (uuid-primary resolve, not yet active)
 └── views/TriagePanelView.ts      # Right-sidebar triage panel (tabbed: Inbox + Entity Inspector; triage queue still a stub)

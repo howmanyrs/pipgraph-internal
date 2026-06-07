@@ -40,6 +40,7 @@ from app.api.schemas.dev import (
     ListUnlinkedEpisodicResponse,
     DeleteNodeResponse,
     DeleteParaEntityResponse,
+    ClearGraphResponse,
     GetParaTreeResponse,
     LlmConfigEntry,
     LlmProviderDefaults,
@@ -1570,6 +1571,46 @@ async def delete_para_entity(entity_uuid: str) -> DeleteParaEntityResponse:
             success=False,
             entity_uuid=None,
             deleted_episodics_count=0,
+            error=str(e),
+        )
+
+
+@router.delete("/graph", response_model=ClearGraphResponse)
+async def clear_graph() -> ClearGraphResponse:
+    """
+    Wipe the ENTIRE graph — every node and relationship (debug only).
+
+    Runs a single `MATCH (n) DETACH DELETE n`, removing all Episodics, Entities
+    and their edges. Backs the Obsidian plugin's "Danger zone" reset button.
+
+    WARNING: Irreversible. There is no per-node confirmation and no soft-delete —
+    this empties the database. Intended for local debugging, not production use.
+
+    Example:
+        DELETE /api/v1/dev/graph
+
+    Returns:
+        ClearGraphResponse with the number of nodes deleted.
+    """
+    try:
+        logger.warning("[clear_graph] Wiping the entire graph (debug)")
+
+        graphiti = await get_graphiti()
+        manager = PipGraphManager(graphiti)
+
+        deleted = await manager.clear_graph()
+
+        return ClearGraphResponse(
+            success=True,
+            deleted_nodes_count=deleted,
+            error=None,
+        )
+
+    except Exception as e:
+        logger.error(f"[clear_graph] Error: {e}", exc_info=True)
+        return ClearGraphResponse(
+            success=False,
+            deleted_nodes_count=0,
             error=str(e),
         )
 

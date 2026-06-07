@@ -2202,6 +2202,31 @@ class PipGraphManager:
                 logger.warning(f"[delete_node] Node not found: uuid={node_uuid}")
                 return False, None
 
+    async def clear_graph(self) -> int:
+        """
+        Hard-delete EVERY node and relationship in the graph (debug reset).
+
+        Runs ``MATCH (n) DETACH DELETE n`` — wipes all Episodics, Entities and
+        their edges in a single statement. There is no recovery. This exists for
+        the Obsidian plugin's "Danger zone" debug tooling, not for normal flows;
+        normal deletions go through the targeted ``delete_*`` methods above.
+
+        Returns:
+            Number of nodes deleted (edges go with them via DETACH DELETE).
+        """
+        query = """
+        MATCH (n)
+        DETACH DELETE n
+        RETURN count(*) AS deleted_count
+        """
+
+        async with self.driver.session() as session:
+            result = await session.run(query)
+            record = await result.single()
+            deleted = record["deleted_count"] if record else 0
+            logger.warning(f"[clear_graph] Wiped {deleted} node(s) and all edges")
+            return deleted
+
     async def delete_para_entity_cascade(
         self, entity_uuid: str
     ) -> tuple[bool, int]:

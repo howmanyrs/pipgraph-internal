@@ -3,10 +3,12 @@ import {
   Notice,
   PluginSettingTab,
   Setting,
+  TFile,
   TFolder,
   debounce,
 } from "obsidian";
 import type PipGraphPlugin from "../main";
+import { ConfirmModal } from "../modals/ConfirmModal";
 import { FolderSuggest } from "./FolderSuggest";
 import type {
   LlmConfigState,
@@ -148,6 +150,158 @@ export class PipGraphSettingTab extends PluginSettingTab {
     // from /dev/llm-config and degrades gracefully when the backend is offline.
     this.renderLlmHeading(containerEl);
     void this.reloadLlm();
+
+    // Debug-only destructive actions, fenced off at the bottom.
+    this.renderDangerZone(containerEl);
+  }
+
+  // --------------------------------------------------------------------------
+  // Danger zone (debug resets)
+  // --------------------------------------------------------------------------
+
+  private renderDangerZone(containerEl: HTMLElement): void {
+    const section = containerEl.createDiv({ cls: "pipgraph-settings__danger" });
+    section.createEl("h3", { text: "Danger zone" });
+    section.createEl("p", {
+      cls: "setting-item-description",
+      text:
+        "Destructive debugging actions. Each is irreversible and asks for " +
+        "confirmation. Intended for local development, not everyday use.",
+    });
+
+    new Setting(section)
+      .setName("Delete all graph nodes & edges")
+      .setDesc(
+        "Wipe the entire backend graph — every Episodic, PARA entity and " +
+          "relationship. Does not touch your vault files.",
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Wipe graph")
+          .setWarning()
+          .onClick(() => void this.handleWipeGraph()),
+      );
+
+    new Setting(section)
+      .setName("Delete all notes & pending files in the PipGraph folder")
+      .setDesc(
+        `Delete every note under "${this.plugin.settings.rootFolder}", remove ` +
+          "the emptied PARA subfolders (the root folder itself is kept), and " +
+          "clear pending capture files. Deleted notes follow your Obsidian " +
+          '"Deleted files" setting. Does not touch the graph.',
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Clear vault folder")
+          .setWarning()
+          .onClick(() => void this.handleClearVault()),
+      );
+  }
+
+  private async handleWipeGraph(): Promise<void> {
+    const confirmed = await ConfirmModal.confirm(this.app, {
+      title: "Wipe the entire graph?",
+      body: [
+        "This deletes every node and relationship in the backend graph.",
+        "It cannot be undone. Your vault files are not affected.",
+      ],
+      confirmText: "Wipe graph",
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    try {
+      const result = await this.plugin.client.clearGraph();
+      new Notice(
+        `PipGraph: wiped the graph (${result.deleted_nodes_count} node(s) deleted).`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      new Notice(`PipGraph: failed to wipe the graph: ${message}`);
+    }
+  }
+
+  private async handleClearVault(): Promise<void> {
+    const rootPath = this.plugin.settings.rootFolder.trim();
+    const confirmed = await ConfirmModal.confirm(this.app, {
+      title: "Clear the PipGraph folder?",
+      body: [
+        `This deletes every note under "${rootPath}", removes the emptied ` +
+          "PARA subfolders, and clears pending capture files.",
+        "Deleted notes follow your Obsidian “Deleted files” setting. " +
+          "The graph is not affected.",
+      ],
+      confirmText: "Clear folder",
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    try {
+      const { notes, folders } = await this.clearVaultFolder(rootPath);
+      const pending = await this.plugin.outbox.purgePending();
+      new Notice(
+        `PipGraph: removed ${notes} note(s), ${folders} folder(s), ` +
+          `and ${pending} pending file(s).`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      new Notice(`PipGraph: failed to clear the folder: ${message}`);
+    }
+  }
+
+  /**
+   * Delete all markdown notes under the root folder, then remove every
+   * subfolder that ends up empty (deepest first), keeping the root itself.
+   * Uses `trashFile` so deletions honour the user's Obsidian trash preference.
+   */
+  private async clearVaultFolder(
+    rootPath: string,
+  ): Promise<{ notes: number; folders: number }> {
+    const root = this.app.vault.getAbstractFileByPath(rootPath);
+    if (!(root instanceof TFolder)) {
+      throw new Error(`Root folder "${rootPath}" does not exist.`);
+    }
+
+    const files: TFile[] = [];
+    const folders: TFolder[] = [];
+    const walk = (folder: TFolder): void => {
+      for (const child of folder.children) {
+        if (child instanceof TFolder) {
+          folders.push(child);
+          walk(child);
+        } else if (child instanceof TFile && child.extension === "md") {
+          files.push(child);
+        }
+      }
+    };
+    walk(root);
+
+    let notesRemoved = 0;
+    for (const file of files) {
+      try {
+        await this.app.fileManager.trashFile(file);
+        notesRemoved++;
+      } catch {
+        // leave a stubborn file; the user can remove it manually
+      }
+    }
+
+    // Deepest folders first, so a parent is empty by the time we reach it.
+    folders.sort((a, b) => b.path.length - a.path.length);
+    let foldersRemoved = 0;
+    for (const folder of folders) {
+      const current = this.app.vault.getAbstractFileByPath(folder.path);
+      if (current instanceof TFolder && current.children.length === 0) {
+        try {
+          await this.app.fileManager.trashFile(current);
+          foldersRemoved++;
+        } catch {
+          // non-empty (a non-md file survived) or locked — leave it
+        }
+      }
+    }
+
+    return { notes: notesRemoved, folders: foldersRemoved };
   }
 
   // --------------------------------------------------------------------------

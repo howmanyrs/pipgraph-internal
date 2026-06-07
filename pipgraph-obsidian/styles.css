@@ -27,6 +27,18 @@
   margin: 0 0 var(--size-2-2) 0;
 }
 
+.pipgraph-settings__danger {
+  margin-top: var(--size-4-6);
+  padding: var(--size-4-2) var(--size-4-3);
+  border: 1px solid var(--text-error);
+  border-radius: var(--radius-m);
+}
+
+.pipgraph-settings__danger h3 {
+  margin-top: var(--size-4-1);
+  color: var(--text-error);
+}
+
 .pipgraph-new-inbox-modal__textarea {
   width: 100%;
   min-height: 12em;

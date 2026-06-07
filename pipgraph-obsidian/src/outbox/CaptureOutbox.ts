@@ -165,6 +165,32 @@ export class CaptureOutbox {
     }
   }
 
+  /**
+   * Danger-zone reset: drop every in-memory record and delete all durable
+   * pending files (`<plugin-dir>/pending/*.md`). Does **not** touch the graph —
+   * the caller wipes that separately. Returns the number of pending files
+   * removed. Best-effort: unreadable/locked files are skipped.
+   */
+  async purgePending(): Promise<number> {
+    this.records.clear();
+    const adapter = this.plugin.app.vault.adapter;
+    const dir = this.pendingDir();
+    let removed = 0;
+    if (await adapter.exists(dir)) {
+      const listing = await adapter.list(dir);
+      for (const filePath of listing.files) {
+        try {
+          await adapter.remove(filePath);
+          removed++;
+        } catch {
+          // leave a stubborn file; the user can clear it manually
+        }
+      }
+    }
+    this.onChange?.();
+    return removed;
+  }
+
   // -- per-record user actions (Inbox tab context menu) -----------------------
 
   /** Retry a failed-create capture: re-run delivery from the top. */
