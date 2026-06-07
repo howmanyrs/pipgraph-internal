@@ -39,6 +39,88 @@
   color: var(--text-error);
 }
 
+/* Editable prompts section (/dev/prompts) */
+
+.pipgraph-prompt-card {
+  margin-top: var(--size-4-3);
+  padding: var(--size-4-2) var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+
+.pipgraph-prompt-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-2-2);
+}
+
+.pipgraph-prompt-card__title {
+  font-weight: var(--font-semibold);
+}
+
+.pipgraph-prompt-card__key {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.pipgraph-prompt-card__badge {
+  padding: 0 var(--size-2-2);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.pipgraph-prompt-card__badge--replace {
+  background: var(--text-accent);
+  color: var(--text-on-accent);
+}
+
+.pipgraph-prompt-card__badge--append {
+  background: var(--background-modifier-success);
+  color: var(--text-normal);
+}
+
+.pipgraph-prompt-card__customised {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-accent);
+}
+
+.pipgraph-prompt-card__label {
+  display: block;
+  margin-top: var(--size-4-2);
+  margin-bottom: var(--size-2-1);
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.pipgraph-prompt-card__textarea {
+  width: 100%;
+  min-height: 6em;
+  resize: vertical;
+  font-family: var(--font-text);
+  font-size: var(--font-ui-small);
+  padding: var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.pipgraph-prompt-card__example {
+  margin: 0;
+  padding: var(--size-4-2);
+  overflow-x: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary-alt);
+  font-size: var(--font-ui-smaller);
+}
+
 .pipgraph-new-inbox-modal__textarea {
   width: 100%;
   min-height: 12em;

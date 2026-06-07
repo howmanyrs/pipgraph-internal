@@ -64,3 +64,31 @@ def _example(annotation: Any, description: str | None) -> Any:
 
     # str and anything unrecognised — a placeholder carrying the field's hint.
     return f"<{description}>" if description else "<...>"
+
+
+# --- Optional manual overrides (response-format surface) -------------------------
+#
+# When a model's auto-built example is too terse to steer the LLM well, pin a
+# hand-written example here. This map is the *single* source for the example, so the
+# settings-UI preview (GET /dev/prompts) shows exactly what the LLM receives — both the
+# prompt path and the preview go through example_for() (see prompt-tuning Step 3/4).
+#
+# Empty by default: the auto-examples for EntitySummary and ExtractedEntities are
+# expressive enough today. Add an entry only if a preview proves unclear, e.g.:
+#
+#   from graphiti_core.prompts.extract_nodes import ExtractedEntities
+#   EXAMPLE_OVERRIDES = {
+#       ExtractedEntities: {"extracted_entities": [
+#           {"name": "<entity name>", "entity_type_id": 0},
+#           {"name": "<another entity>", "entity_type_id": 1}]},
+#   }
+EXAMPLE_OVERRIDES: dict[type[BaseModel], dict[str, Any]] = {}
+
+
+def example_for(model: type[BaseModel]) -> dict[str, Any]:
+    """Manual override if present, else the auto-built example.
+
+    The single entry point used by both the LLM prompt (``PatchedLLMClient``) and the
+    settings-UI preview, so the two can never disagree.
+    """
+    return EXAMPLE_OVERRIDES.get(model) or example_for_model(model)

@@ -48,6 +48,9 @@ htmlcov/
 # Runtime LLM provider overlay (holds api_key in plaintext)
 config/llm_config.json
 
+# Runtime prompt domain-block overrides (editable prompts)
+config/prompt_overrides.json
+
 # OS
 .DS_Store
 Thumbs.db

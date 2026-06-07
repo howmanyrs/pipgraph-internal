@@ -426,3 +426,53 @@ export interface LlmConfigUpdateEnvelope extends Envelope {
   saved?: LlmConfigEntry | null;
   warnings?: string[] | null;
 }
+
+// ============================================================================
+// Editable prompts (/dev/prompts)
+//
+// The backend owns the prompt text and overlays it onto graphiti at LLM-call
+// time (monkeypatch; vendor files untouched). The plugin only reads/edits each
+// prompt's `domain_block` and shows a read-only `example_preview`. Unlike
+// /llm-config, edits apply LIVE — the next note processing uses the new block
+// with no backend restart — and survive a restart via a gitignored overlay
+// file. Shapes mirror schemas/dev.py (snake_case, like the rest of this file).
+// ============================================================================
+
+// `Mode` in app/services/graphiti/prompt_registry.py — what the backend does with
+// the prompt. Fixed in code this iteration (UI shows it as a badge, can't switch it).
+export type PromptMode = "passthrough" | "append" | "replace";
+
+// `PromptEntryResponse` in schemas/dev.py — one tunable prompt. Only `domain_block`
+// is editable; the message skeleton stays in the backend. `example_preview` is the
+// exact response-format example the LLM is shown (read-only — the plugin never edits it).
+export interface PromptEntry {
+  key: string;
+  title: string;
+  description: string;
+  mode: PromptMode;
+  // Current editable domain text: the user's edit if `is_customized`, else the code default.
+  domain_block: string;
+  // True when a user edit is active; false ⇒ showing the code default.
+  is_customized: boolean;
+  // Read-only response-format example the LLM receives ("" if the prompt has none).
+  example_preview: string;
+  // Name of the response model whose example is previewed (null if none).
+  response_model?: string | null;
+  // Whether `domain_block` may be edited (a read-only prompt rejects PATCH).
+  editable: boolean;
+}
+
+// `ListPromptsResponse` in schemas/dev.py.
+export interface ListPromptsEnvelope extends Envelope {
+  prompts: PromptEntry[];
+}
+
+// `GetPromptResponse` in schemas/dev.py. Unknown key → `200 {success:false}`.
+export interface GetPromptEnvelope extends Envelope {
+  prompt?: PromptEntry | null;
+}
+
+// `UpdatePromptResponse` in schemas/dev.py (PATCH and reset) — the post-change state.
+export interface UpdatePromptEnvelope extends Envelope {
+  prompt?: PromptEntry | null;
+}

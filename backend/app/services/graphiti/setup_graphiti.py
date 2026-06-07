@@ -10,6 +10,7 @@ import os
 # IMPORTANT: Import patch BEFORE importing Graphiti
 # This fixes lucene_sanitize() bug that breaks search for words with capital letters
 from app.services.graphiti.lucene_sanitize_patch import apply_patch
+from app.services.graphiti.prompt_registry import apply_prompt_overrides
 
 from graphiti_core import Graphiti
 from graphiti_core.llm_client.config import LLMConfig
@@ -21,6 +22,10 @@ from app.services.graphiti.llm_config import resolve_active_config, snapshot_act
 
 # Ensure patch is applied after Graphiti import (idempotent, safe to call multiple times)
 apply_patch()
+
+# Override selected graphiti prompts with PipGraph's editable domain blocks (surface A).
+# Idempotent; reads prompt_library at call time so in-memory edits apply live.
+apply_prompt_overrides()
 
 # Disable telemetry
 os.environ['GRAPHITI_TELEMETRY_ENABLED'] = 'false'

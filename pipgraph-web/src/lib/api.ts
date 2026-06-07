@@ -254,6 +254,49 @@ export interface LlmConfigUpdateResponse {
   error?: string;
 }
 
+// --- Editable prompts (/dev/prompts) ---
+// Mirrors backend/app/api/schemas/dev.py. The backend owns the prompt text and
+// overlays it onto graphiti; only `domain_block` is editable, `example_preview`
+// is read-only. Edits apply live (no restart) and persist. Kept in sync with the
+// plugin client (pipgraph-obsidian/src/backend/types.ts) per the two-clients
+// invariant — the web UI does not surface these yet, but the contract is shared.
+
+export type PromptMode = 'passthrough' | 'append' | 'replace';
+
+export interface PromptEntry {
+  key: string;
+  title: string;
+  description: string;
+  mode: PromptMode;
+  domain_block: string;
+  is_customized: boolean;
+  example_preview: string;
+  response_model?: string | null;
+  editable: boolean;
+}
+
+export interface ListPromptsResponse {
+  success: boolean;
+  prompts: PromptEntry[];
+  error?: string;
+}
+
+export interface GetPromptResponse {
+  success: boolean;
+  prompt?: PromptEntry | null;
+  error?: string;
+}
+
+export interface UpdatePromptRequest {
+  domain_block: string;
+}
+
+export interface UpdatePromptResponse {
+  success: boolean;
+  prompt?: PromptEntry | null;
+  error?: string;
+}
+
 // ============================================================================
 // API Error Class
 // ============================================================================
@@ -509,6 +552,52 @@ export async function resetLlmConfig(): Promise<LlmConfigUpdateResponse> {
   });
 }
 
+/**
+ * List the tunable prompts (editable domain block + read-only format example).
+ */
+export async function listPrompts(): Promise<ListPromptsResponse> {
+  return fetchJson<ListPromptsResponse>(getApiUrl('/prompts'));
+}
+
+/**
+ * Fetch one tunable prompt by its registry key. Unknown key → success:false.
+ */
+export async function getPrompt(key: string): Promise<GetPromptResponse> {
+  return fetchJson<GetPromptResponse>(
+    getApiUrl(`/prompts/${encodeURIComponent(key)}`)
+  );
+}
+
+/**
+ * Edit a prompt's domain block. Applied live on the backend (no restart) and
+ * persisted. An empty string is a deliberate empty block — use resetPrompt to
+ * revert to the code default.
+ */
+export async function updatePrompt(
+  key: string,
+  request: UpdatePromptRequest
+): Promise<UpdatePromptResponse> {
+  return fetchJson<UpdatePromptResponse>(
+    getApiUrl(`/prompts/${encodeURIComponent(key)}`),
+    {
+      method: 'PATCH',
+      body: JSON.stringify(request),
+    }
+  );
+}
+
+/**
+ * Reset a prompt's domain block to its code default (drops it from the overlay).
+ */
+export async function resetPrompt(key: string): Promise<UpdatePromptResponse> {
+  return fetchJson<UpdatePromptResponse>(
+    getApiUrl(`/prompts/${encodeURIComponent(key)}/reset`),
+    {
+      method: 'POST',
+    }
+  );
+}
+
 // ============================================================================
 // Export all
 // ============================================================================
@@ -529,6 +618,10 @@ export const api = {
   getLlmConfig,
   updateLlmConfig,
   resetLlmConfig,
+  listPrompts,
+  getPrompt,
+  updatePrompt,
+  resetPrompt,
 };
 
 export default api;
