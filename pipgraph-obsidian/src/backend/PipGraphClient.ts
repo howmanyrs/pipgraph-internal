@@ -30,6 +30,8 @@ import type {
   CreateEpisodeEnvelope,
   CreateEpisodeInput,
   CreateEpisodeResult,
+  ClearGraphEnvelope,
+  ClearGraphResult,
   CreateParaEntityEnvelope,
   CreateParaEntityInput,
   CreateParaEntityResult,
@@ -540,6 +542,20 @@ export class PipGraphClient {
       });
     }
     return { node_uuid: env.node_uuid, node_type: env.node_type };
+  }
+
+  /**
+   * Wipe the ENTIRE graph — every node and edge (DELETE /dev/graph). Debug-only
+   * reset behind the settings "Danger zone"; there is no recovery. Returns the
+   * number of nodes deleted.
+   */
+  async clearGraph(): Promise<ClearGraphResult> {
+    const env = await this.request<ClearGraphEnvelope>({
+      method: "DELETE",
+      path: `/graph`,
+      timeoutMs: TIMEOUT_WRITE_MS,
+    });
+    return { deleted_nodes_count: env.deleted_nodes_count ?? 0 };
   }
 
   // --------------------------------------------------------------------------

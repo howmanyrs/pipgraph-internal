@@ -244,6 +244,11 @@ export interface DeleteParaEntityResult {
   deleted_episodics_count: number;
 }
 
+// `ClearGraphResponse` minus envelope. Full debug wipe — every node + edge.
+export interface ClearGraphResult {
+  deleted_nodes_count: number;
+}
+
 // ============================================================================
 // Raw response envelopes (internal — used only inside the client)
 //
@@ -338,6 +343,10 @@ export interface DeleteNodeEnvelope extends Envelope {
 export interface DeleteParaEntityEnvelope extends Envelope {
   entity_uuid?: string | null;
   deleted_episodics_count?: number | null;
+}
+
+export interface ClearGraphEnvelope extends Envelope {
+  deleted_nodes_count?: number | null;
 }
 
 export interface ProcessNoteEnvelope extends Envelope {

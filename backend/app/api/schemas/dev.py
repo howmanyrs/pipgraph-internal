@@ -855,6 +855,28 @@ class DeleteParaEntityResponse(BaseModel):
     }
 
 
+class ClearGraphResponse(BaseModel):
+    """Response from a full graph wipe (debug-only)."""
+
+    success: bool = Field(..., description="Whether the wipe completed")
+    deleted_nodes_count: int = Field(
+        0, description="Number of nodes deleted (edges go with them via DETACH DELETE)"
+    )
+    error: Optional[str] = Field(None, description="Error message if the wipe failed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "success": True,
+                    "deleted_nodes_count": 42,
+                    "error": None,
+                }
+            ]
+        }
+    }
+
+
 class GetParaTreeResponse(BaseModel):
     """Response from getting PARA tree structure."""
 

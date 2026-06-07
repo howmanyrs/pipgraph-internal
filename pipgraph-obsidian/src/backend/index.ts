@@ -14,6 +14,7 @@ export {
   isSettledStatus,
 } from "./status";
 export type {
+  ClearGraphResult,
   CreateEpisodeInput,
   CreateEpisodeResult,
   CreateParaEntityInput,
