@@ -26,7 +26,9 @@ export const DEFAULT_SETTINGS: PipGraphSettings = {
   backendUrl: "http://localhost:8001",
   apiKey: "",
   rootFolder: "PipGraph",
-  inboxRelativePath: "Inbox",
+  // "00_" prefix keeps the inbox sorted to the very top of the file explorer
+  // (and the ghost tree) — the inbox is the entry point of triage.
+  inboxRelativePath: "00_Inbox",
   draftsRelativePath: "drafts",
   autoMirrorFolders: false,
   focusSuggest: false,
