@@ -3,6 +3,7 @@ import type { TAbstractFile } from "obsidian";
 import type PipGraphPlugin from "../main";
 import { TRIAGE_VIEW_TYPE } from "../views/TriagePanelView";
 import { placeNoteInFolder } from "../drag/placeNote";
+import { getInboxPath } from "../settings/PipGraphSettings";
 import { SuggestionEngine, type FolderScores } from "./SuggestionEngine";
 import { FocusSuggestMode } from "./FocusSuggestMode";
 import { FolderScoreDecorator } from "./FolderScoreDecorator";
@@ -194,6 +195,7 @@ export class FocusSuggestController {
         loading: this.loading,
         processingPaths: this.plugin.processing.processingPaths,
         sortMode: this.plugin.settings.focusSuggestSort,
+        inboxPath: getInboxPath(this.plugin.settings),
       },
     );
     this.ghost.setTree(tree);

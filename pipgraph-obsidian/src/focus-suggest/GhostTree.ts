@@ -55,6 +55,12 @@ export interface GhostTreeOptions {
   processingPaths?: Set<string>;
   /** Row order (default `"score"` — the original ranked behaviour). */
   sortMode?: GhostSortMode;
+  /**
+   * Vault path of the Inbox folder. When set (and under root), Inbox is drawn as
+   * an informational row pinned to the top of the tree — a real working folder,
+   * not a scored candidate — so focus mode doesn't make the inbox vanish.
+   */
+  inboxPath?: string;
 }
 
 // A branch is drawn expanded if it (or any descendant) scores at least this.
@@ -74,8 +80,23 @@ export function buildGhostTree(
   const container = createDiv({ cls: "pipgraph-ghost-tree" });
   renderHeader(container, root, sortMode, options.loading ?? false, callbacks);
 
+  // The header stands in for the (hidden) root folder, so its real children —
+  // the Inbox folder and the top-level PARA folders — nest one level under it,
+  // exactly like real subfolders sit indented under their parent (CSS
+  // `.pipgraph-ghost-children`).
+  const rootChildren = container.createDiv({ cls: "pipgraph-ghost-children" });
+
+  // Inbox first, always: it's a real working folder (not a PARA candidate), so
+  // focus mode would otherwise hide it from view along with the rest of the
+  // subtree. Pinned to the top regardless of sort/score so the user always sees
+  // where their inbox is (M5b, 2026-06-09).
+  const inboxPath = options.inboxPath?.replace(/\/+$/, "");
+  if (inboxPath && inboxPath.startsWith(`${root}/`)) {
+    renderInboxNode(rootChildren, inboxPath);
+  }
+
   if (nodes.length === 0) {
-    container.createDiv({
+    rootChildren.createDiv({
       cls: "pipgraph-ghost-empty",
       text: "No PARA folders under your root yet.",
     });
@@ -83,14 +104,30 @@ export function buildGhostTree(
   }
 
   const processing = options.processingPaths ?? new Set<string>();
-  // The header stands in for the (hidden) root folder, so the top-level PARA
-  // folders are its children → nest them one level, exactly like real subfolders
-  // sit indented under their parent (CSS `.pipgraph-ghost-children`).
-  const rootChildren = container.createDiv({ cls: "pipgraph-ghost-children" });
   for (const node of nodes) {
     renderNode(rootChildren, node, target, callbacks, processing);
   }
   return container;
+}
+
+/**
+ * The Inbox folder row. Inbox is a real working folder, not a PARA candidate:
+ * it carries no match % and is never a drop target (notes flow OUT of it during
+ * triage, never in). It's rendered purely so focus mode doesn't make the inbox
+ * vanish — an informational marker pinned to the top of the ghost tree. Styled
+ * like the candidate folders for alignment, but flagged `pipgraph-ghost-inbox`
+ * and non-interactive (no click / score / drop). M5b, 2026-06-09.
+ */
+function renderInboxNode(parent: HTMLElement, inboxPath: string): void {
+  const name = inboxPath.slice(inboxPath.lastIndexOf("/") + 1) || inboxPath;
+  const row = parent.createDiv({
+    cls: "pipgraph-ghost-folder pipgraph-ghost-inbox",
+  });
+  // Empty twistie-width spacer so the name aligns with the candidate folders.
+  row.createSpan({ cls: "pipgraph-ghost-twistie" });
+  row.createSpan({ cls: "pipgraph-ghost-name", text: name });
+  row.setAttr("aria-label", `${name} — inbox (focus suggest)`);
+  row.setAttr("title", `${name} — your inbox`);
 }
 
 /**

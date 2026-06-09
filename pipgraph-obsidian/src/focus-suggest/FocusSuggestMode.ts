@@ -4,7 +4,8 @@ import type { PipGraphSettings } from "../settings/PipGraphSettings";
 /**
  * Low-level DOM host for the ghost-tree (M5b Phase 2). Two jobs while active:
  *  1. Hide the real subtree under root — the root folder and everything beneath
- *     it (including Inbox; it stays reachable via the triage panel's Inbox tab,
+ *     it (including the real Inbox folder; the ghost tree redraws an Inbox row
+ *     at its top, and it also stays reachable via the triage panel's Inbox tab,
  *     Q7 §4 revised 2026-06-07). Everything outside root stays visible.
  *     Implemented by tagging each real row wrapper whose `data-path` is hidden;
  *     a body class hides them via CSS.
@@ -115,9 +116,10 @@ export class FocusSuggestMode {
 
   /**
    * Real path hidden ⟺ it is the root folder or anything under it — including
-   * the Inbox subtree. The Inbox stays reachable via the triage panel's Inbox
-   * tab (the drag source), so it doesn't need to remain in the explorer too
-   * (Q7 §4, revised 2026-06-07). Everything outside root stays visible.
+   * the Inbox subtree. The ghost tree redraws an Inbox row at its top (so the
+   * inbox is never lost from view), and it stays reachable via the triage
+   * panel's Inbox tab (the drag source); the real explorer row is therefore
+   * redundant (Q7 §4, revised 2026-06-07). Everything outside root stays visible.
    */
   private shouldHide(path: string): boolean {
     const root = this.settings.rootFolder.replace(/\/+$/, "");

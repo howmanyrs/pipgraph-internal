@@ -552,6 +552,17 @@ body.pipgraph-focus-suggest .pipgraph-fs-hidden {
   background-color: var(--nav-item-background-hover);
 }
 
+/* The Inbox row: a real working folder, not a scored candidate. Informational
+   only (no click / score / drop), so it shows neither a pointer nor a hover
+   highlight. Aligned like the candidate rows; pinned to the top by render order. */
+.pipgraph-ghost-inbox {
+  cursor: default;
+}
+
+.pipgraph-ghost-inbox:hover {
+  background-color: transparent;
+}
+
 /* The twistie sits inside the row's left padding (absolutely positioned, pulled
    left), exactly like the native `.tree-item-icon` collapse chevron, so the
    folder name lands at the same x as a real folder title. */

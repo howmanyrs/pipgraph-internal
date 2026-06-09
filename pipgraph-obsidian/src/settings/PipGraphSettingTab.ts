@@ -723,6 +723,6 @@ const DEFAULT_PLACEHOLDER: Record<StringKey, string> = {
   backendUrl: "http://localhost:8001",
   apiKey: "",
   rootFolder: "PipGraph",
-  inboxRelativePath: "Inbox",
+  inboxRelativePath: "00_Inbox",
   draftsRelativePath: "drafts",
 };
