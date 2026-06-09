@@ -8,11 +8,16 @@ import type { FolderScores } from "./SuggestionEngine";
  * Ghost-tree renderer (M5b Phase 2). Builds a single DOM subtree of phantom PARA
  * folders from {@link FolderScores}, each carrying its match %. "Ghost" = DOM
  * only — Obsidian's indexes (search / graph / quick-switcher) never see it; the
- * file truth is untouched. Differentiated from real rows by opacity + a dotted
- * host border and our own `pipgraph-ghost-*` classes (no icon/emoji — decision
- * 2026-06-07), so themes and other file-tree plugins can't mistake it for a
- * real `nav-folder`/`nav-file`.
+ * file truth is untouched. Differentiated from real rows by an accent-coloured
+ * header (`<root> (focus suggest)`) + accent folder names and our own
+ * `pipgraph-ghost-*` classes (no icon/emoji — decision 2026-06-07, revised
+ * 2026-06-09: dropped the dotted border in favour of header + accent colour), so
+ * themes and other file-tree plugins can't mistake it for a real
+ * `nav-folder`/`nav-file`. Row order follows {@link GhostSortMode}.
  */
+
+/** Row order inside the ghost tree: ranked by score (default) or alphabetical. */
+export type GhostSortMode = "score" | "alpha";
 
 export interface GhostNode {
   name: string;
@@ -34,6 +39,8 @@ export interface GhostTreeCallbacks {
   onSkip: () => void;
   /** An Inbox note was dragged & dropped onto this folder (move+link). */
   onDropNote: (node: GhostNode, sourcePath: string) => void;
+  /** The sort control in the header was clicked (persist + re-render). */
+  onSortChange: (mode: GhostSortMode) => void;
 }
 
 export interface GhostTreeOptions {
@@ -46,6 +53,8 @@ export interface GhostTreeOptions {
    * {@link ProcessingTracker}; the row disappears when the job settles.
    */
   processingPaths?: Set<string>;
+  /** Row order (default `"score"` — the original ranked behaviour). */
+  sortMode?: GhostSortMode;
 }
 
 // A branch is drawn expanded if it (or any descendant) scores at least this.
@@ -59,13 +68,11 @@ export function buildGhostTree(
   options: GhostTreeOptions = {},
 ): HTMLElement {
   const root = rootFolder.replace(/\/+$/, "");
-  const nodes = buildNodes(root, scores);
+  const sortMode: GhostSortMode = options.sortMode ?? "score";
+  const nodes = buildNodes(root, scores, sortMode);
 
   const container = createDiv({ cls: "pipgraph-ghost-tree" });
-  container.createDiv({
-    cls: "pipgraph-ghost-separator",
-    text: options.loading ? "focus suggest · scoring…" : "focus suggest",
-  });
+  renderHeader(container, root, sortMode, options.loading ?? false, callbacks);
 
   if (nodes.length === 0) {
     container.createDiv({
@@ -76,14 +83,65 @@ export function buildGhostTree(
   }
 
   const processing = options.processingPaths ?? new Set<string>();
+  // The header stands in for the (hidden) root folder, so the top-level PARA
+  // folders are its children → nest them one level, exactly like real subfolders
+  // sit indented under their parent (CSS `.pipgraph-ghost-children`).
+  const rootChildren = container.createDiv({ cls: "pipgraph-ghost-children" });
   for (const node of nodes) {
-    renderNode(container, node, 0, target, callbacks, processing);
+    renderNode(rootChildren, node, target, callbacks, processing);
   }
   return container;
 }
 
+/**
+ * Block header: `<root> (focus suggest)` on the left (accent-coloured, the new
+ * differentiator now that the dotted border is gone), a sort toggle on the
+ * right. Clicking the toggle flips score ↔ alpha and asks the controller to
+ * persist + re-render (scores are reused — no re-fetch).
+ */
+function renderHeader(
+  container: HTMLElement,
+  root: string,
+  sortMode: GhostSortMode,
+  loading: boolean,
+  cb: GhostTreeCallbacks,
+): void {
+  const rootName = root.slice(root.lastIndexOf("/") + 1) || root;
+  const header = container.createDiv({ cls: "pipgraph-ghost-separator" });
+  header.createSpan({
+    cls: "pipgraph-ghost-separator-label",
+    text: loading
+      ? `${rootName} (focus suggest · scoring…)`
+      : `${rootName} (focus suggest)`,
+  });
+
+  // Text pill (not an icon): always visible and equal height in both modes, so
+  // the header can't jump or "vanish" if a given Lucide icon is absent in the
+  // running Obsidian build (e.g. `arrow-down-a-z` is missing in some versions).
+  const next: GhostSortMode = sortMode === "score" ? "alpha" : "score";
+  const label = sortMode === "score" ? "by score" : "A–Z";
+  const toggle = header.createSpan({
+    cls: "pipgraph-ghost-sort",
+    text: label,
+  });
+  toggle.setAttr("aria-label", `Sort: ${label} (click to switch)`);
+  toggle.setAttr(
+    "title",
+    `Sort: ${label} — click for ${next === "score" ? "by score" : "A–Z"}`,
+  );
+  toggle.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    cb.onSortChange(next);
+  });
+}
+
 /** Build the folder forest under `root` from the entity list (by `file_path`). */
-function buildNodes(root: string, scores: FolderScores): GhostNode[] {
+function buildNodes(
+  root: string,
+  scores: FolderScores,
+  sortMode: GhostSortMode,
+): GhostNode[] {
   const prefix = `${root}/`;
   const byPath = new Map<string, GhostNode>();
   const roots: GhostNode[] = [];
@@ -117,7 +175,7 @@ function buildNodes(root: string, scores: FolderScores): GhostNode[] {
     node.score = scores.scoreByUuid.get(entity.uuid);
   }
 
-  sortTree(roots);
+  sortTree(roots, sortMode);
   return roots;
 }
 
@@ -128,25 +186,30 @@ function maxScore(node: GhostNode): number {
   return m;
 }
 
-/** Sort each level by score (desc), then name. */
-function sortTree(nodes: GhostNode[]): void {
-  nodes.sort(
-    (a, b) =>
-      (b.score ?? -1) - (a.score ?? -1) || a.name.localeCompare(b.name),
-  );
-  for (const n of nodes) sortTree(n.children);
+/**
+ * Sort each level in place. "alpha" = A–Z (matches the real explorer order);
+ * "score" = match % descending, name as tie-break (the original behaviour).
+ */
+function sortTree(nodes: GhostNode[], mode: GhostSortMode): void {
+  const cmp =
+    mode === "alpha"
+      ? (a: GhostNode, b: GhostNode) => a.name.localeCompare(b.name)
+      : (a: GhostNode, b: GhostNode) =>
+          (b.score ?? -1) - (a.score ?? -1) || a.name.localeCompare(b.name);
+  nodes.sort(cmp);
+  for (const n of nodes) sortTree(n.children, mode);
 }
 
 function renderNode(
   parent: HTMLElement,
   node: GhostNode,
-  depth: number,
   target: TFile | null,
   cb: GhostTreeCallbacks,
   processing: Set<string>,
 ): void {
   const row = parent.createDiv({ cls: "pipgraph-ghost-folder" });
-  row.style.setProperty("--pipgraph-ghost-depth", String(depth));
+  // Indentation comes from nesting in `.pipgraph-ghost-children` (CSS reuses
+  // Obsidian's native `--nav-item-children-*` vars), exactly like real folders.
 
   // Notes currently processing whose folder is exactly this one (just placed
   // here). They render as child rows with a spinning icon, so the folder is
@@ -241,11 +304,11 @@ function renderNode(
     const childrenEl = parent.createDiv({ cls: "pipgraph-ghost-children" });
     if (!expanded) childrenEl.addClass("is-collapsed");
     for (const child of node.children) {
-      renderNode(childrenEl, child, depth + 1, target, cb, processing);
+      renderNode(childrenEl, child, target, cb, processing);
     }
     // Sub-folders first (explorer convention), then the in-flight notes.
     for (const path of processingHere) {
-      renderProcessingNote(childrenEl, path, depth + 1);
+      renderProcessingNote(childrenEl, path);
     }
     twistie.addEventListener("click", (ev) => {
       ev.preventDefault();
@@ -264,14 +327,9 @@ function renderNode(
  * landed here and is being processed". Disappears on the next re-render once the
  * {@link ProcessingTracker} drops its path (settled).
  */
-function renderProcessingNote(
-  parent: HTMLElement,
-  path: string,
-  depth: number,
-): void {
+function renderProcessingNote(parent: HTMLElement, path: string): void {
   const name = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
   const row = parent.createDiv({ cls: "pipgraph-ghost-note" });
-  row.style.setProperty("--pipgraph-ghost-depth", String(depth));
   // Empty twistie-width spacer so the name lines up under the folder name.
   row.createSpan({ cls: "pipgraph-ghost-twistie" });
   row.createSpan({ cls: "pipgraph-ghost-note-name", text: name });
