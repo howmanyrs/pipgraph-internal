@@ -441,21 +441,89 @@ body.pipgraph-focus-suggest .pipgraph-fs-hidden {
   display: none !important;
 }
 
-/* The injected ghost-tree container. Dotted border + reduced-opacity rows make
-   the phantoms clearly NOT real file rows (no icon/emoji — decision 2026-06-07). */
+/* ============================================================================
+   Focus-suggest ghost tree (M5b Phase 2)
+   ----------------------------------------------------------------------------
+   These rows must look pixel-identical to Obsidian's real file-explorer items
+   in ANY theme, yet stay our own DOM (never .nav-folder/.nav-file). The trick:
+   reuse the exact `--nav-*` CSS variables the native rows use, so every metric
+   (padding, row height, font, hover, chevron geometry, indent step, guide line)
+   tracks the active theme automatically.
+
+   The mapping below mirrors these native rules (verified from Obsidian's own
+   app.css, extracted from obsidian.asar, 2026-06-09 — see Step 5 of
+   .docs/plans/focus-mode-improve-1/00-plan.md):
+
+     .tree-item-self      → padding: var(--nav-item-padding);  (left ≈ size-4-6 =
+                            the slot the chevron lives in)
+                            margin-bottom: var(--size-2-1);
+                            font-size: var(--nav-item-size);
+                            line-height: var(--line-height-tight);
+     .tree-item-icon      → position:absolute; margin-inline-start:
+                            calc(-1*var(--size-4-5)); width: var(--size-4-4);
+                            (chevron sits INSIDE the left padding, so the name
+                            still starts at the padding edge — never shifted)
+     .tree-item-children  → margin-inline-start: var(--nav-item-children-margin-start);
+                            padding-inline-start: var(--nav-item-children-padding-start);
+                            border-inline-start: <indentation guide>
+
+   Only the differentiators are intentionally OURS, not native: accent-coloured
+   header + folder names, and the score badge. Everything geometric is native.
+   ============================================================================ */
+
+/* The injected ghost-tree container. The phantoms are distinguished from real
+   file rows by the accent-coloured header (`<root> (focus suggest)`) + accent
+   folder names and our own pipgraph-ghost-* classes (no icon/emoji — decision
+   2026-06-07; dotted border dropped 2026-06-09 in favour of header + colour). */
 .pipgraph-ghost-tree-host {
-  margin: var(--size-2-3) var(--size-4-1);
-  padding: var(--size-2-2);
-  border: 1px dotted var(--background-modifier-border);
-  border-radius: var(--radius-s);
+  /* No top margin: the host is prepended as the first child of
+     .nav-files-container, so the header must start exactly where the first real
+     folder did — any top margin shifts the whole tree down on toggle. */
+  margin: 0 0 var(--size-2-3) 0;
+  padding: 0;
 }
 
+/* Block header: accent-coloured label on the left, sort toggle on the right.
+   Reuses the native nav-item padding so the label sits in the same collapse-
+   indicator slot a real folder title would — root has no chevron (it's always
+   open), but the left inset matches, so toggling Focus mode doesn't shift the
+   block left. */
 .pipgraph-ghost-separator {
-  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  color: var(--text-accent);
+  font-size: var(--nav-item-size);
+  font-weight: var(--font-medium);
+  margin-bottom: var(--size-2-1);
+  padding: var(--nav-item-padding);
+}
+
+.pipgraph-ghost-separator-label {
+  flex: 1 1 auto;
+}
+
+/* Compact text-pill sort switcher in the header (score ↔ A–Z). Text (not an
+   icon) so it's always visible and the same height in both modes — the header
+   can't jump or disappear if a Lucide icon name is absent in this build. */
+.pipgraph-ghost-sort {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-accent);
+  cursor: pointer;
+  border: 1px solid var(--text-accent);
+  border-radius: var(--radius-s);
+  padding: 0 var(--size-2-2);
   font-size: var(--font-ui-smaller);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: var(--size-2-2);
+  line-height: var(--line-height-tight);
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.pipgraph-ghost-sort:hover {
+  background: var(--background-modifier-hover);
 }
 
 .pipgraph-ghost-empty {
@@ -463,42 +531,54 @@ body.pipgraph-focus-suggest .pipgraph-fs-hidden {
   font-size: var(--font-ui-smaller);
 }
 
+/* Ghost rows mirror real nav items by reusing Obsidian's own nav-* variables —
+   so padding, row height, font and indent track the active theme exactly. We
+   keep our own pipgraph-ghost-* classes (never nav-folder/nav-file) so themes
+   and other plugins can't mistake them for real rows. */
 .pipgraph-ghost-folder {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--size-2-2);
-  padding: var(--size-2-1) var(--size-2-2);
-  padding-left: calc(
-    var(--size-2-2) + var(--pipgraph-ghost-depth, 0) * var(--size-4-3)
-  );
+  padding: var(--nav-item-padding);
+  margin-bottom: var(--size-2-1);
   border-radius: var(--radius-s);
-  /* ghost: clearly not a real file row */
-  opacity: 0.7;
   cursor: pointer;
-  font-size: var(--font-ui-small);
+  font-size: var(--nav-item-size);
+  line-height: var(--line-height-tight);
 }
 
 .pipgraph-ghost-folder:hover {
-  opacity: 1;
-  background: var(--background-modifier-hover);
+  background-color: var(--nav-item-background-hover);
 }
 
+/* The twistie sits inside the row's left padding (absolutely positioned, pulled
+   left), exactly like the native `.tree-item-icon` collapse chevron, so the
+   folder name lands at the same x as a real folder title. */
 .pipgraph-ghost-twistie {
+  position: absolute;
+  margin-inline-start: calc(-1 * var(--size-4-5));
+  width: var(--size-4-4);
   display: inline-flex;
   align-items: center;
-  width: var(--size-4-3);
+  justify-content: center;
   flex: 0 0 auto;
-  color: var(--text-faint);
+  color: var(--nav-collapse-icon-color);
 }
 
 .pipgraph-ghost-twistie svg {
-  width: 0.8em;
-  height: 0.8em;
+  width: 10px;
+  height: 10px;
 }
 
 .pipgraph-ghost-name {
-  flex: 1 1 auto;
-  color: var(--text-normal);
+  /* Natural width (don't grow) so the score badge sits right next to the name
+     instead of being pushed to the far right edge; still shrinks with ellipsis
+     when the name is too long. */
+  flex: 0 1 auto;
+  /* Accent colour (theme-agnostic: own value in light/dark) sets the whole
+     block apart from the muted real-tree folders — the new differentiator. */
+  color: var(--text-accent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -533,6 +613,15 @@ body.pipgraph-focus-suggest .pipgraph-fs-hidden {
   color: var(--text-faint);
 }
 
+/* Per-level indent: same mechanism + variables as the native `.tree-item-children`
+   (margin + padding + indentation guide), so nesting tracks the theme exactly. */
+.pipgraph-ghost-children {
+  margin-inline-start: var(--nav-item-children-margin-start);
+  padding-inline-start: var(--nav-item-children-padding-start);
+  border-inline-start: var(--nav-indentation-guide-width) solid
+    var(--nav-indentation-guide-color);
+}
+
 .pipgraph-ghost-children.is-collapsed {
   display: none;
 }
@@ -542,15 +631,14 @@ body.pipgraph-focus-suggest .pipgraph-fs-hidden {
    file-marker uses (.pipgraph-processing); the row is removed on the next
    re-render once the job settles. */
 .pipgraph-ghost-note {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--size-2-2);
-  padding: var(--size-2-1) var(--size-2-2);
-  padding-left: calc(
-    var(--size-2-2) + var(--pipgraph-ghost-depth, 0) * var(--size-4-3)
-  );
-  opacity: 0.7;
-  font-size: var(--font-ui-small);
+  padding: var(--nav-item-padding);
+  margin-bottom: var(--size-2-1);
+  font-size: var(--nav-item-size);
+  line-height: var(--line-height-tight);
 }
 
 .pipgraph-ghost-note-name {

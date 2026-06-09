@@ -14,6 +14,11 @@ export interface PipGraphSettings {
   // candidates (with match %) is drawn in its place. Persisted across sessions;
   // closing the panel deactivates the mode without flipping this flag.
   focusSuggest: boolean;
+  // Row order inside the "Focus suggest" ghost-tree (M5b). "score" (default) =
+  // ranked by match % descending (the original behaviour); "alpha" = A–Z, like
+  // the real file-explorer folders. Switchable from the ghost-block header;
+  // persisted across sessions.
+  focusSuggestSort: "score" | "alpha";
   initialized: boolean;
 }
 
@@ -25,6 +30,7 @@ export const DEFAULT_SETTINGS: PipGraphSettings = {
   draftsRelativePath: "drafts",
   autoMirrorFolders: false,
   focusSuggest: false,
+  focusSuggestSort: "score",
   initialized: false,
 };
 

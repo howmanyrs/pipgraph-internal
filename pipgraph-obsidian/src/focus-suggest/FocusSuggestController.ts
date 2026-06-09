@@ -188,13 +188,26 @@ export class FocusSuggestController {
         onConfirm: (node) => void this.confirm(node.path),
         onSkip: () => this.skip(),
         onDropNote: (node, sourcePath) => void this.dropNote(node, sourcePath),
+        onSortChange: (mode) => void this.setSortMode(mode),
       },
       {
         loading: this.loading,
         processingPaths: this.plugin.processing.processingPaths,
+        sortMode: this.plugin.settings.focusSuggestSort,
       },
     );
     this.ghost.setTree(tree);
+  }
+
+  /**
+   * Flip the persisted ghost-tree sort order and repaint. Cheap — reuses the
+   * current scores (no re-fetch); only the row order changes.
+   */
+  private async setSortMode(mode: "score" | "alpha"): Promise<void> {
+    if (this.plugin.settings.focusSuggestSort === mode) return;
+    this.plugin.settings.focusSuggestSort = mode;
+    await this.plugin.saveSettings();
+    if (this.renderer === "ghost") this.renderGhost();
   }
 
   /**
