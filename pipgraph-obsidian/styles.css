@@ -181,11 +181,19 @@
   cursor: pointer;
 }
 
+/* Native-tab look, mirroring Obsidian's workspace tab header: the strip carries
+   the tab-container background; the active tab and the content area below share
+   the active-tab background and MERGE — the active tab overlaps the strip's
+   divider so there's no line between it and its content (the giveaway of a real
+   tab vs. a floating button). Each --tab-* token has a fallback so a theme that
+   omits it still renders sanely. */
 .pipgraph-panel__tabs {
   display: flex;
-  gap: var(--size-2-1);
-  border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: var(--size-4-2);
+  gap: 0;
+  /* transparent so inactive tabs read as the sidebar surface (--background-secondary) */
+  background: transparent;
+  border-bottom: 1px solid var(--tab-divider-color, var(--background-modifier-border));
+  margin-bottom: 0;
 }
 
 .pipgraph-panel__tab {
@@ -193,16 +201,57 @@
   padding: var(--size-2-2) var(--size-2-3);
   background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
+  box-shadow: none; /* flat — no bevel, no bottom shadow */
+  border-radius: var(--radius-s) var(--radius-s) 0 0; /* only the top corners, slightly */
+  /* overlap the strip's divider; the active tab's own background then covers it */
+  margin-bottom: -1px;
+  color: var(--text-normal);
   cursor: pointer;
-  font-size: var(--font-ui-small);
+  font-size: var(--tab-font-size, var(--font-ui-small));
+  font-weight: var(--tab-font-weight, inherit);
+  transition: color 0.1s ease;
+}
+
+/* keep tabs flat in every interactive state — override the default button
+   hover/active/focus bevel + background */
+.pipgraph-panel__tab:hover,
+.pipgraph-panel__tab:active,
+.pipgraph-panel__tab:focus,
+.pipgraph-panel__tab:focus-visible {
+  box-shadow: none;
+  outline: none;
+}
+
+/* Inactive tabs read as the sidebar surface, flat — no border, no default
+   button bevel. The :not(.is-active) selector (0,2,0) outranks Obsidian's
+   default `button:not(.clickable-icon)` (0,1,1), which otherwise paints a
+   background + bevel at rest but loses to :hover (so rest ≠ hover). */
+.pipgraph-panel__tab:not(.is-active) {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--text-normal);
+}
+
+/* hover an inactive tab: flat fill, a touch lighter than the panel */
+.pipgraph-panel__tab:not(.is-active):hover {
+  background: var(--background-modifier-hover);
+}
+
+/* active tab does not react to hover at all — same fill, edges, everything */
+.pipgraph-panel__tab.is-active,
+.pipgraph-panel__tab.is-active:hover {
+  background: var(--tab-background-active, var(--background-primary));
+  color: var(--tab-text-color-focused-active, var(--text-normal));
   box-shadow: none;
 }
 
-.pipgraph-panel__tab.is-active {
-  color: var(--text-normal);
-  border-bottom-color: var(--text-accent);
+/* The content area is the active tab's "page": same surface, so the active tab
+   flows into it seamlessly. */
+.pipgraph-panel__content {
+  background: var(--tab-background-active, var(--background-primary));
+  border-radius: 0 0 var(--radius-s) var(--radius-s);
+  padding: var(--size-4-2) var(--size-2-3);
 }
 
 .pipgraph-panel__placeholder {
