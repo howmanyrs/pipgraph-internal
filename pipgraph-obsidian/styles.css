@@ -218,34 +218,208 @@
 
 /* ---- Inbox tab ------------------------------------------------------- */
 
-.pipgraph-inbox-row {
+/* Toolbar above the list: sort pill switch on the left, A/B toggles on the
+   right (inbox-tuning 01). */
+.pipgraph-inbox-toolbar {
   display: flex;
-  align-items: baseline;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-2-3);
+  margin-bottom: var(--size-2-3);
+}
+
+.pipgraph-inbox-sort {
+  display: inline-flex;
+  gap: var(--size-2-1);
+}
+
+/* Sort pill (Date added / Semantic). Active = accent fill; the inert "Semantic"
+   option is dimmed until a semantic provider has data (plan 02). */
+.pipgraph-inbox-sort-pill {
+  cursor: pointer;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 0 var(--size-2-2);
+  font-size: var(--font-ui-smaller);
+  line-height: var(--line-height-tight);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.pipgraph-inbox-sort-pill.is-active {
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+}
+
+.pipgraph-inbox-sort-pill.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pipgraph-inbox-sort-pill:not(.is-active):not(.is-disabled):hover {
+  background: var(--background-modifier-hover);
+}
+
+.pipgraph-inbox-toggles {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-3);
+  margin-left: auto;
+}
+
+.pipgraph-inbox-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-2-1);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pipgraph-inbox-toggle.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Batch summary strip: "N selected · Clear" while the batch is non-empty. */
+.pipgraph-inbox-batchbar {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  margin-bottom: var(--size-2-2);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.pipgraph-inbox-batch-clear {
+  font-size: var(--font-ui-smaller);
+  padding: 0 var(--size-2-2);
+}
+
+/* Vertical separation between day groups (D7) — no header, the date already
+   lives on each item's meta line. */
+.pipgraph-inbox-daygroup + .pipgraph-inbox-daygroup {
+  margin-top: var(--size-4-3);
+}
+
+/* Rich two-line Inbox item: [checkbox] [body: title-line / meta-line]. */
+.pipgraph-inbox-item {
+  display: flex;
+  align-items: flex-start;
   gap: var(--size-2-2);
   padding: var(--size-2-2) var(--size-2-3);
   border-radius: var(--radius-s);
   cursor: pointer;
 }
 
-.pipgraph-inbox-row:hover {
+.pipgraph-inbox-item:hover {
   background: var(--background-modifier-hover);
 }
 
-/* The Inbox row whose note currently drives focus-suggest scoring. A left
-   accent bar + active fill mark it as "this is what the percentages are for",
-   distinct from the lighter :hover fill. Theme-native tokens (light + dark). */
-.pipgraph-inbox-row.is-selected {
-  background: var(--background-modifier-active-hover);
+.pipgraph-inbox-item__check,
+.pipgraph-inbox-item__check-spacer {
+  flex: 0 0 auto;
+  width: var(--checkbox-size);
+  margin-top: 2px; /* nudge the box onto the title baseline */
+}
+
+.pipgraph-inbox-item__check {
+  cursor: pointer;
+}
+
+.pipgraph-inbox-item__body {
+  flex: 1 1 auto;
+  min-width: 0; /* let the title/snippet ellipsize instead of overflowing */
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-1);
+}
+
+.pipgraph-inbox-item__main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-2-2);
+  min-width: 0;
+}
+
+.pipgraph-inbox-item__title {
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipgraph-inbox-item__path {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+.pipgraph-inbox-item__meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-2-2);
+  min-width: 0;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+.pipgraph-inbox-item__date {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.pipgraph-inbox-item__snippet {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Selected item (drives focus-suggest scoring): the native "selected nav item"
+   treatment — accent bar + active fill + accented, heavier title. Noticeably
+   stronger than :hover and than the dependent .is-similar dim. Theme-native
+   tokens (D5; --nav-item-* fall back where a theme omits them). */
+.pipgraph-inbox-item.is-selected,
+.pipgraph-inbox-item.is-selected:hover {
+  background: var(--nav-item-background-active, var(--background-modifier-active-hover));
   box-shadow: inset 2px 0 0 0 var(--interactive-accent);
 }
 
-.pipgraph-inbox-row__title {
-  color: var(--text-normal);
+.pipgraph-inbox-item.is-selected .pipgraph-inbox-item__title {
+  color: var(--nav-item-color-active, var(--text-normal));
+  font-weight: var(--font-semibold);
 }
 
-.pipgraph-inbox-row__path {
-  color: var(--text-faint);
+/* Dependent "similar" dim (toggle A): a faint fill + neutral edge, deliberately
+   weaker than .is-selected. A note is never both (the primary is excluded from
+   the similarity candidates). */
+.pipgraph-inbox-item.is-similar,
+.pipgraph-inbox-item.is-similar:hover {
+  background: var(--background-modifier-hover);
+  box-shadow: inset 2px 0 0 0 var(--background-modifier-border);
+}
+
+/* Fallback-name marker on a real Inbox item — the panel-side twin of the
+   file-tree `❗` (NamingTracker-driven). Right-click → "Regenerate name with
+   LLM". Same glyph + warning colour as .nav-file-title.pipgraph-fallback-name. */
+.pipgraph-inbox-item__fallback {
+  flex: 0 0 auto;
+  color: var(--text-warning);
   font-size: var(--font-ui-smaller);
+  cursor: help;
+}
+
+/* In-flight `⟳` on an item while its naming job re-runs (Regenerate name).
+   Same accent as a processing note — the regenerate uses the same server queue. */
+.pipgraph-inbox-item__regen {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--text-accent);
 }
 
 /* Phantom rows: a capture that is in flight (⟳) or failed to be created (⚠).
@@ -277,25 +451,6 @@
 
 .pipgraph-inbox-phantom.is-clickable {
   cursor: pointer;
-}
-
-/* Fallback-name marker on a real Inbox row — the panel-side twin of the
-   file-tree `❗` (NamingTracker-driven). Right-click the row → "Regenerate name
-   with LLM". Same glyph + warning colour as .nav-file-title.pipgraph-fallback-name. */
-.pipgraph-inbox-row__fallback {
-  margin-left: var(--size-2-2);
-  color: var(--text-warning);
-  font-size: var(--font-ui-smaller);
-  cursor: help;
-}
-
-/* In-flight `⟳` on an Inbox row while its naming job re-runs (Regenerate name).
-   Same accent as a processing note — the regenerate uses the same server queue. */
-.pipgraph-inbox-row__regen {
-  display: inline-flex;
-  align-items: center;
-  margin-left: var(--size-2-2);
-  color: var(--text-accent);
 }
 
 /* ---- Entity Inspector tab -------------------------------------------- */

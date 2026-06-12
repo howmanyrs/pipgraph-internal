@@ -16,6 +16,14 @@ import { FocusSuggestController } from "./focus-suggest/FocusSuggestController";
 import { CaptureOutbox } from "./outbox/CaptureOutbox";
 import { ProcessingTracker } from "./outbox/ProcessingTracker";
 import { NamingTracker } from "./outbox/NamingTracker";
+import {
+  type InboxSimilarityProvider,
+  NoopSimilarityProvider,
+} from "./views/inbox/InboxSimilarity";
+import {
+  type InboxSemanticProvider,
+  NoopSemanticProvider,
+} from "./views/inbox/InboxSemantic";
 
 export default class PipGraphPlugin extends Plugin {
   settings!: PipGraphSettings;
@@ -33,6 +41,23 @@ export default class PipGraphPlugin extends Plugin {
   lastInspectedFolderPath: string | null = null;
   /** Note last picked in the Inbox tab; focus-suggest's fallback scoring target. */
   lastInboxSelectionPath: string | null = null;
+  /**
+   * Notes the user checked into the placement batch in the Inbox tab —
+   * *additional* to the primary (gesture) note, which is always placed and never
+   * lives here (its checkbox is checked+disabled). The effective batch placed on
+   * a folder is `dedup([primary, ...inboxBatch])`. See {@link placeBatch}.
+   */
+  inboxBatch: Set<string> = new Set();
+  /**
+   * Provider for "notes similar to the selected one" (toggle A). No-op in this
+   * increment — a future backend provider is a drop-in field replacement.
+   */
+  inboxSimilarity: InboxSimilarityProvider = new NoopSimilarityProvider();
+  /**
+   * Provider for pre-extracted semantics behind the "Semantic" Inbox sort. No-op
+   * in this increment (always empty → the option stays disabled).
+   */
+  inboxSemantic: InboxSemanticProvider = new NoopSemanticProvider();
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -207,6 +232,37 @@ export default class PipGraphPlugin extends Plugin {
         view.refreshInboxContent();
       }
     });
+  }
+
+  /** Toggle a note's membership in the placement batch and repaint Inbox tabs. */
+  toggleInboxBatch(path: string): void {
+    if (this.inboxBatch.has(path)) this.inboxBatch.delete(path);
+    else this.inboxBatch.add(path);
+    this.refreshInboxTabs();
+  }
+
+  /**
+   * Replace the batch wholesale (used by auto-select). Idempotent: an unchanged
+   * set is a no-op — this is what stops the selection → auto-select → re-render
+   * → auto-select cycle from looping (the second pass computes the same set).
+   */
+  setInboxBatch(paths: string[]): void {
+    const next = new Set(paths);
+    if (
+      next.size === this.inboxBatch.size &&
+      [...next].every((p) => this.inboxBatch.has(p))
+    ) {
+      return;
+    }
+    this.inboxBatch = next;
+    this.refreshInboxTabs();
+  }
+
+  /** Empty the batch (after a placement) and repaint Inbox tabs. */
+  clearInboxBatch(): void {
+    if (this.inboxBatch.size === 0) return;
+    this.inboxBatch.clear();
+    this.refreshInboxTabs();
   }
 
   async activateTriagePanel(): Promise<void> {

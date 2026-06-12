@@ -1,3 +1,5 @@
+import type { InboxSort } from "../views/inbox/InboxSemantic";
+
 export interface PipGraphSettings {
   backendUrl: string;
   apiKey: string;
@@ -19,6 +21,19 @@ export interface PipGraphSettings {
   // the real file-explorer folders. Switchable from the ghost-block header;
   // persisted across sessions.
   focusSuggestSort: "score" | "alpha";
+  // Inbox-tab "Highlight similar" toggle (A, inbox-tuning 01): dim-highlight
+  // notes similar to the selected one. With a no-op similarity provider this is
+  // inert; it gates toggle B. Persisted across sessions.
+  inboxHighlightSimilar: boolean;
+  // Inbox-tab "Auto-select similar" toggle (B): auto-check the highlighted
+  // notes into the batch on selection change. Requires A (nothing to select if
+  // nothing is highlighted). Persisted across sessions.
+  inboxAutoSelectSimilar: boolean;
+  // Inbox-tab sort order (inbox-tuning 01). "date" (default) = by `ctime`
+  // descending, grouped by day; "semantic" = a future order from pre-extracted
+  // frontmatter (plan 02) — inert/disabled until a semantic provider has data.
+  // Persisted across sessions.
+  inboxSort: InboxSort;
   initialized: boolean;
 }
 
@@ -33,6 +48,9 @@ export const DEFAULT_SETTINGS: PipGraphSettings = {
   autoMirrorFolders: false,
   focusSuggest: false,
   focusSuggestSort: "score",
+  inboxHighlightSimilar: false,
+  inboxAutoSelectSimilar: false,
+  inboxSort: "date",
   initialized: false,
 };
 

@@ -1,7 +1,7 @@
 import { Notice, TFile } from "obsidian";
 import type PipGraphPlugin from "../main";
 import { isManagedFolderPath } from "../settings/PipGraphSettings";
-import { placeNoteInFolder } from "./placeNote";
+import { placeBatch } from "./placeNote";
 
 /**
  * Drag-to-place: drag a note from the Inbox tab onto a PARA folder in the
@@ -12,8 +12,10 @@ import { placeNoteInFolder } from "./placeNote";
  * gesture, via the backend `place-episode` operation (E7).
  *
  * Mechanics:
- *  - Inbox rows are `draggable` and stamp the file path onto `dataTransfer`
- *    under our private MIME type (see TriagePanelView.renderInbox).
+ *  - Inbox items are `draggable` and stamp the file path onto `dataTransfer`
+ *    under our private MIME type (see TriagePanelView.renderInboxItem). The
+ *    dragged note is the gesture note; the checked batch rides along on drop
+ *    (read from plugin state, not the MIME) — see `placeBatch`.
  *  - Drop targets are `.nav-folder-title[data-path]` rows — the same unofficial
  *    explorer DOM hook folderDecoration / folder-click already rely on. We gate
  *    on `isManagedFolderPath` (under root, not Inbox).
@@ -104,7 +106,9 @@ export class DragToPlace {
       new Notice("PipGraph: couldn't find the dragged note.");
       return;
     }
-    // move+link is shared with the ghost-tree "Confirm placement here".
-    await placeNoteInFolder(this.plugin, file, folderPath);
+    // move+link is shared with the ghost-tree "Confirm placement here". The
+    // dragged note is the gesture note; the Inbox batch rides along (D2) — the
+    // MIME carries just the one path, the rest is read from plugin state.
+    await placeBatch(this.plugin, file, folderPath);
   }
 }

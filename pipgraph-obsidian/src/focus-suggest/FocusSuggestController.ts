@@ -2,7 +2,7 @@ import { Menu, TFolder, TFile, debounce, type Debouncer } from "obsidian";
 import type { TAbstractFile } from "obsidian";
 import type PipGraphPlugin from "../main";
 import { TRIAGE_VIEW_TYPE } from "../views/TriagePanelView";
-import { placeNoteInFolder } from "../drag/placeNote";
+import { placeBatch } from "../drag/placeNote";
 import { getInboxPath } from "../settings/PipGraphSettings";
 import { SuggestionEngine, type FolderScores } from "./SuggestionEngine";
 import { FocusSuggestMode } from "./FocusSuggestMode";
@@ -265,21 +265,21 @@ export class FocusSuggestController {
     }
   }
 
-  /** Place the target note into a folder-entity (shared move+link), then re-score. */
+  /** Place the target note (+ Inbox batch) into a folder-entity, then re-score. */
   private async confirm(folderPath: string): Promise<void> {
     if (!this.targetFile) return;
-    const ok = await placeNoteInFolder(this.plugin, this.targetFile, folderPath);
-    // On success the note moved; re-score for the next target.
-    if (ok) this.recompute();
+    const { placed } = await placeBatch(this.plugin, this.targetFile, folderPath);
+    // On success the note(s) moved; re-score for the next target.
+    if (placed > 0) this.recompute();
   }
 
-  /** Inbox note dropped onto a ghost folder: move+link, then re-score. */
+  /** Inbox note dropped onto a ghost folder: move+link the batch, then re-score. */
   private async dropNote(node: GhostNode, sourcePath: string): Promise<void> {
     if (!node.entity) return;
     const file = this.plugin.app.vault.getAbstractFileByPath(sourcePath);
     if (!(file instanceof TFile)) return;
-    const ok = await placeNoteInFolder(this.plugin, file, node.path);
-    if (ok) this.recompute();
+    const { placed } = await placeBatch(this.plugin, file, node.path);
+    if (placed > 0) this.recompute();
   }
 
   private skip(): void {
