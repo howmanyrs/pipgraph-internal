@@ -2,7 +2,7 @@ import { Menu, TFolder, TFile, debounce, type Debouncer } from "obsidian";
 import type { TAbstractFile } from "obsidian";
 import type PipGraphPlugin from "../main";
 import { TRIAGE_VIEW_TYPE } from "../views/TriagePanelView";
-import { placeNoteInFolder } from "../drag/placeNote";
+import { placeBatch } from "../drag/placeNote";
 import { getInboxPath } from "../settings/PipGraphSettings";
 import { SuggestionEngine, type FolderScores } from "./SuggestionEngine";
 import { FocusSuggestMode } from "./FocusSuggestMode";
@@ -23,8 +23,10 @@ type Renderer = "ghost" | "badges";
  * *which* renderer. Closing the panel deactivates (explorer returns to pristine)
  * without flipping the persisted toggle (Q7). Flipping the toggle swaps the
  * renderer in place, reusing the already-computed scores (same target → no
- * re-fetch). The scoring target is the active editor note, falling back to the
- * last Inbox-tab selection; recomputed (debounced) on active-leaf-change.
+ * re-fetch). The scoring target is the note selected in the Inbox tab
+ * ({@link selectInbox}); recompute is driven by that selection, not by
+ * active-leaf-change — notes outside the PipGraph root can't be selected, so
+ * they never trigger a (wasted) scoring round-trip.
  */
 export class FocusSuggestController {
   private readonly engine: SuggestionEngine;
@@ -47,12 +49,6 @@ export class FocusSuggestController {
   }
 
   start(): void {
-    // Recompute as the active editor leaf changes (the "what am I reading" cue).
-    this.plugin.registerEvent(
-      this.plugin.app.workspace.on("active-leaf-change", () => {
-        if (this.renderer) this.recompute();
-      }),
-    );
     // Real-mode candidate folders get a "Confirm placement here" item in the
     // native folder context menu (Q7 §3 — menu, not single-click, no misfires).
     this.plugin.registerEvent(
@@ -135,15 +131,22 @@ export class FocusSuggestController {
     this.loading = false;
   }
 
+  /**
+   * Inbox tab selected a note (or cleared it). Make it the scoring target and
+   * recompute — guarded so an unchanged selection is a no-op (mid-session Inbox
+   * re-renders, e.g. capture phantoms updating, won't re-fire `make-suggestions`).
+   */
+  selectInbox(path: string | null): void {
+    if (this.plugin.lastInboxSelectionPath === path) return;
+    this.plugin.lastInboxSelectionPath = path;
+    if (this.renderer) this.recompute();
+  }
+
   private resolveTarget(): TFile | null {
-    const active = this.plugin.app.workspace.getActiveFile();
-    if (active && active.extension === "md") return active;
-    const fallback = this.plugin.lastInboxSelectionPath;
-    if (fallback) {
-      const f = this.plugin.app.vault.getAbstractFileByPath(fallback);
-      if (f instanceof TFile) return f;
-    }
-    return null;
+    const sel = this.plugin.lastInboxSelectionPath;
+    if (!sel) return null;
+    const f = this.plugin.app.vault.getAbstractFileByPath(sel);
+    return f instanceof TFile ? f : null;
   }
 
   private async compute(): Promise<void> {
@@ -262,21 +265,21 @@ export class FocusSuggestController {
     }
   }
 
-  /** Place the target note into a folder-entity (shared move+link), then re-score. */
+  /** Place the target note (+ Inbox batch) into a folder-entity, then re-score. */
   private async confirm(folderPath: string): Promise<void> {
     if (!this.targetFile) return;
-    const ok = await placeNoteInFolder(this.plugin, this.targetFile, folderPath);
-    // On success the note moved; re-score for the next target.
-    if (ok) this.recompute();
+    const { placed } = await placeBatch(this.plugin, this.targetFile, folderPath);
+    // On success the note(s) moved; re-score for the next target.
+    if (placed > 0) this.recompute();
   }
 
-  /** Inbox note dropped onto a ghost folder: move+link, then re-score. */
+  /** Inbox note dropped onto a ghost folder: move+link the batch, then re-score. */
   private async dropNote(node: GhostNode, sourcePath: string): Promise<void> {
     if (!node.entity) return;
     const file = this.plugin.app.vault.getAbstractFileByPath(sourcePath);
     if (!(file instanceof TFile)) return;
-    const ok = await placeNoteInFolder(this.plugin, file, node.path);
-    if (ok) this.recompute();
+    const { placed } = await placeBatch(this.plugin, file, node.path);
+    if (placed > 0) this.recompute();
   }
 
   private skip(): void {

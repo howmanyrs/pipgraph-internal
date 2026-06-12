@@ -13,8 +13,53 @@ import { getInboxPath } from "../settings/PipGraphSettings";
 import { PIPGRAPH_DRAG_MIME } from "../drag/DragToPlace";
 import { regenerateName } from "../commands/register";
 import { PipGraphApiError, type EpisodicNode, type ParaEntity } from "../backend";
+import type { SimilarHit } from "./inbox/InboxSimilarity";
+import type { InboxSort } from "./inbox/InboxSemantic";
 
 export const TRIAGE_VIEW_TYPE = "pipgraph-triage-panel";
+
+/**
+ * Data backing one rich Inbox row (inbox-tuning 01). The first line shows the
+ * title + markers + checkbox; the second (small) line the added date + a body
+ * snippet. The snippet is lazy (`null` until {@link TriagePanelView.fillSnippet}
+ * loads the body), so the row paints synchronously without reading every file.
+ */
+interface InboxItemData {
+  file: TFile;
+  added: string; // formatDay(file.stat.ctime) — "YYYY-MM-DD" (D3)
+  fallbackUuid: string | null; // ❗ (NamingTracker) — auto-name failed
+  regenerating: boolean; // ⟳ — naming job re-running
+}
+
+/** Local day key / display date — "YYYY-MM-DD" from an epoch-ms timestamp (D3). */
+function formatDay(ms: number): string {
+  const d = new Date(ms);
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * First readable line of a note's body for the Inbox snippet (D4): strip a
+ * leading YAML frontmatter block and markdown heading lines, take the first
+ * non-empty line, and trim to ~120 chars. Returns null when there's nothing.
+ */
+function extractSnippet(content: string): string | null {
+  let text = content;
+  if (text.startsWith("---")) {
+    const close = text.indexOf("\n---", 3);
+    if (close !== -1) {
+      const nl = text.indexOf("\n", close + 1);
+      text = nl !== -1 ? text.slice(nl + 1) : "";
+    }
+  }
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    return line.length > 120 ? `${line.slice(0, 120).trimEnd()}…` : line;
+  }
+  return null;
+}
 
 type ObsidianSettingApi = {
   setting: {
@@ -45,6 +90,10 @@ export class TriagePanelView extends ItemView {
   private renderSeq = 0;
   private panelContentEl: HTMLElement | null = null;
   private tabButtons: Partial<Record<PanelTab, HTMLElement>> = {};
+  /** Lazy body-snippet cache, invalidated per file by mtime (D4). */
+  private snippetCache = new Map<string, { mtime: number; snippet: string | null }>();
+  /** Monotonic guard so a slow similarity call can't paint a stale selection. */
+  private similarSeq = 0;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -68,6 +117,9 @@ export class TriagePanelView extends ItemView {
   async onOpen(): Promise<void> {
     // Pick up the folder the user last clicked while the panel was closed.
     this.inspectedPath = this.plugin.lastInspectedFolderPath;
+    // Adopt an already-open inbox note before the first paint, so its row paints
+    // `is-selected`; onPanelOpened() → sync() then scores it.
+    this.adoptActiveInboxNote();
     this.render();
     // Focus-suggest is active only while a panel is open (Q7).
     this.plugin.focusSuggest.onPanelOpened();
@@ -140,7 +192,7 @@ export class TriagePanelView extends ItemView {
     const label = bar.createEl("label", { cls: "pipgraph-panel__mode-label" });
     label.setAttr(
       "title",
-      "While the panel is open, candidate folders are scored for the active note.\n" +
+      "While the panel is open, candidate folders are scored for the selected Inbox note.\n" +
         "Off: match-% badges on the real folder tree.\n" +
         "On: a ghost-tree of candidates replaces the real tree.",
     );
@@ -282,6 +334,9 @@ export class TriagePanelView extends ItemView {
     for (const [id, btn] of Object.entries(this.tabButtons)) {
       btn?.toggleClass("is-active", id === tab);
     }
+    // Switching onto the Inbox tab adopts an already-open inbox note (the ghost
+    // renderer is live, so selectInbox recomputes); renderContent paints its row.
+    if (tab === "inbox") this.adoptActiveInboxNote();
     void this.renderContent();
   }
 
@@ -305,8 +360,7 @@ export class TriagePanelView extends ItemView {
     const prefix = `${inboxPath}/`;
     const files = this.plugin.app.vault
       .getMarkdownFiles()
-      .filter((f) => f.path.startsWith(prefix))
-      .sort((a, b) => b.stat.mtime - a.stat.mtime);
+      .filter((f) => f.path.startsWith(prefix));
 
     const records = this.plugin.outbox.listRecords();
 
@@ -318,60 +372,309 @@ export class TriagePanelView extends ItemView {
       return;
     }
 
+    // "Semantic" sort needs pre-extracted data; the no-op provider has none, so
+    // it stays disabled and the order falls back to "date" (the "B requires A"
+    // pattern). Real data (plan 02) flips this on without touching the call.
+    const semanticReady =
+      this.plugin.inboxSemantic.semanticsFor(files.map((f) => f.path)).size > 0;
+
+    this.renderInboxToolbar(host, semanticReady);
+
+    if (this.plugin.inboxBatch.size > 0) {
+      const strip = host.createDiv({ cls: "pipgraph-inbox-batchbar" });
+      strip.createSpan({ text: `${this.plugin.inboxBatch.size} selected` });
+      const clear = strip.createEl("button", {
+        text: "Clear",
+        cls: "pipgraph-inbox-batch-clear",
+      });
+      clear.addEventListener("click", () => this.plugin.clearInboxBatch());
+    }
+
     const list = host.createDiv({ cls: "pipgraph-inbox-list" });
 
-    // Phantom rows for in-flight / failed-create captures, above the real files.
+    // Phantom rows for in-flight / failed-create captures, above every group.
     for (const record of records) {
       this.renderPhantomRow(list, record);
     }
 
-    for (const file of files) {
-      this.renderFileRow(list, file, inboxPath);
+    // Date order (D8): newest first by ctime, split into day groups (D7). When a
+    // future semantic provider has data and the user picked it, render flat in
+    // that order instead (drop-in seam — never reached with the no-op provider).
+    const sorted = [...files].sort((a, b) => b.stat.ctime - a.stat.ctime);
+    const useSemantic =
+      this.plugin.settings.inboxSort === "semantic" && semanticReady;
+
+    if (useSemantic) {
+      for (const file of sorted) {
+        this.renderInboxItem(list, this.buildItemData(file), inboxPath);
+      }
+    } else {
+      let group: HTMLElement | null = null;
+      let currentDay = "";
+      for (const file of sorted) {
+        const day = formatDay(file.stat.ctime);
+        if (!group || day !== currentDay) {
+          group = list.createDiv({ cls: "pipgraph-inbox-daygroup" });
+          currentDay = day;
+        }
+        this.renderInboxItem(group, this.buildItemData(file), inboxPath);
+      }
+    }
+
+    // Apply the dependent "similar" dim + auto-select for the current selection
+    // (no-op provider → nothing happens; the path stays live for a real one).
+    void this.applySimilarHighlight();
+  }
+
+  /**
+   * Inbox-tab toolbar (inbox-tuning 01): a sort pill switch (Date added /
+   * Semantic) plus the two local toggles — A "Highlight similar" and B
+   * "Auto-select similar" (B requires A). All three persist in settings.
+   */
+  private renderInboxToolbar(host: HTMLElement, semanticReady: boolean): void {
+    const bar = host.createDiv({ cls: "pipgraph-inbox-toolbar" });
+
+    const sort = bar.createDiv({ cls: "pipgraph-inbox-sort" });
+    this.renderSortPill(sort, "date", "Date added", false);
+    this.renderSortPill(sort, "semantic", "Semantic", !semanticReady);
+
+    const toggles = bar.createDiv({ cls: "pipgraph-inbox-toggles" });
+    const a = this.plugin.settings.inboxHighlightSimilar;
+    const b = this.plugin.settings.inboxAutoSelectSimilar;
+
+    const aLabel = toggles.createEl("label", { cls: "pipgraph-inbox-toggle" });
+    aLabel.setAttr("title", "Dim-highlight Inbox notes similar to the selected one.");
+    const aBox = aLabel.createEl("input", { type: "checkbox" });
+    aBox.checked = a;
+    aLabel.createSpan({ text: "Highlight similar" });
+    aBox.addEventListener("change", () =>
+      void this.setSimilarToggle("inboxHighlightSimilar", aBox.checked),
+    );
+
+    const bLabel = toggles.createEl("label", { cls: "pipgraph-inbox-toggle" });
+    bLabel.toggleClass("is-disabled", !a);
+    bLabel.setAttr(
+      "title",
+      "Auto-check the highlighted notes into the placement batch. Requires “Highlight similar”.",
+    );
+    const bBox = bLabel.createEl("input", { type: "checkbox" });
+    bBox.checked = a && b;
+    bBox.disabled = !a;
+    bLabel.createSpan({ text: "Auto-select similar" });
+    bBox.addEventListener("change", () =>
+      void this.setSimilarToggle("inboxAutoSelectSimilar", bBox.checked),
+    );
+  }
+
+  private renderSortPill(
+    group: HTMLElement,
+    value: InboxSort,
+    label: string,
+    disabled: boolean,
+  ): void {
+    const pill = group.createSpan({ cls: "pipgraph-inbox-sort-pill", text: label });
+    pill.toggleClass("is-active", this.plugin.settings.inboxSort === value);
+    if (disabled) {
+      pill.addClass("is-disabled");
+      pill.setAttr("aria-disabled", "true");
+      pill.setAttr("title", "Semantic order needs pre-extracted data (coming later).");
+      return;
+    }
+    pill.addEventListener("click", () => void this.setInboxSort(value));
+  }
+
+  private async setInboxSort(value: InboxSort): Promise<void> {
+    if (this.plugin.settings.inboxSort === value) return;
+    this.plugin.settings.inboxSort = value;
+    await this.plugin.saveData(this.plugin.settings);
+    this.plugin.refreshInboxTabs();
+  }
+
+  private async setSimilarToggle(
+    key: "inboxHighlightSimilar" | "inboxAutoSelectSimilar",
+    on: boolean,
+  ): Promise<void> {
+    this.plugin.settings[key] = on;
+    await this.plugin.saveData(this.plugin.settings);
+    // Re-render rebuilds the toolbar (B's enabled state tracks A) and re-runs
+    // applySimilarHighlight for the current selection.
+    this.plugin.refreshInboxTabs();
+  }
+
+  private buildItemData(file: TFile): InboxItemData {
+    return {
+      file,
+      added: formatDay(file.stat.ctime),
+      fallbackUuid: this.plugin.naming.uuidForPath(file.path) ?? null,
+      regenerating: this.plugin.naming.isRegenerating(file.path),
+    };
+  }
+
+  /**
+   * Repaint selection-dependent state (the `.is-selected` highlight + the
+   * primary note's checked+locked checkbox) on every Inbox item — pure DOM, no
+   * list rebuild (keeps scroll position). Followed by the async similar pass.
+   */
+  private onInboxSelectionChanged(): void {
+    const sel = this.plugin.lastInboxSelectionPath;
+    // Invariant: the primary lives in lastInboxSelectionPath, never in the batch
+    // set (its checkbox is checked+locked on its own account). Drop it if a
+    // manual check had added it before it became the selection.
+    if (sel) this.plugin.inboxBatch.delete(sel);
+    this.panelContentEl
+      ?.querySelectorAll<HTMLElement>(".pipgraph-inbox-item[data-path]")
+      .forEach((el) => {
+        const path = el.getAttribute("data-path");
+        const isPrimary = !!path && path === sel;
+        el.toggleClass("is-selected", isPrimary);
+        const check = el.querySelector<HTMLInputElement>(
+          ".pipgraph-inbox-item__check",
+        );
+        if (check) {
+          check.checked = isPrimary || (!!path && this.plugin.inboxBatch.has(path));
+          check.disabled = isPrimary;
+        }
+      });
+    // Selection changed → recompute the auto-select batch (Q2). Plain re-renders
+    // (capture phantoms, processing markers) must NOT, or they'd wipe the user's
+    // manual un-checks — those only reset on the next selection change.
+    void this.applySimilarHighlight(true);
+  }
+
+  /**
+   * Dependent "similar" highlight + auto-select (inbox-tuning 01, §3). With A
+   * on, dim notes the similarity provider deems similar to the primary (the
+   * primary itself shows the stronger `.is-selected`). With B on (⇒ A on) AND
+   * `recomputeBatch`, the batch is fully recomputed (Q2) to those hits, minus
+   * the primary. Painting the dim class is idempotent and runs on every render;
+   * the batch recompute only on a selection change. The provider is a no-op this
+   * increment, so nothing lights up — but the path is live for a real provider.
+   */
+  private async applySimilarHighlight(recomputeBatch = false): Promise<void> {
+    const host = this.panelContentEl;
+    if (!host || this.activeTab !== "inbox") return;
+
+    const primary = this.plugin.lastInboxSelectionPath;
+    const items = () =>
+      Array.from(
+        host.querySelectorAll<HTMLElement>(".pipgraph-inbox-item[data-path]"),
+      );
+
+    if (!this.plugin.settings.inboxHighlightSimilar || !primary) {
+      items().forEach((el) => el.removeClass("is-similar"));
+      return;
+    }
+
+    const candidates = items()
+      .map((el) => el.getAttribute("data-path"))
+      .filter((p): p is string => !!p && p !== primary);
+
+    const seq = ++this.similarSeq;
+    let hits: SimilarHit[];
+    try {
+      hits = await this.plugin.inboxSimilarity.similarTo(primary, candidates);
+    } catch {
+      hits = [];
+    }
+    if (seq !== this.similarSeq || !host.isConnected) return;
+
+    const hitPaths = new Set(hits.map((h) => h.path));
+    items().forEach((el) => {
+      const p = el.getAttribute("data-path");
+      el.toggleClass("is-similar", !!p && hitPaths.has(p));
+    });
+
+    if (recomputeBatch && this.plugin.settings.inboxAutoSelectSimilar) {
+      // Full recompute (Q2): the batch becomes exactly the similar hits, minus
+      // the primary (which is always placed). setInboxBatch is idempotent, so
+      // the refresh it triggers re-enters here (recomputeBatch=false) and settles.
+      this.plugin.setInboxBatch(
+        hits.map((h) => h.path).filter((p) => p !== primary),
+      );
     }
   }
 
   /**
-   * Render a real Inbox file row. A note whose name is a *text fallback* (the
-   * NamingTracker flags it `❗` in the file-tree) gets the same `❗` marker here,
-   * a tooltip explaining the LLM-naming failure, and a right-click → "Regenerate
-   * name with LLM" — the panel-side mirror of the file-explorer menu.
+   * If the editor's active note lives under the Inbox folder, adopt it as the
+   * focus-suggest target (highlight + score). Lets opening the panel / switching
+   * to the Inbox tab pick up an already-open inbox note, so the highlight and the
+   * recommendations stay in sync. Notes outside the Inbox are ignored.
    */
-  private renderFileRow(
+  private adoptActiveInboxNote(): void {
+    const active = this.plugin.app.workspace.getActiveFile();
+    if (!active) return;
+    const prefix = `${getInboxPath(this.plugin.settings)}/`;
+    if (!active.path.startsWith(prefix)) return;
+    this.plugin.focusSuggest.selectInbox(active.path);
+  }
+
+  /**
+   * Render a rich, two-line Inbox item (inbox-tuning 01). Line 1: batch checkbox
+   * + title + path-badge + markers (`❗`/`⟳`). Line 2 (small): added date + a
+   * lazily-loaded body snippet. A note whose name is a *text fallback* gets the
+   * `❗` marker + a right-click → "Regenerate name with LLM" (mirrors the
+   * file-explorer menu). The primary (selected) note's checkbox is checked+locked
+   * — it's always part of the placement batch (Q3).
+   */
+  private renderInboxItem(
     list: HTMLElement,
-    file: TFile,
+    data: InboxItemData,
     inboxPath: string,
   ): void {
-    const fallbackUuid = this.plugin.naming.uuidForPath(file.path);
-    const regenerating = this.plugin.naming.isRegenerating(file.path);
+    const { file } = data;
+    const isPrimary = file.path === this.plugin.lastInboxSelectionPath;
 
-    const row = list.createDiv({ cls: "pipgraph-inbox-row" });
-    row.createSpan({ cls: "pipgraph-inbox-row__title", text: file.basename });
+    const item = list.createDiv({ cls: "pipgraph-inbox-item" });
+    item.setAttr("data-path", file.path);
+    item.toggleClass("is-selected", isPrimary);
+
+    // Batch checkbox. Primary → checked+disabled (always placed). stopPropagation
+    // so toggling it doesn't open the note via the row click.
+    const check = item.createEl("input", {
+      type: "checkbox",
+      cls: "pipgraph-inbox-item__check",
+    });
+    check.checked = isPrimary || this.plugin.inboxBatch.has(file.path);
+    check.disabled = isPrimary;
+    check.setAttr(
+      "aria-label",
+      isPrimary
+        ? "Selected note — always placed with the batch"
+        : "Add this note to the placement batch",
+    );
+    check.addEventListener("click", (ev) => ev.stopPropagation());
+    check.addEventListener("change", () => this.plugin.toggleInboxBatch(file.path));
+
+    const body = item.createDiv({ cls: "pipgraph-inbox-item__body" });
+    const main = body.createDiv({ cls: "pipgraph-inbox-item__main" });
+    main.createSpan({ cls: "pipgraph-inbox-item__title", text: file.basename });
     const rel = file.parent?.path.slice(inboxPath.length).replace(/^\//, "");
     if (rel) {
-      row.createSpan({ cls: "pipgraph-inbox-row__path", text: rel });
+      main.createSpan({ cls: "pipgraph-inbox-item__path", text: rel });
     }
 
-    if (regenerating) {
+    if (data.regenerating) {
       // Naming job re-running — show the same in-flight `⟳` an add shows, in
       // place of the `❗`. No menu while it's working.
-      const spin = row.createSpan({ cls: "pipgraph-inbox-row__regen" });
+      const spin = main.createSpan({ cls: "pipgraph-inbox-item__regen" });
       setIcon(spin, "loader");
       spin.setAttr("aria-label", "Regenerating the name with the LLM…");
-    } else if (fallbackUuid) {
+    } else if (data.fallbackUuid) {
+      const fallbackUuid = data.fallbackUuid;
       const tooltip =
         "Couldn't auto-name this note with the LLM — possibly an LLM provider " +
         "connection error. Right-click to regenerate the name.";
-      row.addClass("pipgraph-inbox-row--fallback");
-      const marker = row.createSpan({
-        cls: "pipgraph-inbox-row__fallback",
+      item.addClass("pipgraph-inbox-item--fallback");
+      const marker = main.createSpan({
+        cls: "pipgraph-inbox-item__fallback",
         text: "❗",
       });
       marker.setAttr("aria-label", tooltip);
-      row.addEventListener("contextmenu", (ev) => {
+      item.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();
         const menu = new Menu();
-        menu.addItem((item) =>
-          item
+        menu.addItem((mItem) =>
+          mItem
             .setTitle("Regenerate name with LLM")
             .setIcon("sparkles")
             .onClick(() => void regenerateName(this.plugin, fallbackUuid, file)),
@@ -380,15 +683,21 @@ export class TriagePanelView extends ItemView {
       });
     }
 
-    row.addEventListener("click", () => {
-      // Remember this as the focus-suggest fallback target (when no md note is
-      // active in the editor); opening it also makes it the active file.
-      this.plugin.lastInboxSelectionPath = file.path;
+    const meta = body.createDiv({ cls: "pipgraph-inbox-item__meta" });
+    meta.createSpan({ cls: "pipgraph-inbox-item__date", text: data.added });
+    void this.fillSnippet(file, meta);
+
+    item.addEventListener("click", () => {
+      // This selection is the focus-suggest scoring target: set it (recompute)
+      // via the controller, repaint selection state, then open the note.
+      this.plugin.focusSuggest.selectInbox(file.path);
+      this.onInboxSelectionChanged();
       void this.plugin.app.workspace.getLeaf(false).openFile(file);
     });
-    // Drag onto a PARA folder to move+link (DragToPlace handles the drop).
-    row.draggable = true;
-    row.addEventListener("dragstart", (ev) => {
+    // Drag onto a PARA folder to move+link (DragToPlace handles the drop). The
+    // batch rides along on drop — the MIME still carries just this one path.
+    item.draggable = true;
+    item.addEventListener("dragstart", (ev) => {
       ev.dataTransfer?.setData(PIPGRAPH_DRAG_MIME, file.path);
       ev.dataTransfer?.setData("text/plain", file.path);
       if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
@@ -396,28 +705,54 @@ export class TriagePanelView extends ItemView {
   }
 
   /**
+   * Lazily load a note's body snippet into its meta line (D4). Reads via
+   * `cachedRead` (cheap, cache-backed), memoises per file by mtime, and guards
+   * against a stale paint (the meta element being replaced by a re-render).
+   */
+  private async fillSnippet(file: TFile, metaEl: HTMLElement): Promise<void> {
+    const cached = this.snippetCache.get(file.path);
+    let snippet: string | null;
+    if (cached && cached.mtime === file.stat.mtime) {
+      snippet = cached.snippet;
+    } else {
+      try {
+        const content = await this.plugin.app.vault.cachedRead(file);
+        snippet = extractSnippet(content);
+      } catch {
+        snippet = null;
+      }
+      this.snippetCache.set(file.path, { mtime: file.stat.mtime, snippet });
+    }
+    if (!snippet || !metaEl.isConnected) return;
+    metaEl.createSpan({ cls: "pipgraph-inbox-item__snippet", text: snippet });
+  }
+
+  /**
    * Render a phantom row for a pre-materialisation capture (Model 2):
    *  - `inflight`     — a static `⟳`, non-interactive (the naming job runs).
    *  - `failed-create`— a `⚠`; left-click retries, right-click offers
    *    Retry adding note / Save to drafts / Discard.
-   * Phantoms back no file, so they are never draggable.
+   * Phantoms back no file, so they are never draggable. One-line, but laid out on
+   * the item grid (a checkbox-column spacer) so titles line up with real items.
    */
   private renderPhantomRow(list: HTMLElement, record: CaptureRecord): void {
     const inflight = record.state === "inflight";
     const row = list.createDiv({
-      cls: `pipgraph-inbox-row pipgraph-inbox-phantom pipgraph-inbox-phantom--${
+      cls: `pipgraph-inbox-item pipgraph-inbox-phantom pipgraph-inbox-phantom--${
         inflight ? "inflight" : "failed"
       }`,
     });
+    row.createDiv({ cls: "pipgraph-inbox-item__check-spacer" });
 
-    const iconEl = row.createSpan({ cls: "pipgraph-inbox-phantom__icon" });
+    const body = row.createDiv({ cls: "pipgraph-inbox-item__body" });
+    const main = body.createDiv({ cls: "pipgraph-inbox-item__main" });
+    const iconEl = main.createSpan({ cls: "pipgraph-inbox-phantom__icon" });
     setIcon(iconEl, inflight ? "loader" : "alert-triangle");
-
-    row.createSpan({
-      cls: "pipgraph-inbox-row__title",
+    main.createSpan({
+      cls: "pipgraph-inbox-item__title",
       text: record.preview,
     });
-    row.createSpan({
+    main.createSpan({
       cls: "pipgraph-inbox-phantom__hint",
       text: inflight ? "adding…" : "couldn't add",
     });

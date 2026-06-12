@@ -99,6 +99,72 @@ export async function placeNoteInFolder(
   return true;
 }
 
+/**
+ * Place several notes into one folder, sequentially (inbox-tuning 01, §4). Each
+ * note goes through the same single-note {@link placeNoteInFolder} — its own
+ * move + link + enqueue — so the per-note contract is unchanged; we just drive
+ * it in a loop. Sequential (not parallel) keeps the existing server queue happy
+ * and avoids interleaved notices. Returns the counts; callers report/clean up.
+ */
+export async function placeNotesInFolder(
+  plugin: PipGraphPlugin,
+  files: TFile[],
+  folderPath: string,
+): Promise<{ placed: number; failed: number }> {
+  let placed = 0;
+  let failed = 0;
+  for (const file of files) {
+    const ok = await placeNoteInFolder(plugin, file, folderPath);
+    if (ok) placed += 1;
+    else failed += 1;
+  }
+  return { placed, failed };
+}
+
+/**
+ * Place a note on a folder, carrying the checked batch only when the gesture
+ * note itself belongs to that batch (inbox-tuning 01, §4; refines D1).
+ *
+ * The "checked group" is every visually-checked Inbox row = the primary
+ * (`lastInboxSelectionPath`, always checked+locked) plus `inboxBatch`.
+ *  - Gesture note IS in the group → place the whole group together
+ *    (`dedup([primary, ...inboxBatch])`) and clear the batch.
+ *  - Gesture note is OUTSIDE the group → it's a standalone placement: only that
+ *    note moves, the checked batch is left untouched (owner decision — dragging
+ *    an unchecked note into any folder must not drag the batch along).
+ *
+ * The single call site for confirm-menu placement, ghost-drop, and drag-drop.
+ */
+export async function placeBatch(
+  plugin: PipGraphPlugin,
+  gestureFile: TFile,
+  folderPath: string,
+): Promise<{ placed: number; failed: number }> {
+  const primary = plugin.lastInboxSelectionPath;
+  const inGroup =
+    gestureFile.path === primary || plugin.inboxBatch.has(gestureFile.path);
+
+  // Standalone: a note dragged from outside the checked group goes alone.
+  if (!inGroup) {
+    return placeNotesInFolder(plugin, [gestureFile], folderPath);
+  }
+
+  // Group: the gesture note + the primary + every checked note, deduped.
+  const files: TFile[] = [gestureFile];
+  const seen = new Set<string>([gestureFile.path]);
+  const members = primary ? [primary, ...plugin.inboxBatch] : [...plugin.inboxBatch];
+  for (const path of members) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const f = plugin.app.vault.getAbstractFileByPath(path);
+    if (f instanceof TFile) files.push(f);
+  }
+
+  const result = await placeNotesInFolder(plugin, files, folderPath);
+  if (result.placed > 0) plugin.clearInboxBatch();
+  return result;
+}
+
 export function describeError(err: unknown): string {
   if (err instanceof PipGraphApiError) {
     if (err.kind === "network") return "backend unreachable";
