@@ -68,6 +68,9 @@ export class TriagePanelView extends ItemView {
   async onOpen(): Promise<void> {
     // Pick up the folder the user last clicked while the panel was closed.
     this.inspectedPath = this.plugin.lastInspectedFolderPath;
+    // Adopt an already-open inbox note before the first paint, so its row paints
+    // `is-selected`; onPanelOpened() → sync() then scores it.
+    this.adoptActiveInboxNote();
     this.render();
     // Focus-suggest is active only while a panel is open (Q7).
     this.plugin.focusSuggest.onPanelOpened();
@@ -140,7 +143,7 @@ export class TriagePanelView extends ItemView {
     const label = bar.createEl("label", { cls: "pipgraph-panel__mode-label" });
     label.setAttr(
       "title",
-      "While the panel is open, candidate folders are scored for the active note.\n" +
+      "While the panel is open, candidate folders are scored for the selected Inbox note.\n" +
         "Off: match-% badges on the real folder tree.\n" +
         "On: a ghost-tree of candidates replaces the real tree.",
     );
@@ -282,6 +285,9 @@ export class TriagePanelView extends ItemView {
     for (const [id, btn] of Object.entries(this.tabButtons)) {
       btn?.toggleClass("is-active", id === tab);
     }
+    // Switching onto the Inbox tab adopts an already-open inbox note (the ghost
+    // renderer is live, so selectInbox recomputes); renderContent paints its row.
+    if (tab === "inbox") this.adoptActiveInboxNote();
     void this.renderContent();
   }
 
@@ -331,6 +337,33 @@ export class TriagePanelView extends ItemView {
   }
 
   /**
+   * Move the `.is-selected` highlight to the row matching the current Inbox
+   * selection — pure DOM, no list rebuild (keeps scroll position).
+   */
+  private highlightSelectedRow(): void {
+    const sel = this.plugin.lastInboxSelectionPath;
+    this.panelContentEl
+      ?.querySelectorAll(".pipgraph-inbox-row[data-path]")
+      .forEach((el) =>
+        el.toggleClass("is-selected", el.getAttribute("data-path") === sel),
+      );
+  }
+
+  /**
+   * If the editor's active note lives under the Inbox folder, adopt it as the
+   * focus-suggest target (highlight + score). Lets opening the panel / switching
+   * to the Inbox tab pick up an already-open inbox note, so the highlight and the
+   * recommendations stay in sync. Notes outside the Inbox are ignored.
+   */
+  private adoptActiveInboxNote(): void {
+    const active = this.plugin.app.workspace.getActiveFile();
+    if (!active) return;
+    const prefix = `${getInboxPath(this.plugin.settings)}/`;
+    if (!active.path.startsWith(prefix)) return;
+    this.plugin.focusSuggest.selectInbox(active.path);
+  }
+
+  /**
    * Render a real Inbox file row. A note whose name is a *text fallback* (the
    * NamingTracker flags it `❗` in the file-tree) gets the same `❗` marker here,
    * a tooltip explaining the LLM-naming failure, and a right-click → "Regenerate
@@ -345,6 +378,11 @@ export class TriagePanelView extends ItemView {
     const regenerating = this.plugin.naming.isRegenerating(file.path);
 
     const row = list.createDiv({ cls: "pipgraph-inbox-row" });
+    row.setAttr("data-path", file.path);
+    row.toggleClass(
+      "is-selected",
+      file.path === this.plugin.lastInboxSelectionPath,
+    );
     row.createSpan({ cls: "pipgraph-inbox-row__title", text: file.basename });
     const rel = file.parent?.path.slice(inboxPath.length).replace(/^\//, "");
     if (rel) {
@@ -381,9 +419,10 @@ export class TriagePanelView extends ItemView {
     }
 
     row.addEventListener("click", () => {
-      // Remember this as the focus-suggest fallback target (when no md note is
-      // active in the editor); opening it also makes it the active file.
-      this.plugin.lastInboxSelectionPath = file.path;
+      // This selection is the focus-suggest scoring target: set it (recompute)
+      // via the controller, move the highlight, then open the note.
+      this.plugin.focusSuggest.selectInbox(file.path);
+      this.highlightSelectedRow();
       void this.plugin.app.workspace.getLeaf(false).openFile(file);
     });
     // Drag onto a PARA folder to move+link (DragToPlace handles the drop).

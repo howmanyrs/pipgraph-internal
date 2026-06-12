@@ -23,8 +23,10 @@ type Renderer = "ghost" | "badges";
  * *which* renderer. Closing the panel deactivates (explorer returns to pristine)
  * without flipping the persisted toggle (Q7). Flipping the toggle swaps the
  * renderer in place, reusing the already-computed scores (same target → no
- * re-fetch). The scoring target is the active editor note, falling back to the
- * last Inbox-tab selection; recomputed (debounced) on active-leaf-change.
+ * re-fetch). The scoring target is the note selected in the Inbox tab
+ * ({@link selectInbox}); recompute is driven by that selection, not by
+ * active-leaf-change — notes outside the PipGraph root can't be selected, so
+ * they never trigger a (wasted) scoring round-trip.
  */
 export class FocusSuggestController {
   private readonly engine: SuggestionEngine;
@@ -47,12 +49,6 @@ export class FocusSuggestController {
   }
 
   start(): void {
-    // Recompute as the active editor leaf changes (the "what am I reading" cue).
-    this.plugin.registerEvent(
-      this.plugin.app.workspace.on("active-leaf-change", () => {
-        if (this.renderer) this.recompute();
-      }),
-    );
     // Real-mode candidate folders get a "Confirm placement here" item in the
     // native folder context menu (Q7 §3 — menu, not single-click, no misfires).
     this.plugin.registerEvent(
@@ -135,15 +131,22 @@ export class FocusSuggestController {
     this.loading = false;
   }
 
+  /**
+   * Inbox tab selected a note (or cleared it). Make it the scoring target and
+   * recompute — guarded so an unchanged selection is a no-op (mid-session Inbox
+   * re-renders, e.g. capture phantoms updating, won't re-fire `make-suggestions`).
+   */
+  selectInbox(path: string | null): void {
+    if (this.plugin.lastInboxSelectionPath === path) return;
+    this.plugin.lastInboxSelectionPath = path;
+    if (this.renderer) this.recompute();
+  }
+
   private resolveTarget(): TFile | null {
-    const active = this.plugin.app.workspace.getActiveFile();
-    if (active && active.extension === "md") return active;
-    const fallback = this.plugin.lastInboxSelectionPath;
-    if (fallback) {
-      const f = this.plugin.app.vault.getAbstractFileByPath(fallback);
-      if (f instanceof TFile) return f;
-    }
-    return null;
+    const sel = this.plugin.lastInboxSelectionPath;
+    if (!sel) return null;
+    const f = this.plugin.app.vault.getAbstractFileByPath(sel);
+    return f instanceof TFile ? f : null;
   }
 
   private async compute(): Promise<void> {

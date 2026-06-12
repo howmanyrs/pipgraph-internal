@@ -231,6 +231,14 @@
   background: var(--background-modifier-hover);
 }
 
+/* The Inbox row whose note currently drives focus-suggest scoring. A left
+   accent bar + active fill mark it as "this is what the percentages are for",
+   distinct from the lighter :hover fill. Theme-native tokens (light + dark). */
+.pipgraph-inbox-row.is-selected {
+  background: var(--background-modifier-active-hover);
+  box-shadow: inset 2px 0 0 0 var(--interactive-accent);
+}
+
 .pipgraph-inbox-row__title {
   color: var(--text-normal);
 }
