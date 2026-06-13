@@ -497,10 +497,15 @@ class PipGraphManager:
         validate_group_id(group_id)
         group_id = group_id or get_default_group_id(self.driver.provider)
 
-        # Auto-generate name if not provided
+        # Auto-generate name if not provided.
+        # LEGACY sync path — the plugin never reaches it (both its paths send
+        # generate_name=true → async naming job). We keep it consistent because
+        # generate_episode_name now returns a 3-tuple; the hints ride into the
+        # constructor below so persistence is free via save().
+        semantic_hints: list[str] = []
         if not name:
             logger.info("[create_episode] Auto-generating episode name from content")
-            name, _used_fallback = await generate_episode_name(
+            name, semantic_hints, _used_fallback = await generate_episode_name(
                 episode_body=content,
                 llm_client=self.clients.llm_client
             )
@@ -522,6 +527,7 @@ class PipGraphManager:
             file_path=file_path,
             frontmatter=frontmatter or {},
             status=status,
+            semantic_hints=semantic_hints,
             **({"uuid": uuid} if uuid else {}),
         )
 
@@ -1829,6 +1835,7 @@ class PipGraphManager:
         self,
         episodic_uuid: str,
         name: str,
+        semantic_hints: list[str] | None = None,
     ) -> bool:
         """
         Set an Episodic's final name and clear its transient ``status`` in one act.
@@ -1837,17 +1844,27 @@ class PipGraphManager:
         node's provisional (client-supplied) name is overwritten and the
         ``processing`` flag is removed, marking the episode settled.
 
-        Narrow by design — touches only ``name`` and ``status``; UUID, edges, and
-        all other properties are preserved. No embeddings/indexes depend on
-        ``name`` for an Episodic, so nothing is recomputed.
+        Also persists ``semantic_hints`` (suggest-extra lever B) in the **same**
+        round-trip: the naming job is the one place these keywords are produced,
+        and the node was loaded via the base Graphiti projection (which drops
+        custom fields), so a targeted ``SET e.semantic_hints`` here is how they
+        reach the graph for ``make_suggestions`` to read. Empty/None hints are
+        not written, so a re-name without hints never clobbers existing ones.
+
+        Narrow by design — touches only ``name``, ``status`` and (optionally)
+        ``semantic_hints``; UUID, edges, and all other properties are preserved.
+        No embeddings/indexes depend on ``name`` for an Episodic, so nothing is
+        recomputed.
 
         Args:
             episodic_uuid: UUID of the Episodic to finalize.
             name: Final name to set.
+            semantic_hints: Optional keyword hints to persist on the node.
 
         Returns:
             True if a node was updated, False if no Episodic with that UUID exists.
         """
+        hints = [h.strip() for h in (semantic_hints or []) if h and h.strip()]
         async with self.driver.session() as session:
             record = await (
                 await session.run(
@@ -1855,10 +1872,13 @@ class PipGraphManager:
                     MATCH (e:Episodic {uuid: $uuid})
                     SET e.name = $name
                     REMOVE e.status
+                    FOREACH (_ IN CASE WHEN $hints = [] THEN [] ELSE [1] END |
+                        SET e.semantic_hints = $hints)
                     RETURN e.uuid AS uuid
                     """,
                     uuid=episodic_uuid,
                     name=name,
+                    hints=hints,
                 )
             ).single()
 
@@ -1866,7 +1886,10 @@ class PipGraphManager:
             logger.warning(f"[finalize_episode_name] Not found: uuid={episodic_uuid}")
             return False
 
-        logger.info(f"[finalize_episode_name] uuid={episodic_uuid} name='{name}' (status cleared)")
+        logger.info(
+            f"[finalize_episode_name] uuid={episodic_uuid} name='{name}' "
+            f"(status cleared, {len(hints)} semantic_hints)"
+        )
         return True
 
     async def set_episode_name(
@@ -2498,6 +2521,24 @@ class PipGraphManager:
             if not episodic:
                 raise ValueError(f"Episodic not found: {episodic_uuid}")
 
+            # STEP 1b: Hydrate semantic_hints (suggest-extra lever B).
+            # ⚠ The base get_by_uuid projection (EPISODIC_NODE_RETURN) returns a
+            # fixed set of fields and silently drops any custom property, so the
+            # hints written by the naming job are NOT on `episodic`. Fetch them
+            # with a targeted query and attach them — without this the whole lever
+            # is a silent no-op (same class of bug as "Graphiti bulk save drops
+            # custom fields").
+            semantic_hints: list[str] = []
+            async with self.driver.session() as session:
+                hint_record = await (
+                    await session.run(
+                        "MATCH (e:Episodic {uuid: $uuid}) RETURN e.semantic_hints AS h",
+                        uuid=episodic_uuid,
+                    )
+                ).single()
+            if hint_record and hint_record["h"]:
+                semantic_hints = list(hint_record["h"])
+
             # STEP 2: Extract content for search query
             # Note: Episodic nodes may have empty content if store_raw_episode_content=False
             content = episodic.content or ""
@@ -2506,12 +2547,23 @@ class PipGraphManager:
                     f"[make_suggestions] Episodic {episodic.name} (uuid: {episodic_uuid}) has empty content, "
                     "using name as query"
                 )
-                query = episodic.name
+                base_query = episodic.name
             else:
                 # Truncate content to avoid too long queries (Graphiti handles this, but good practice)
                 # Use first 2000 characters for search query
-                query = content[:2000]
+                base_query = content[:2000]
 
+            # Append the pre-extracted keywords to the query text. This is the only
+            # point through which the note's *implied* words reach the BM25 match
+            # against folder name/summary — and they also feed the query embedding
+            # compared to name_embedding, so both search branches are widened for
+            # free, no new index. (suggest-extra lever B)
+            if semantic_hints:
+                query = f"{base_query}\n\nКлючевые слова: {', '.join(semantic_hints)}"
+            else:
+                query = base_query
+
+            logger.info(f"[make_suggestions] semantic_hints ({len(semantic_hints)}): {semantic_hints}")
             logger.info(f"[make_suggestions] Using query ({query})")
             logger.info(f"[make_suggestions] Using query (length={len(query)})")
 

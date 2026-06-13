@@ -32,12 +32,28 @@ class EpisodeName(BaseModel):
     - Descriptive of the note's main topic
     - Suitable for use as a filename
     - In title case or sentence case
+
+    ``semantic_hints`` is a cheap pre-extraction layer riding the same LLM call
+    (suggest-extra lever B): 5–12 keywords for the note — *including implied
+    ones* — that later widen the ``make_suggestions`` query so a folder can match
+    even when the note never spells out its words. This is NOT the heavy Graphiti
+    entity extraction (that runs later, in the process pipeline, and produces
+    :Entity nodes via MENTIONS) — just hints, hence the name.
     """
     name: str = Field(
         description="A concise, descriptive name for the episode that can be used as a filename"
     )
     reasoning: str = Field(
         description="Brief explanation of why this name was chosen"
+    )
+    semantic_hints: list[str] = Field(
+        default_factory=list,
+        description=(
+            "5–12 keywords for the note, in the note's own language, including "
+            "IMPLIED ones (synonyms, common names, the class/purpose/domain a term "
+            "belongs to) — the words by which someone would search for this note "
+            "even if the text doesn't contain them."
+        ),
     )
 
 
@@ -83,6 +99,15 @@ Examples of BAD names (too long, too vague, or problematic):
 - "Meeting/Discussion: API|Backend" (problematic characters)
 - "note_2024_01_14.md" (includes extension, too technical)
 - "Project Zadachi" (mixing languages - NEVER do this!)
+
+Besides the name, also return 5-12 KEYWORDS for the note, in the note's own
+language, by which someone would later search for it. Include IMPLIED keywords,
+not only words literally present in the text. Strategy — go from the specific to
+the general: for each concrete term in the note, also add its synonyms, common
+names, and the class, purpose and domain it belongs to. Example: a note about the
+`mc` hotkeys should yield keywords like "файловый менеджер", "CLI", "терминал",
+"горячие клавиши" even though those exact words may be absent. The goal is that a
+future note similar in meaning matches by words, not only by literal occurrence.
 '''
         ),
         Message(
@@ -101,6 +126,7 @@ NEVER mix languages in the name.
 Return a JSON object with:
 - "name": The generated name (3-8 words, title case, no special characters, in the SAME language as the note)
 - "reasoning": Brief explanation of why you chose this name (1 sentence)
+- "semantic_hints": A list of 5-12 keywords (in the SAME language as the note), including IMPLIED ones — synonyms, common names, and the class/purpose/domain of the note's terms — the words by which someone would search for this note even if they are not in the text
 '''
         ),
     ]
@@ -159,7 +185,7 @@ async def generate_episode_name(
     episode_body: str,
     llm_client: OpenAIGenericClient,
     max_length: int = 100
-) -> tuple[str, bool]:
+) -> tuple[str, list[str], bool]:
     """
     Generate a meaningful, filesystem-compatible name for an episode.
 
@@ -174,10 +200,15 @@ async def generate_episode_name(
 
     This routine **never raises** for an LLM failure — it falls back to a name
     derived from the first words of the content (``_generate_fallback_name``).
-    The second tuple element reports *which* path produced the name so callers
+    The last tuple element reports *which* path produced the name so callers
     can surface the difference (the async naming job keeps the node marked
     ``failed:generate_episode_name`` on a fallback instead of masking it; the
     sync ``create_episode`` path ignores the flag).
+
+    Alongside the name it returns ``semantic_hints`` — keywords (including implied
+    ones) used downstream to widen the ``make_suggestions`` query (suggest-extra
+    lever B). On the fallback path the hints are empty (the LLM call is what
+    produces them).
 
     Args:
         episode_body: Full content of the note/episode
@@ -185,13 +216,14 @@ async def generate_episode_name(
         max_length: Maximum length for filename (default: 100 chars)
 
     Returns:
-        ``(name, used_fallback)`` — the sanitized name, and ``True`` when the LLM
-        call failed and the name is a text-derived fallback.
+        ``(name, semantic_hints, used_fallback)`` — the sanitized name, the
+        keyword hints (empty on fallback), and ``True`` when the LLM call failed
+        and the name is a text-derived fallback.
 
     Example:
         >>> from app.services.graphiti.setup_graphiti import get_graphiti
         >>> graphiti = await get_graphiti()
-        >>> name, used_fallback = await generate_episode_name(
+        >>> name, hints, used_fallback = await generate_episode_name(
         ...     episode_body="Today we discussed the new API architecture...",
         ...     llm_client=graphiti.clients.llm_client
         ... )
@@ -225,14 +257,20 @@ async def generate_episode_name(
                 f"[generate_episode_name] Sanitized: '{result.name}' → '{sanitized_name}'"
             )
 
-        return sanitized_name, False
+        # Normalize hints: strip blanks, drop empties (cheap, defensive — small
+        # models occasionally emit padding entries).
+        hints = [h.strip() for h in (result.semantic_hints or []) if h and h.strip()]
+        logger.info(f"[generate_episode_name] semantic_hints ({len(hints)}): {hints}")
+
+        return sanitized_name, hints, False
 
     except Exception as e:
         logger.error(f"[generate_episode_name] Error generating name: {e}", exc_info=True)
-        # Fallback: use first few words of content
+        # Fallback: use first few words of content. No hints — the LLM call that
+        # would produce them is exactly what failed.
         fallback_name = _generate_fallback_name(episode_body)
         logger.warning(f"[generate_episode_name] Using fallback name: '{fallback_name}'")
-        return fallback_name, True
+        return fallback_name, [], True
 
 
 def _generate_fallback_name(episode_body: str, max_words: int = 5) -> str:

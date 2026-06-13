@@ -51,6 +51,10 @@ export interface EpisodicNode {
   created_at: string;
   valid_at: string;
   source_description?: string;
+  // Keywords pre-extracted by the backend naming job (suggest-extra lever B),
+  // incl. implied ones; used server-side to widen make-suggestions. Always an
+  // array in responses ([] when none). Web does not consume it; kept for parity.
+  semantic_hints?: string[];
   [key: string]: unknown; // Allow additional properties
 }
 

@@ -62,6 +62,16 @@ class PipGraphEpisodicNode(EpisodicNode):
                     "on completion."
     )
 
+    semantic_hints: list[str] = Field(
+        default_factory=list,
+        description="Keywords pre-extracted in the naming job (suggest-extra lever "
+                    "B), incl. implied ones. Widen the make_suggestions query so a "
+                    "folder matches even when the note lacks its words. NOT heavy "
+                    "entity extraction (that produces :Entity nodes via MENTIONS) — "
+                    "just hints on the Episodic. Stored natively as a Neo4j list "
+                    "(no json.dumps, unlike frontmatter)."
+    )
+
     def compute_content_hash(self) -> str:
         """
         Compute SHA-256 hash of episode content.
@@ -116,6 +126,13 @@ class PipGraphEpisodicNode(EpisodicNode):
         if self.status is not None:
             updates['status'] = self.status
 
+        # semantic_hints survives the same way as file_path/status — Graphiti's
+        # `SET n = {...}` omits it, so we re-apply via `SET e += {...}`. Stored as
+        # a native Neo4j list of strings (no json.dumps). Only written when
+        # non-empty so an empty list never clobbers an existing one on re-save.
+        if self.semantic_hints:
+            updates['semantic_hints'] = self.semantic_hints
+
         # Only run UPDATE if we have custom fields to save
         if updates:
             query = """
@@ -135,6 +152,7 @@ class PipGraphEpisodicNode(EpisodicNode):
         frontmatter: Optional[dict[str, Any]] = None,
         content_hash: Optional[str] = None,
         status: Optional[str] = None,
+        semantic_hints: Optional[list[str]] = None,
     ) -> "PipGraphEpisodicNode":
         """
         Create PipGraphEpisodicNode from base EpisodicNode.
@@ -147,6 +165,7 @@ class PipGraphEpisodicNode(EpisodicNode):
             frontmatter: Optional YAML frontmatter dict
             content_hash: Optional precomputed content hash
             status: Optional transient processing status (job-runner flag)
+            semantic_hints: Optional pre-extracted keyword hints (lever B)
 
         Returns:
             PipGraphEpisodicNode with all base fields plus PipGraph extensions
@@ -166,6 +185,7 @@ class PipGraphEpisodicNode(EpisodicNode):
             frontmatter=frontmatter or {},
             content_hash=content_hash,
             status=status,
+            semantic_hints=semantic_hints or [],
         )
 
 

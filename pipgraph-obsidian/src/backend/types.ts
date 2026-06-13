@@ -54,6 +54,11 @@ export interface EpisodicNode {
   // "process_existing_episode"), "failed:<job>" on error, absent/null once
   // settled. Poll this until it clears; use the status.ts predicates, not "==".
   status?: string | null;
+  // Keywords pre-extracted by the backend naming job (suggest-extra lever B),
+  // incl. implied ones. The backend widens its make-suggestions query with them;
+  // the plugin only reads them (e.g. a future Inbox-Semantic seam). Always an
+  // array in responses ([] when none).
+  semantic_hints?: string[];
 }
 
 // `ParaSuggestion` in schemas/dev.py

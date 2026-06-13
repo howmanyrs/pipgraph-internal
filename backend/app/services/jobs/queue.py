@@ -132,14 +132,15 @@ async def _handle_generate_episode_name(args: dict[str, Any]) -> None:
     manager = PipGraphManager(graphiti)
 
     try:
-        name, used_fallback = await generate_episode_name(
+        name, semantic_hints, used_fallback = await generate_episode_name(
             episode_body=content,
             llm_client=manager.clients.llm_client,
         )
         if used_fallback:
             # Surface the fallback instead of clearing status: a real (text-derived)
             # name lands, but the failed status stays so the client can mark it ❗
-            # and offer "Regenerate name with LLM".
+            # and offer "Regenerate name with LLM". No semantic_hints on this path
+            # (the LLM call that produces them is what failed).
             await manager.set_episode_name(episodic_uuid, name)
             await manager.set_episodic_status(episodic_uuid, failed(JOB_GENERATE_NAME))
             logger.warning(
@@ -147,8 +148,11 @@ async def _handle_generate_episode_name(args: dict[str, Any]) -> None:
                 f"(status kept '{failed(JOB_GENERATE_NAME)}')"
             )
         else:
-            await manager.finalize_episode_name(episodic_uuid, name)
-            logger.info(f"[jobs] named episode {episodic_uuid} -> '{name}'")
+            await manager.finalize_episode_name(episodic_uuid, name, semantic_hints)
+            logger.info(
+                f"[jobs] named episode {episodic_uuid} -> '{name}' "
+                f"({len(semantic_hints)} semantic_hints)"
+            )
     except Exception:
         logger.exception(f"[jobs] naming failed for {episodic_uuid}")
         await manager.set_episodic_status(episodic_uuid, failed(JOB_GENERATE_NAME))
