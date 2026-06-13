@@ -85,6 +85,7 @@ from graphiti_core.utils.maintenance.node_operations import (
 )
 # Import name generator for automatic episode naming
 from app.services.graphiti.name_generator import generate_episode_name
+from app.services.graphiti.prompt_registry import join_summary, split_summary
 
 logger = logging.getLogger(__name__)
 
@@ -145,35 +146,38 @@ class PipGraphManager:
         summaries_before: dict[str, str],
         hydrated_nodes: list,
     ) -> None:
-        """Guard against the empty-summary wipe (variant G).
+        """Frozen-header guard for folder summaries ("шапка + хвост").
 
-        ``extract_attributes_from_nodes`` (graphiti) mutates each node in place via
-        ``node.summary = summary_response.get('summary', '')``. A blank/failed LLM
-        summary response therefore overwrites a previously-good summary with '', and
-        the next bulk save persists the wipe — silently.
+        ``build_extract_summary`` now asks the LLM to return **only the auto tail** —
+        the accumulated keywords/topics under the ``<!--pg:auto-->`` marker — while the
+        human-curated header above it is read-only context. graphiti still assigns the
+        raw response to ``node.summary`` (i.e. tail-only). This guard re-prepends the
+        header **verbatim from the pre-call snapshot**, so the header is immutable
+        whatever the LLM returns.
 
-        This compares the pre-call snapshot against the hydrated nodes and, on any
-        non-empty → empty transition, **restores the previous summary** in place
-        before the bulk save sees it. ``node.summary`` has no derived embedding (only
-        ``name`` is embedded), so the restore is safe. We mutate the same node objects
-        that flow into ``add_nodes_and_edges_bulk``.
+        It also absorbs the old empty-summary wipe defence (variant G): if the LLM
+        returns an empty tail, the previous tail is kept rather than blanked. And it
+        softly strips a header echo if a small model parroted the header into the tail.
 
-        "Better to warn and keep the old value than to write a regression." Pair with
-        the ``[extract_summary]`` log in PatchedLLMClient for the raw LLM response.
+        ``node.summary`` has no derived embedding (only ``name`` is embedded), so
+        rewriting it is safe. We mutate the same node objects that flow into
+        ``add_nodes_and_edges_bulk``.
         """
         for node in hydrated_nodes:
-            before = summaries_before.get(node.uuid, "")
-            after = node.summary or ""
-            if before and not after:
-                logger.warning(
-                    f"[{stage}] SUMMARY WIPE BLOCKED: '{node.name}' (uuid={node.uuid}) "
-                    f"— LLM returned empty summary; keeping previous (len={len(before)})"
-                )
-                node.summary = before
-            elif not after:
-                logger.info(
-                    f"[{stage}] summary still empty for '{node.name}' (uuid={node.uuid})"
-                )
+            header_before, tail_before = split_summary(summaries_before.get(node.uuid, ""))
+            new_tail = (node.summary or "").strip()
+            # Soft defence: if the model echoed the header into the tail, drop the prefix.
+            if header_before and new_tail.startswith(header_before):
+                new_tail = new_tail[len(header_before):].lstrip()
+            if not new_tail:  # empty LLM response — keep the previous tail (old guard)
+                if tail_before:
+                    logger.warning(
+                        f"[{stage}] SUMMARY TAIL WIPE BLOCKED: '{node.name}' "
+                        f"(uuid={node.uuid}) — LLM returned empty tail; keeping previous"
+                    )
+                new_tail = tail_before
+            # Header is restored verbatim from the snapshot, guaranteed in code.
+            node.summary = join_summary(header_before, new_tail)
 
     async def process_note(
         self,

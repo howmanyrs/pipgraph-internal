@@ -83,6 +83,39 @@ class PromptEntry:
         return self.domain_block if self.domain_block is not None else self.default_domain_block
 
 
+# --- Frozen header + auto tail ("шапка + хвост") ---------------------------------
+#
+# A folder's ``summary`` is split into a human-curated **header** (frozen) and an
+# LLM-accumulated **tail** (keywords/topics for BM25 recall), divided by a unique
+# marker. No marker ⇒ the whole string is the header (seamless conversion, no
+# migration). The header's immutability is guaranteed *in code* (the guard re-prepends
+# it from the pre-call snapshot), not by LLM discipline — see
+# ``pipgraph_manager._guard_summaries`` and ``suggest-extra/01``.
+
+PG_AUTO_MARKER = "<!--pg:auto-->"
+
+
+def split_summary(full: str) -> tuple[str, str]:
+    """Split a folder summary into ``(header, tail)``.
+
+    No marker ⇒ the entire text is the header and the tail is empty.
+    """
+    if PG_AUTO_MARKER in (full or ""):
+        header, _, tail = full.partition(PG_AUTO_MARKER)
+        return header.rstrip(), tail.strip()
+    return (full or "").strip(), ""
+
+
+def join_summary(header: str, tail: str) -> str:
+    """Recombine a frozen header and an auto tail with the marker between them."""
+    header, tail = (header or "").strip(), (tail or "").strip()
+    if not tail:
+        return header
+    if not header:
+        return f"{PG_AUTO_MARKER}\n{tail}"
+    return f"{header}\n\n{PG_AUTO_MARKER}\n{tail}"
+
+
 # --- Replace-mode builders (skeleton in code, meaning in `block`) ----------------
 
 
@@ -90,8 +123,15 @@ def build_extract_summary(context: dict, block: str) -> list[Message]:
     """Replace-mode builder for ``extract_nodes.extract_summary``.
 
     The *skeleton* (message roles, ``<MESSAGES>`` framing, ``context`` placeholders)
-    lives here and is read-only; the *domain meaning* (language, length, PARA accent,
-    non-destructive re-summary) arrives in ``block`` and is what the user edits.
+    lives here and is read-only; the *domain meaning* (language, length, keyword
+    density, "accumulate not rewrite") arrives in ``block`` and is what the user edits.
+
+    The folder's ``summary`` is presented in two parts: the frozen **header** is given
+    to the LLM as read-only context (so the tail neither duplicates nor rephrases it),
+    and the current **tail** is what the model updates. The model returns **only the
+    tail** — ``response_model`` (``EntitySummary`` → ``{summary}``) is unchanged, and the
+    guard re-prepends the header. The header's immutability is enforced in code, so the
+    prompt presents it neutrally rather than with "DO NOT EDIT" fences.
 
     Reads the same ``context`` keys graphiti passes to the vendor ``extract_summary``
     (``node``/``episode_content``/``previous_episodes`` — see
@@ -100,11 +140,13 @@ def build_extract_summary(context: dict, block: str) -> list[Message]:
     """
     node = context["node"]  # {'name', 'summary', 'entity_types', 'attributes'}
     ensure_ascii = context.get("ensure_ascii", False)
+    header, tail = split_summary(node["summary"] or "")
     return [
         Message(
             role="system",
             content=(
-                "Ты составляешь summary PARA-сущности на основе MESSAGES.\n"
+                "Ты ведёшь компактный список накопленных тем и ключевых слов заметок папки —\n"
+                "по нему папку находят поиском по словам. Возвращай только эту накопленную часть.\n"
                 f"{block}"
             ),
         ),
@@ -116,9 +158,14 @@ def build_extract_summary(context: dict, block: str) -> list[Message]:
 {to_prompt_json(context["episode_content"], ensure_ascii=ensure_ascii, indent=2)}
 </MESSAGES>
 
-Сущность: «{node["name"]}» (роль PARA: {node["entity_types"]}).
-Текущее summary (обнови, сохранив важное; если пусто — составь с нуля):
-{node["summary"] or "—"}
+Папка: «{node["name"]}».
+
+Описание папки (контекст для ориентира, менять не нужно):
+{header or "—"}
+
+Накопленные темы и ключевые слова — обнови с учётом новой заметки
+(дополни, объедини близкое, убери устаревшее; верни ТОЛЬКО эту часть, без описания выше):
+{tail or "—"}
 """,
         ),
     ]
@@ -127,11 +174,19 @@ def build_extract_summary(context: dict, block: str) -> list[Message]:
 # --- Default domain blocks (editable text, code-owned source of truth for reset) --
 
 _DEFAULT_EXTRACT_SUMMARY = (
-    "Пиши на языке заметки. Не выдумывай факты вне MESSAGES. "
-    "Верни не более 250 слов. Для роли PARA подчеркни её назначение "
-    "(Project — что делается, Area — что поддерживается, Resource — о чём справка, "
-    "Archive — что завершено). Это ре-суммаризация: обнови summary, сохранив важное "
-    "из текущего, не затирая его пустым."
+    "Ты обновляешь ТОЛЬКО накопленную часть (та, что под маркером). Описание папки дано лишь как "
+    "контекст для ориентира — не повторяй и не переписывай его, не дублируй его слова без нужды.\n\n"
+    "Пиши на языке заметок. Не выдумывай факты вне MESSAGES. Накопленная часть — не более 200 слов. "
+    "Форма свободная: ключевые слова, короткие фразы, глаголы — что угодно, лишь бы плотно по "
+    "конкретным словам и без абстрактной воды. Не пересказывай содержимое папки общими словами.\n\n"
+    "Назначение этой части — сделать папку находимой ПОИСКОМ ПО СЛОВАМ. Накапливай конкретные "
+    "ключевые слова, темы, инструменты, проекты, действия и понятия, реально встречающиеся в "
+    "заметках этой папки, ВКЛЮЧАЯ ПОДРАЗУМЕВАЕМЫЕ. Стратегия — идти от частного к общему: для "
+    "каждого конкретного термина из заметки добавляй его синонимы, общеупотребимые названия, а также "
+    "класс, назначение и область, к которым он относится, — то есть слова, по которым человек стал бы "
+    "искать эту папку, даже если в тексте их нет. Цель — чтобы похожая по смыслу будущая заметка "
+    "совпала с папкой по словам, а не только по дословному вхождению.\n\n"
+    "Держи список компактным: не дублируй уже перечисленное, объединяй близкое, убирай устаревшее."
 )
 
 _DEFAULT_EXTRACT_TEXT = (
