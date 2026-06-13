@@ -83,6 +83,7 @@ def _episodic_to_dict(ep) -> dict:
         "name": ep.name,
         "file_path": ep.file_path,
         "status": ep.status,
+        "semantic_hints": getattr(ep, "semantic_hints", None) or [],
         "created_at": ep.created_at.isoformat() if ep.created_at else None,
         "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
         "source": ep.source.value if ep.source else None,
